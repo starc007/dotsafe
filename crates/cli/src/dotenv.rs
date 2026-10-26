@@ -51,11 +51,7 @@ pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
     Ok(vars)
 }
 
-pub fn is_valid_key(key: &str) -> bool {
-    let mut chars = key.chars();
-    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
+pub use dotsafe_core::is_valid_var_name as is_valid_key;
 
 fn closing_quote(s: &str) -> Option<usize> {
     let mut escaped = false;
