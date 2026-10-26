@@ -104,6 +104,9 @@ enum Cmd {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
+    /// Devices that can open this vault with their own key (Touch ID or a code)
+    #[command(subcommand)]
+    Device(DeviceCmd),
     /// Show what AI agents asked dotsafe for, from every device
     Audit {
         /// How many events to show
@@ -129,6 +132,17 @@ struct S3Args {
     /// Region (`auto` for R2)
     #[arg(long, default_value = "auto")]
     region: String,
+}
+
+#[derive(Subcommand)]
+enum DeviceCmd {
+    /// List enrolled devices
+    List,
+    /// Remove a device and switch the vault to a new key. Prints a new recovery key
+    Remove {
+        /// The device's name, as `device list` shows it
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -310,6 +324,35 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let status = cmd.status().with_context(|| format!("couldn't run {}", command[0]))?;
             drop(proxied);
             return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8));
+        }
+        Cmd::Device(DeviceCmd::List) => {
+            let ctx = Ctx::open()?;
+            let devices = ctx.vault.devices();
+            if devices.is_empty() {
+                eprintln!("No devices use their own key yet. Turn on Touch ID unlock in the desktop app, or add one with a code.");
+            }
+            for d in devices {
+                let this = if d.device_id == ctx.device_id { "\tthis machine" } else { "" };
+                let stale = if d.stale { "\tneeds the password once" } else { "" };
+                println!("{}\tadded {}{this}{stale}", d.name, utc(d.added));
+            }
+        }
+        Cmd::Device(DeviceCmd::Remove { name }) => {
+            let mut ctx = Ctx::open()?;
+            let matches: Vec<_> = ctx.vault.devices().into_iter().filter(|d| d.name == name).collect();
+            let device = match matches.as_slice() {
+                [one] => one.clone(),
+                [] => bail!("no device named {name:?}; see `dotsafe device list`"),
+                _ => bail!("more than one device is named {name:?}"),
+            };
+            if device.device_id == ctx.device_id {
+                bail!("that's this machine; turn off Touch ID unlock in the desktop app instead");
+            }
+            let password = session::password("Master password: ")?;
+            let recovery = ctx.vault.revoke_device(device.device_id, &password, KdfParams::default()).map_err(session::friendly)?;
+            eprintln!("Removed {name}. The vault has a new key and everything was re-encrypted.");
+            eprintln!("Other devices using Touch ID will ask for the password once.");
+            show_recovery_key(&recovery);
         }
         Cmd::Audit { limit } => {
             let ctx = Ctx::open()?;

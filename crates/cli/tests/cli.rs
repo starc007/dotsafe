@@ -300,3 +300,14 @@ fn audit_starts_empty() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stderr(&out).contains("No agent activity yet."));
 }
+
+#[test]
+fn device_list_starts_empty_and_remove_needs_a_known_name() {
+    let (_root, m, api) = setup();
+    m.init();
+    let out = m.run(&api, &["device", "list"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("No devices use their own key yet"));
+    let out = m.run(&api, &["device", "remove", "Ghost"]);
+    assert!(!out.status.success() && stderr(&out).contains("no device named"));
+}
