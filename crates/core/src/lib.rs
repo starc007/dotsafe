@@ -19,7 +19,7 @@ pub mod vault;
 pub use config::{Config, S3Location};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
-pub use header::RecoveryKey;
+pub use header::{DeviceInfo, DeviceKey, EnrollmentCode, RecoveryKey};
 pub use license::{License, LicenseStatus};
 pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_var_name};
 pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};

@@ -44,7 +44,7 @@ fn new_vaults_are_written_in_v2() {
     vault.put(Record::Environment(e.clone())).unwrap();
 
     let header = json(&dir.path().join("vault.json"));
-    assert_eq!(header["version"], 2);
+    assert_eq!(header["version"], 3);
     assert_eq!(header["epoch"], 1);
     let record = json(&record_path(dir.path(), e.id));
     assert_eq!(record["version"], 2);
@@ -77,7 +77,9 @@ fn records_are_bound_to_their_epoch() {
     let mut other_epoch = original.clone();
     other_epoch["epoch"] = 2.into();
     fs::write(&path, other_epoch.to_string()).unwrap();
-    assert!(matches!(vault.get(e.id), Err(Error::Format(_))));
+    // A key this vault doesn't have: skipped and reported, not trusted.
+    assert!(vault.get(e.id).unwrap().is_none());
+    assert_eq!(vault.unreadable_records(), [e.id]);
 
     // Claiming to be a v1 record changes the AAD, so it fails authentication.
     let mut downgraded = original;
@@ -275,7 +277,7 @@ fn v1_vaults_are_upgraded_on_unlock() {
     assert_fixture_data(&vault);
 
     let header = json(&dir.path().join("vault.json"));
-    assert_eq!((header["version"].clone(), header["epoch"].clone()), (2.into(), 1.into()));
+    assert_eq!((header["version"].clone(), header["epoch"].clone()), (3.into(), 1.into()));
     for path in walk(&dir.path().join("records")) {
         assert_eq!(json(&path)["version"], 2);
     }
@@ -300,7 +302,7 @@ fn interrupted_upgrades_finish_next_time() {
 
     let vault = Vault::unlock(FolderStore::new(dir.path()), "fixture-password").unwrap();
     assert_fixture_data(&vault);
-    assert_eq!(json(&dir.path().join("vault.json"))["version"], 2);
+    assert_eq!(json(&dir.path().join("vault.json"))["version"], 3);
 }
 
 #[test]

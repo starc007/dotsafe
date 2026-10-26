@@ -26,6 +26,14 @@ pub struct Config {
     /// login password. Off unless the user turns it on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_approvals_without_auth: bool,
+    /// This machine unlocks with Touch ID: its device key is in the keychain.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub device_unlock: bool,
+    /// Unix milliseconds of the last unlock with the password (or recovery
+    /// key). Touch ID unlock asks for the password again after a while, so
+    /// it isn't forgotten.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_password_unlock: Option<u64>,
 }
 
 impl Config {
@@ -49,6 +57,8 @@ impl Config {
                 device_id: Uuid::new_v4(),
                 license: None,
                 agent_approvals_without_auth: false,
+                device_unlock: false,
+                last_password_unlock: None,
             },
         }
     }
