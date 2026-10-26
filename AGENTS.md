@@ -4,15 +4,16 @@ Guidance for AI coding agents working in this repo. `README.md` covers the produ
 
 ## What this is
 
-dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets are encrypted on the device and synced through storage the user already owns (iCloud Drive, Google Drive, Dropbox, any synced folder). There is no dotsafe server. It ships as a Tauri 2 desktop app and a `dotsafe` CLI that share one Rust core.
+dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets are encrypted on the device and synced through storage the user already owns (iCloud Drive, Google Drive, Dropbox, any synced folder). The only dotsafe server is the licensing API in `api/`, and it never sees vaults or secrets. It ships as a Tauri 2 desktop app and a `dotsafe` CLI that share one Rust core.
 
 ## Layout
 
 ```
 crates/core   Vault format, crypto, merge/sync, config. Shared by app and CLI.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
-src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (session, auto-lock, clipboard).
+src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client).
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
+api           Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See api/README.md.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
 ```
 
@@ -26,9 +27,10 @@ bun run build                                       # tsc + vite build
 cargo run -p dotsafe-cli -- <args>                  # CLI
 cargo test --workspace                              # all Rust tests
 cargo clippy --workspace --all-targets -- -D warnings
+cd api && bun run test && bun run typecheck         # API
 ```
 
-CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on macOS, Linux and Windows. `bun run build` must run first because the desktop crate embeds `dist/` at compile time. Run the same checks before pushing.
+CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on macOS, Linux and Windows. `bun run build` must run first because the desktop crate embeds `dist/` at compile time. A separate job typechecks and tests `api/`. Run the same checks before pushing.
 
 ## Ground rules
 
@@ -72,7 +74,8 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 ## Testing the desktop app
 
 - **Use a throwaway config.** `DOTSAFE_CONFIG_DIR=/some/tmp/dir bun run tauri dev` keeps testing away from the real config. The default vault location is the user's real iCloud Drive, so never create test vaults there.
-- **Browser mode:** `bun run dev` serves the UI at http://localhost:1420 with an in-memory mock (`src/dev/mockBackend.ts`). Unlock with `password123`; add `?setup` to start at setup. The mock is dev-only and stripped from production builds. Keep it in step when command signatures change.
+- **Browser mode:** `bun run dev` serves the UI at http://localhost:1420 with an in-memory mock (`src/dev/mockBackend.ts`). Unlock with `password123`; add `?setup` to start at setup and `?offline` to make license server calls fail. License keys containing `LIMIT` or `REVOKED` act out those answers. The mock is dev-only and stripped from production builds. Keep it in step when command signatures change.
 - **Password fields can't be automated in the native app.** macOS secure input blocks synthetic keystrokes into password fields, so unlock flows can't be driven by automation there. Use the browser mock for UI flows and say clearly what wasn't verified natively.
 - **The app runs in WebKit (WKWebView), not Chromium.** The browser preview can hide WebKit-only bugs. Example: a container that fades its opacity while some children animate on their own layers can leave the other children painted after the fade. Give the fading container `will-change-[opacity]`, as the row actions in `VariableList.tsx` do.
+- **Licensing never blocks the vault.** License requests run off the session lock (`off_thread` in commands.rs), and network failures are `offline` errors, never revocations. Keep it that way.
 - **Known gap:** the desktop commands (`src-tauri/src/commands.rs`) have no automated tests yet.

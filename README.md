@@ -9,6 +9,7 @@ crates/core   # vault format, encryption, sync engine (shared)
 crates/cli    # `dotsafe` command-line tool
 src-tauri     # desktop app (Tauri 2)
 src           # desktop UI (React + Vite)
+api           # licensing and checkout API (Cloudflare Worker), see api/README.md
 ```
 
 ## CLI
@@ -47,3 +48,7 @@ Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testi
 - Copying happens in Rust. The clipboard is cleared after 30 seconds unless you copied something else since.
 - The vault locks after 15 minutes without activity.
 - The webview has no clipboard or filesystem permissions, only the folder picker. The CSP blocks remote content.
+
+### Licensing
+
+Settings → License activates a key through the dotsafe API (`api/`), which talks to Dodo Payments. Only the key and an activation id are stored, in the machine's config, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.
