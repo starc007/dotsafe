@@ -30,9 +30,19 @@ cargo run -p dotsafe-cli -- <args>                  # CLI
 cargo test --workspace                              # all Rust tests
 cargo clippy --workspace --all-targets -- -D warnings
 cd api && bun run test && bun run typecheck         # API
+scripts/check.sh                                    # everything below, in one go
 ```
 
-CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on macOS, Linux and Windows. `bun run build` must run first because the desktop crate embeds `dist/` at compile time. A separate job typechecks and tests `api/`. Run the same checks before pushing.
+**Run `scripts/check.sh` before every push and merge, and make sure it passes.** GitHub Actions is switched off for this repo (out of quota), so nothing else will catch a failure. The script does what CI did (`.github/workflows/ci.yml`, kept for when it's turned back on):
+
+- Builds the frontend first, because the desktop crate embeds `dist/` at compile time.
+- Runs clippy with `-D warnings`, then the Rust tests.
+- Typechecks and tests `api/`.
+
+`scripts/check.sh rust` or `scripts/check.sh api` runs half.
+
+- **Use the current stable Rust.** Newer clippy releases add lints, so an old toolchain can pass locally and fail CI. Run `rustup update stable` when in doubt.
+- **It only covers your own OS.** CI also built on Linux and Windows, so keep `cfg(unix)` code and paths obviously correct for the others. The agent crate can be clippy-checked for Windows with `cargo clippy -p dotsafe-agent --target x86_64-pc-windows-msvc`.
 
 ## Ground rules
 

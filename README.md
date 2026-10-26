@@ -49,6 +49,7 @@ For CI and scripts, `DOTSAFE_PASSWORD` supplies the master password without a pr
 bun install
 bun run tauri dev          # desktop app
 cargo run -p dotsafe-cli   # CLI
+scripts/check.sh           # build, clippy and all tests; run before pushing
 ```
 
 `bun run dev` on its own serves the UI at http://localhost:1420 with an in-memory mock backend (`src/dev/mockBackend.ts`, unlock with `password123`, add `?setup` to start at setup). It is only loaded in dev outside Tauri and never ships.
