@@ -58,7 +58,9 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 ### Frontend
 
 - **Use shadcn/ui components.** Install them with `bunx --bun shadcn@latest add <name>`; they land in `src/components/ui/`. Reuse what's there before adding more. Don't hand-roll primitives (buttons, inputs, dialogs, menus), and don't put several components in one file. App-specific components go in `src/components/`, one per file.
-- **Colours come from the shadcn tokens in `src/index.css`.** No hardcoded colours. Dark mode follows the system via `src/lib/theme.ts`, which toggles `.dark` on `<html>`.
+- **Colours come from the shadcn tokens in `src/index.css`.** No hardcoded colours. `--shell` is the outer gray of cards and modals, and `--destructive-solid` is for solid delete buttons.
+- **Theme:** the user picks System, Light or Dark in the sidebar's appearance menu. `src/lib/theme.ts` stores the choice, toggles `.dark` on `<html>`, and sets the native window theme. Read it with `useTheme()`, and never let theming throw during startup.
+- **Cards and modals use `src/components/Surface.tsx`:** a gray shell containing a header (icon tile, title, description, optional action) and a raised inner card holding the content, with footer actions right-aligned. Don't build ad-hoc bordered panels. Buttons, inputs and tabs are pill-shaped.
 - **Animations use `motion`** (`import { motion } from "motion/react"`) with the shared timings in `src/lib/motion.ts`. Keep them short and eased-out, with no bouncy springs on content. The app is wrapped in `MotionConfig reducedMotion="user"`. Any imperative animation (`useAnimate`) must also check `useReducedMotion()`.
 - **Call the backend through the typed wrappers in `src/lib/api.ts`.** Errors arrive as `ApiError` with a `kind`. A `locked` error sends the UI back to the unlock screen automatically.
 - **Write copy in short, active voice:** "No variables yet", "Wrong password." Every list needs loading (Skeleton), empty and error states.

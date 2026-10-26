@@ -1,12 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Folder } from "lucide-react";
+import { Folder, ShieldCheck } from "lucide-react";
 import { api, message } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { Centered, Panel } from "@/components/Centered";
+import { Centered } from "@/components/Centered";
+import { SurfaceFooter } from "@/components/Surface";
 import { Field } from "@/components/Field";
 
 const MIN_LENGTH = 8;
@@ -70,15 +71,11 @@ export function Setup({
 
   return (
     <Centered
+      icon={<ShieldCheck aria-hidden />}
       title={connecting ? "Connect to your vault" : "Set up dotsafe"}
-      subtitle={
-        connecting
-          ? "This folder already has a vault. Enter its master password to use it on this Mac."
-          : "Secrets are encrypted on this Mac with your master password, then synced through a folder you choose."
-      }
+      subtitle={connecting ? "This folder already has a vault." : "Encrypted on this Mac, synced through your own folder."}
     >
-      <form onSubmit={submit}>
-        <Panel>
+      <form onSubmit={submit} className="flex flex-col gap-4">
           <Field
             label="Vault folder"
             htmlFor="vault-path"
@@ -92,12 +89,12 @@ export function Setup({
               <div
                 id="vault-path"
                 title={path}
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border bg-muted/50 px-2.5 text-muted-foreground"
+                className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-full border bg-muted/50 px-3 text-muted-foreground"
               >
                 <Folder aria-hidden className="size-3.5 shrink-0" />
                 <span className="truncate">{path ? displayPath(path) : "No folder chosen"}</span>
               </div>
-              <Button type="button" variant="outline" onClick={chooseFolder}>
+              <Button type="button" variant="outline" className="h-9" onClick={chooseFolder}>
                 Change…
               </Button>
             </div>
@@ -109,6 +106,7 @@ export function Setup({
               type="password"
               autoComplete={connecting ? "current-password" : "new-password"}
               autoFocus
+              className="h-9"
               value={password}
               aria-invalid={!!error}
               onChange={(e) => setPassword(e.target.value)}
@@ -125,17 +123,19 @@ export function Setup({
                 id="confirm"
                 type="password"
                 autoComplete="new-password"
+                className="h-9"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
               />
             </Field>
           )}
 
-          <Button type="submit" className="mt-1 w-full" disabled={busy || !path || hasVault === null}>
+        <SurfaceFooter className="pt-1">
+          <Button type="submit" size="lg" className="px-4" disabled={busy || !path || hasVault === null}>
             {busy && <Spinner />}
             {connecting ? "Connect" : "Create vault"}
           </Button>
-        </Panel>
+        </SurfaceFooter>
       </form>
     </Centered>
   );

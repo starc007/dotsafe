@@ -10,6 +10,7 @@ import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
+import { ThemeMenu } from "@/components/ThemeMenu";
 
 export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [projects, setProjects] = useState<ProjectView[] | null>(null);
@@ -99,11 +100,12 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             ))}
           </AnimatePresence>
         </nav>
-        <div className="border-t border-sidebar-border p-2">
-          <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:bg-sidebar-accent" onClick={lock}>
+        <div className="flex items-center gap-1 border-t border-sidebar-border p-2">
+          <Button variant="ghost" className="flex-1 justify-start text-muted-foreground hover:bg-sidebar-accent" onClick={lock}>
             <Lock aria-hidden />
             Lock
           </Button>
+          <ThemeMenu />
         </div>
       </aside>
 

@@ -1,12 +1,14 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { useTheme } from "@/lib/theme"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
-// Edited from the shadcn default: the theme follows the system directly
-// instead of going through next-themes, which this app doesn't use.
+// Edited from the shadcn default: the theme comes from the app's own
+// preference (lib/theme.ts) instead of next-themes.
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme } = useTheme()
   return (
     <Sonner
-      theme="system"
+      theme={theme}
       className="toaster group"
       icons={{
         success: (
