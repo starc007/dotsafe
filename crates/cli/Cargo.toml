@@ -1,0 +1,13 @@
+[package]
+name = "dotsafe-cli"
+description = "dotsafe command-line tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dotsafe"
+path = "src/main.rs"
+
+[dependencies]
+dotsafe-core.workspace = true
