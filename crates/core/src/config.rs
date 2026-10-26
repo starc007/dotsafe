@@ -14,6 +14,9 @@ pub struct Config {
     pub vault_path: PathBuf,
     /// Identifies this machine in change stamps.
     pub device_id: Uuid,
+    /// The purchase license entered on this machine, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_key: Option<String>,
 }
 
 impl Config {
@@ -26,11 +29,12 @@ impl Config {
         }
     }
 
-    /// The existing device id, or a new one if this machine has none yet.
-    pub fn device_id() -> Uuid {
+    /// A config pointing at `vault_path`, keeping this machine's device id and
+    /// license from any existing config.
+    pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
-            Ok(Some(c)) => c.device_id,
-            _ => Uuid::new_v4(),
+            Ok(Some(existing)) => Config { vault_path, ..existing },
+            _ => Config { vault_path, device_id: Uuid::new_v4(), license_key: None },
         }
     }
 

@@ -213,13 +213,12 @@ fn init(path: Option<PathBuf>) -> Result<()> {
         Some(p) => p,
         None => config::default_vault_path()?,
     };
-    let device_id = Config::device_id();
 
     if path.join("vault.json").exists() {
         eprintln!("Found an existing vault at {}.", path.display());
         let password = session::password("Master password: ")?;
         Vault::unlock(&path, &password).map_err(session::friendly)?;
-        Config { vault_path: path, device_id }.save()?;
+        Config::for_vault(path).save()?;
         eprintln!("This machine is now connected to it.");
         return Ok(());
     }
@@ -236,7 +235,7 @@ fn init(path: Option<PathBuf>) -> Result<()> {
     }
     let mut vault = Vault::create(&path, &password, KdfParams::default())?;
     let recovery = vault.reset_recovery_key()?;
-    Config { vault_path: path.clone(), device_id }.save()?;
+    Config::for_vault(path.clone()).save()?;
 
     eprintln!("Created a vault at {}.", path.display());
     eprintln!();
