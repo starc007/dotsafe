@@ -7,7 +7,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use dotsafe_core::{Config, Environment, FolderStore, KdfParams, Project, Record, Stamp, Vault, config, dotenv, is_valid_var_name};
+use dotsafe_core::{
+    CachedStore, Config, Environment, Error, FolderStore, KdfParams, Project, Record, S3Location, Stamp, Store, Vault,
+    config, dotenv, is_valid_var_name,
+};
+use dotsafe_stores::{S3Credentials, S3Store};
+use zeroize::Zeroizing;
 use uuid::Uuid;
 
 use link::{DEFAULT_ENV, LINK_FILE, Link};
@@ -24,9 +29,13 @@ enum Cmd {
     /// Create a vault, or connect this machine to an existing one
     Init {
         /// Vault folder [default: iCloud Drive/dotsafe if available]
-        #[arg(long)]
+        #[arg(long, conflicts_with = "bucket")]
         path: Option<PathBuf>,
+        #[command(flatten)]
+        s3: S3Args,
     },
+    /// Exchange changes with the bucket now (vaults in S3 or R2)
+    Sync,
     /// Remember the vault key in the OS keychain for a while
     Unlock {
         /// How long to stay unlocked, e.g. 30m, 8h, 7d
@@ -84,6 +93,25 @@ enum Cmd {
     },
 }
 
+/// Keep the vault in an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze
+/// B2, MinIO). The access key is read from DOTSAFE_S3_ACCESS_KEY_ID and
+/// DOTSAFE_S3_SECRET_ACCESS_KEY, or asked for, and kept in the OS keychain.
+#[derive(Args)]
+struct S3Args {
+    /// Bucket name; keeps the vault in S3 instead of a folder
+    #[arg(long, requires = "endpoint")]
+    bucket: Option<String>,
+    /// S3 endpoint, e.g. https://<account>.r2.cloudflarestorage.com
+    #[arg(long, requires = "bucket")]
+    endpoint: Option<String>,
+    /// Folder inside the bucket
+    #[arg(long, default_value = "dotsafe")]
+    prefix: String,
+    /// Region (`auto` for R2)
+    #[arg(long, default_value = "auto")]
+    region: String,
+}
+
 #[derive(Args)]
 struct EnvArg {
     /// Environment to use [default: the linked one, usually development]
@@ -103,17 +131,37 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Cmd::Init { path } => init(path)?,
+        Cmd::Init { path, s3 } => match (s3.bucket, s3.endpoint) {
+            (Some(bucket), Some(endpoint)) => {
+                let prefix = s3.prefix.trim_matches('/').to_owned();
+                init_s3(S3Location { endpoint, region: s3.region, bucket, prefix })?
+            }
+            _ => init(path)?,
+        },
+        Cmd::Sync => {
+            let config = load_config()?;
+            if config.s3.is_none() {
+                eprintln!("Nothing to sync: this vault is a folder, and your sync client keeps it up to date.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            let vault = session::open(&config)?;
+            match vault.sync() {
+                Ok(_) => eprintln!("Synced with {}.", vault.location()),
+                Err(Error::Unreachable(location)) => bail!("couldn't reach {location}; changes stay on this machine for now"),
+                Err(e) => return Err(e.into()),
+            }
+        }
         Cmd::Unlock { ttl } => {
             let config = load_config()?;
             let password = session::password("Master password: ")?;
-            let vault = Vault::unlock(FolderStore::new(&config.vault_path), &password).map_err(session::friendly)?;
-            session::cache(&vault, &config.vault_path, ttl)?;
+            let store = dotsafe_stores::open(&config).map_err(session::friendly)?;
+            let vault = Vault::unlock(store, &password).map_err(session::friendly)?;
+            session::cache(&vault, &config, ttl)?;
             eprintln!("Unlocked for {}.", human(ttl));
         }
         Cmd::Lock => {
             let config = load_config()?;
-            let was_cached = session::clear(&config.vault_path)?;
+            let was_cached = session::clear(&config)?;
             eprintln!("{}", if was_cached { "Locked." } else { "Already locked." });
         }
         Cmd::Link { name, env } => {
@@ -223,6 +271,55 @@ fn init(path: Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
+    let password = new_password()?;
+    let mut vault = Vault::create(FolderStore::new(&path), &password, KdfParams::default())?;
+    let recovery = vault.reset_recovery_key()?;
+    Config::for_vault(path.clone()).save()?;
+
+    eprintln!("Created a vault at {}.", path.display());
+    show_recovery_key(&recovery);
+    Ok(())
+}
+
+fn init_s3(s3: S3Location) -> Result<()> {
+    let credentials = match dotsafe_stores::credentials(&s3).ok().flatten() {
+        Some(credentials) => credentials,
+        None => {
+            let access_key_id = prompt_line("Access key ID: ")?;
+            let secret = session::password("Secret access key: ")?;
+            S3Credentials { access_key_id, secret_access_key: Zeroizing::new(secret.to_string()) }
+        }
+    };
+    let store = CachedStore::open(S3Store::new(&s3, &credentials)?, config::cache_dir(&s3)?).map_err(session::friendly)?;
+    let config = Config::for_s3(s3.clone())?;
+    let save_key = || -> Result<()> {
+        if std::env::var_os("DOTSAFE_S3_ACCESS_KEY_ID").is_none() {
+            dotsafe_stores::save_credentials(&s3, &credentials)?;
+        }
+        Ok(())
+    };
+
+    if store.get("vault.json")?.is_some() {
+        eprintln!("Found an existing vault in {}.", s3.describe());
+        let password = session::password("Master password: ")?;
+        Vault::unlock(store, &password).map_err(session::friendly)?;
+        save_key()?;
+        config.save()?;
+        eprintln!("This machine is now connected to it.");
+        return Ok(());
+    }
+
+    let password = new_password()?;
+    let mut vault = Vault::create(store, &password, KdfParams::default())?;
+    let recovery = vault.reset_recovery_key()?;
+    save_key()?;
+    config.save()?;
+    eprintln!("Created a vault in {}.", s3.describe());
+    show_recovery_key(&recovery);
+    Ok(())
+}
+
+fn new_password() -> Result<Zeroizing<String>> {
     let password = session::password("New master password: ")?;
     if password.chars().count() < 8 {
         bail!("use a master password of at least 8 characters");
@@ -233,17 +330,28 @@ fn init(path: Option<PathBuf>) -> Result<()> {
             bail!("passwords didn't match");
         }
     }
-    let mut vault = Vault::create(FolderStore::new(&path), &password, KdfParams::default())?;
-    let recovery = vault.reset_recovery_key()?;
-    Config::for_vault(path.clone()).save()?;
+    Ok(password)
+}
 
-    eprintln!("Created a vault at {}.", path.display());
+fn prompt_line(prompt: &str) -> Result<String> {
+    use std::io::Write;
+    eprint!("{prompt}");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let line = line.trim().to_owned();
+    if line.is_empty() {
+        bail!("nothing entered");
+    }
+    Ok(line)
+}
+
+fn show_recovery_key(recovery: &dotsafe_core::RecoveryKey) {
     eprintln!();
     eprintln!("Recovery key (the only way in if you forget your password):");
     println!("{}", recovery.to_display_string());
     eprintln!();
     eprintln!("Store it somewhere safe, offline. It won't be shown again.");
-    Ok(())
 }
 
 /// Replaces this process with the command on Unix, so signals and the exit
@@ -283,7 +391,7 @@ impl Target {
 impl Ctx {
     fn open() -> Result<Ctx> {
         let config = load_config()?;
-        let vault = session::open(&config.vault_path)?;
+        let vault = session::open(&config)?;
         Ok(Ctx { vault, device_id: config.device_id, cwd: std::env::current_dir()? })
     }
 

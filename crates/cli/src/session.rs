@@ -1,21 +1,20 @@
 //! Opening the vault: from the keychain cache left by `dotsafe unlock`, from
 //! `DOTSAFE_PASSWORD`, or by prompting.
 
-use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
-use dotsafe_core::{Error, FolderStore, Vault};
+use dotsafe_core::{Config, Error, Vault};
 use zeroize::Zeroizing;
 
 const KEYCHAIN_SERVICE: &str = "app.dotsafe.session";
 
-pub fn open(vault_path: &Path) -> Result<Vault> {
-    if let Some(vault) = from_cache(vault_path) {
+pub fn open(config: &Config) -> Result<Vault> {
+    if let Some(vault) = from_cache(config)? {
         return Ok(vault);
     }
     let password = password("Master password: ")?;
-    let vault = Vault::unlock(FolderStore::new(vault_path), &password).map_err(friendly)?;
+    let vault = Vault::unlock(dotsafe_stores::open(config).map_err(friendly)?, &password).map_err(friendly)?;
     if std::env::var_os("DOTSAFE_PASSWORD").is_none() {
         eprintln!("tip: run `dotsafe unlock` to skip the password for a while");
     }
@@ -23,47 +22,57 @@ pub fn open(vault_path: &Path) -> Result<Vault> {
 }
 
 /// Caches the vault key in the OS keychain until `ttl` passes.
-pub fn cache(vault: &Vault, vault_path: &Path, ttl: Duration) -> Result<()> {
+pub fn cache(vault: &Vault, config: &Config, ttl: Duration) -> Result<()> {
     let expires = now_secs() + ttl.as_secs();
     let mut blob = Zeroizing::new(Vec::with_capacity(40));
     blob.extend_from_slice(&expires.to_be_bytes());
     blob.extend_from_slice(vault.session_key().as_ref());
-    entry(vault_path)?
+    entry(config)?
         .set_secret(&blob)
         .context("couldn't save to the OS keychain")
 }
 
 /// Removes the cached key. Returns whether there was one.
-pub fn clear(vault_path: &Path) -> Result<bool> {
-    match entry(vault_path)?.delete_credential() {
+pub fn clear(config: &Config) -> Result<bool> {
+    match entry(config)?.delete_credential() {
         Ok(()) => Ok(true),
         Err(keyring::Error::NoEntry) => Ok(false),
         Err(e) => Err(anyhow!(e).context("couldn't remove the key from the OS keychain")),
     }
 }
 
-fn from_cache(vault_path: &Path) -> Option<Vault> {
-    let entry = entry(vault_path).ok()?;
+fn from_cache(config: &Config) -> Result<Option<Vault>> {
+    let Some(key) = cached_key(config) else { return Ok(None) };
+    let store = dotsafe_stores::open(config).map_err(friendly)?;
+    // A stale key (vault replaced, or the folder changed) just falls through
+    // to the password prompt.
+    Ok(Vault::unlock_with_session_key(store, &key).ok())
+}
+
+fn cached_key(config: &Config) -> Option<Zeroizing<[u8; 32]>> {
+    let entry = entry(config).ok()?;
     let blob = Zeroizing::new(entry.get_secret().ok()?);
     let (expires, key) = blob.split_at_checked(8)?;
     let expires = u64::from_be_bytes(expires.try_into().ok()?);
-    let key: Zeroizing<[u8; 32]> = Zeroizing::new(key.try_into().ok()?);
     if expires <= now_secs() {
         let _ = entry.delete_credential();
         return None;
     }
-    // A stale key (vault replaced, or the folder changed) just falls through
-    // to the password prompt.
-    Vault::unlock_with_session_key(FolderStore::new(vault_path), &key).ok()
+    Some(Zeroizing::new(key.try_into().ok()?))
 }
 
-fn entry(vault_path: &Path) -> Result<keyring::Entry> {
+fn entry(config: &Config) -> Result<keyring::Entry> {
     if std::env::var_os("DOTSAFE_NO_KEYCHAIN").is_some() {
         bail!("the OS keychain is disabled (DOTSAFE_NO_KEYCHAIN is set)");
     }
-    let account = vault_path.canonicalize().unwrap_or_else(|_| vault_path.to_path_buf());
-    keyring::Entry::new(KEYCHAIN_SERVICE, &account.to_string_lossy())
-        .context("couldn't open the OS keychain")
+    let account = match &config.s3 {
+        Some(s3) => s3.id(),
+        None => {
+            let path = &config.vault_path;
+            path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
+        }
+    };
+    keyring::Entry::new(KEYCHAIN_SERVICE, &account).context("couldn't open the OS keychain")
 }
 
 /// Reads a password from `DOTSAFE_PASSWORD` (for CI and scripts) or the terminal.
@@ -81,6 +90,9 @@ pub fn friendly(e: Error) -> anyhow::Error {
     match e {
         Error::NotFound(location) => {
             anyhow!("no vault at {location}; is the synced folder available? (run `dotsafe init` to set one up)")
+        }
+        Error::Unreachable(location) => {
+            anyhow!("couldn't reach {location}, and nothing is cached on this machine yet; check your connection")
         }
         e => anyhow!(e),
     }
