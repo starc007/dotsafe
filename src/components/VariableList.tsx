@@ -152,7 +152,7 @@ export function VariableList({
       result.updated && `${result.updated} updated`,
       result.skipped && `${result.skipped} kept as they were`,
     ].filter(Boolean);
-    toast.success(`Imported into ${label}`, { description: parts.join(" · ") || "Everything was already up to date." });
+    toast.success(`Saved to ${label}`, { description: parts.join(" · ") || "Everything was already up to date." });
   }
 
   async function deleteConfirmed() {
@@ -320,6 +320,7 @@ export function VariableList({
         environmentLabel={label}
         initial={shownVar?.type === "edit" ? { key: shownVar.key, value: shownVar.value } : undefined}
         onSaved={saved}
+        onImported={imported}
       />
       <ImportDialog
         open={dialog?.type === "import"}

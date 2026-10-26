@@ -61,18 +61,28 @@ export function ImportDialog({
   );
 }
 
-function ImportForm({
+/** The import flow without its dialog, so the add-variable dialog can reuse
+ * it when several variables are pasted at once. */
+export function ImportForm({
   environmentId,
   droppedFiles,
+  initialText,
+  pasteOnly,
+  verb = "Import",
   onImported,
 }: {
   environmentId: string;
   droppedFiles?: string[];
+  /** Start in paste mode with this text. */
+  initialText?: string;
+  /** Show just the paste box, without the files/paste tabs. */
+  pasteOnly?: boolean;
+  verb?: string;
   onImported: (result: ImportResult) => void;
 }) {
-  const [mode, setMode] = useState<Mode>("files");
+  const [mode, setMode] = useState<Mode>(pasteOnly || initialText ? "paste" : "files");
   const [files, setFiles] = useState<string[]>(droppedFiles ?? []);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText ?? "");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -135,67 +145,73 @@ function ImportForm({
   const toImport = counts.new + (overwrite ? counts.update : 0);
   const showFileNames = mode === "files" && files.length > 1;
 
+  const pasteBox = (
+    <Textarea
+      aria-label=".env contents"
+      autoFocus
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      placeholder={"DATABASE_URL=postgres://localhost/app\nSTRIPE_SECRET_KEY=sk_test_…\n# comments and export are fine"}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      className="max-h-56 min-h-32 resize-none font-mono text-[12.5px] md:text-[12.5px]"
+    />
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="gap-3">
-        <TabsList className="w-full">
-          <TabsTrigger value="files">
-            <FileUp aria-hidden />
-            From files
-          </TabsTrigger>
-          <TabsTrigger value="paste">
-            <FileText aria-hidden />
-            Paste text
-          </TabsTrigger>
-        </TabsList>
+      {pasteOnly ? (
+        pasteBox
+      ) : (
+        <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="gap-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="files">
+              <FileUp aria-hidden />
+              From files
+            </TabsTrigger>
+            <TabsTrigger value="paste">
+              <FileText aria-hidden />
+              Paste text
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="files">
-          {files.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 rounded-2xl bg-muted/50 px-6 py-8 text-center">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-card text-muted-foreground">
-                <FileUp aria-hidden className="size-5" />
+          <TabsContent value="files">
+            {files.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 rounded-2xl bg-muted/50 px-6 py-8 text-center">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-card text-muted-foreground">
+                  <FileUp aria-hidden className="size-5" />
+                </div>
+                <div>
+                  <p className="font-medium">Drop .env files anywhere in the window</p>
+                  <p className="mt-0.5 text-muted-foreground">or choose one or more from disk</p>
+                </div>
+                <Button variant="outline" onClick={chooseFiles} className="bg-card">
+                  Choose files…
+                </Button>
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  Can't see .env? Press <Kbd>⌘</Kbd>
+                  <Kbd>⇧</Kbd>
+                  <Kbd>.</Kbd> in the picker to show hidden files.
+                </p>
               </div>
-              <div>
-                <p className="font-medium">Drop .env files anywhere in the window</p>
-                <p className="mt-0.5 text-muted-foreground">or choose one or more from disk</p>
+            ) : (
+              <div className="flex items-center gap-2 rounded-2xl bg-muted/50 p-2 pl-3">
+                <FileText aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                <p className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={files.join(", ")}>
+                  {files.join(", ")}
+                </p>
+                <Button size="sm" variant="ghost" onClick={chooseFiles}>
+                  Change…
+                </Button>
               </div>
-              <Button variant="outline" onClick={chooseFiles} className="bg-card">
-                Choose files…
-              </Button>
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                Can't see .env? Press <Kbd>⌘</Kbd>
-                <Kbd>⇧</Kbd>
-                <Kbd>.</Kbd> in the picker to show hidden files.
-              </p>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 rounded-2xl bg-muted/50 p-2 pl-3">
-              <FileText aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <p className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={files.join(", ")}>
-                {files.join(", ")}
-              </p>
-              <Button size="sm" variant="ghost" onClick={chooseFiles}>
-                Change…
-              </Button>
-            </div>
-          )}
-        </TabsContent>
+            )}
+          </TabsContent>
 
-        <TabsContent value="paste">
-          <Textarea
-            aria-label=".env contents"
-            autoFocus
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            placeholder={"DATABASE_URL=postgres://localhost/app\nSTRIPE_SECRET_KEY=sk_test_…\n# comments and export are fine"}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="max-h-56 min-h-32 resize-none font-mono text-[12.5px] md:text-[12.5px]"
-          />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="paste">{pasteBox}</TabsContent>
+        </Tabs>
+      )}
 
       <AnimatePresence initial={false}>
         {preview && (preview.entries.length > 0 || preview.errors.length > 0) && (
@@ -276,7 +292,7 @@ function ImportForm({
         </DialogClose>
         <Button onClick={runImport} disabled={busy || toImport === 0}>
           {busy && <Spinner />}
-          {toImport === 0 ? "Import" : `Import ${toImport} ${toImport === 1 ? "variable" : "variables"}`}
+          {toImport === 0 ? verb : `${verb} ${toImport} ${toImport === 1 ? "variable" : "variables"}`}
         </Button>
       </SurfaceFooter>
     </div>
