@@ -84,9 +84,11 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
   - `environment`: `{ id, project_id, name, deleted, updated, vars: { KEY: { value, secret?, stamp } } }`. A variable holds its own `value`, or links to a shared secret by its id in `secret`. Neither set is a tombstone.
   - `secret`: `{ id, name, deleted, updated, policy: { rotate_every_days?, generator? }, versions: { <uuid>: { value | null, state, created, changed, note? } } }`. `state` is `pending`, `current`, `previous` or `retired`. A `null` value has been wiped.
 
-### Record version 3 (shared secrets)
+  - `audit`: `{ id, device, day, deleted, updated, events: { <uuid>: { at, actor, action, outcome, summary, environment, variables, detail? } } }`. One per device per day, id = UUIDv5(device, "audit:<day>"), where `day` counts days since the Unix epoch. Events merge by id. A deleted (pruned after 90 days) record has no events and wins over copies that have them.
 
-Records that use shared secrets (`secret` records, and environments with at least one linked variable) are written with `"version": 3` and AAD `"dotsafe/v3/record" ‖ vault_id ‖ epoch ‖ id`. Everything else stays version 2.
+### Record version 3 (shared secrets and newer kinds)
+
+Records that use shared secrets (`secret` records, and environments with at least one linked variable) and `audit` records are written with `"version": 3` and AAD `"dotsafe/v3/record" ‖ vault_id ‖ epoch ‖ id`. Everything else stays version 2.
 
 A client that predates shared secrets would read a linked variable as a tombstone and could rewrite the environment without its links. With v3, such a client refuses those records ("unsupported record version 3"), while vaults that don't use shared secrets stay readable. The version is bound into the AAD, so relabelling a v3 record as v2 fails authentication.
 

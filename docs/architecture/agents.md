@@ -1,6 +1,6 @@
 # Agent access
 
-**Status:** M6 steps 1–3 are implemented (macOS and Linux): `dotsafe mcp`, the broker in the desktop app with approvals and grants, the refusal list, the runner and redaction. Still proposed: the secret proxy, `generate_secret`, the persistent audit log, Touch ID on approval, Windows named pipes and a headless `dotsafe daemon`.
+**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret` and the audit log. Still proposed: Touch ID on approval, custom proxy profiles, `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
 
 ## The problem
 
@@ -46,9 +46,9 @@ Coding agents (Claude Code, Cursor, Codex, and so on) need secrets to run tests,
 | `list_projects` | Project and environment names | No |
 | `list_variables(project, env)` | Variable names, and which are shared secrets. **Never values** | No |
 | `run_with_secrets(command, cwd, variables, timeout)` | Exit code, redacted stdout/stderr | Yes, unless a grant covers it |
-| `proxy(secret, profile)` | Env vars to set (`OPENAI_BASE_URL=…`, a dummy key) | Yes |
+| `run_with_secrets(…, proxy: true)` | Known API keys go through the secret proxy automatically (on by default) | Part of the run's approval |
 | `generate_secret(name, generator, env)` | The new secret's name. **The value is generated in the broker and never returned** | Yes |
-| `propose_rotation(secret)` | A proposal the user reviews in the app | The user acts on it |
+| `propose_rotation(secret)` (not built yet) | A proposal the user reviews in the app | The user acts on it |
 
 There's no `reveal`, `get` or `export` tool, and there never will be.
 
@@ -108,7 +108,9 @@ OPENAI_API_KEY=dotsafe-proxied   ──HTTP──▶  look up token 9f2c… → 
                                             stream the response back (SSE included)
 ```
 
-- **Profiles** for common providers say which base-URL variable to set, the upstream host, and how to inject the key: OpenAI (`OPENAI_BASE_URL`), Anthropic (`ANTHROPIC_BASE_URL`), Stripe, GitHub, Resend, and more. Users can add a custom profile (upstream host, header name, format).
+- **Profiles** say which base-URL variable to set, the upstream host, and how to inject the key. Built in: OpenAI (`OPENAI_API_KEY` → `OPENAI_BASE_URL`, `Authorization: Bearer`) and Anthropic (`ANTHROPIC_API_KEY` → `ANTHROPIC_BASE_URL`, `x-api-key`). A base URL already in the environment (an Azure or gateway endpoint, HTTPS only) becomes the route's upstream. Custom profiles (more providers, other header formats) are still to do.
+- **In the broker,** a run's routes exist only while the command runs. The approval dialog marks which variables will be proxied, and the result tells the agent. Agents can pass `proxy: false` for code that can't take a custom base URL.
+- **Redirects aren't followed** (the key never goes anywhere but the route's upstream), and the proxy asks for unencoded bodies so it can stream them through as they arrive.
 - **It's not an open proxy.** Each route has one fixed upstream host. HTTPS upstream only, with certificate verification.
 - **The 128-bit random token** in the path stops other local users from using a route over loopback. Each grant gets its own token, which stops working when the grant expires.
 - **Limits:** works only where the SDK or tool accepts a base-URL override (most AI and API SDKs do). No TLS interception and no system proxy changes. Requests and errors are counted per grant and shown in the app.
@@ -117,16 +119,17 @@ OPENAI_API_KEY=dotsafe-proxied   ──HTTP──▶  look up token 9f2c… → 
 
 ## Audit log
 
-- New record kind `audit` (format v2): one record per device per day, holding an append-only list of events:
+- Record kind `audit` (record version 3): one record per device per day (id = UUIDv5(device, day)), so only one device ever writes each. Events:
 
 ```json
-{ "stamp": {…}, "actor": { "kind": "agent", "label": "Claude Code" }, "action": "run",
-  "grant": "uuid", "program": "/opt/homebrew/bin/bun", "argv_summary": "bun test",
-  "secrets": ["uuid", "uuid"], "outcome": { "exit": 0, "redactions": 1 } }
+{ "at": 1793038221399, "actor": "Claude Code", "action": "run", "outcome": "allowed",
+  "summary": "bun test", "environment": "my-api/development",
+  "variables": ["DATABASE_URL", "OPENAI_API_KEY"], "detail": "exit 0" }
 ```
 
-- Encrypted and synced like every other record. Merges as a union of events. Kept for 90 days by default.
-- **Activity** in the desktop app shows it: filter by agent, secret or grant, and revoke a grant from an event.
+- `action` is `run` or `generate`. `outcome` is `allowed`, `denied`, `refused` or `failed`. Names only, never values.
+- Encrypted and synced like every other record. Events merge by id. After 90 days a day's record is emptied and tombstoned (a tombstone wins over older copies).
+- **Settings → Agents → Activity** in the desktop app shows the newest events from every device, and `dotsafe audit` prints them. Filtering by agent or secret, and revoking a grant from an event, are still to do.
 - **Honest limit:** any device with the vault key could forge or drop events. The log shows what happened through dotsafe; it isn't evidence against a compromised device.
 
 ## Setup
@@ -149,5 +152,6 @@ The setup screen also offers a snippet for the project's `AGENTS.md`: "Secrets a
 1. ✅ `dotsafe mcp` with `list_projects` and `list_variables` (names only). No format change.
 2. ✅ Broker, IPC, approvals, runner, refusal list (macOS and Linux; Windows and Touch ID still to do).
 3. ✅ Redaction.
-4. Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
-5. `generate_secret` and the audit log (format v2).
+4. ✅ Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
+5. ✅ `generate_secret` and the audit log.
+6. Touch ID on approval, Windows named pipes, a headless `dotsafe daemon`, custom proxy profiles.
