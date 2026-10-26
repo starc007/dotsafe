@@ -30,6 +30,9 @@ pub struct Session {
     /// Files chosen in the picker or dropped on the window, waiting to be
     /// previewed and imported. Paths never come from the webview.
     pub import_files: Vec<PathBuf>,
+    /// Set after unlocking with the recovery key: the user has forgotten the
+    /// password, so they must choose a new one before using the vault.
+    pub must_change_password: bool,
 }
 
 impl Default for Session {
@@ -40,6 +43,7 @@ impl Default for Session {
             last_activity: Instant::now(),
             clipboard: None,
             import_files: Vec::new(),
+            must_change_password: false,
         }
     }
 }
@@ -83,6 +87,13 @@ impl From<dotsafe_core::Error> for CmdError {
 pub type CmdResult<T> = Result<T, CmdError>;
 
 impl Session {
+    /// Forgets the vault key and everything tied to this unlock.
+    pub fn lock(&mut self) {
+        self.vault = None;
+        self.import_files.clear();
+        self.must_change_password = false;
+    }
+
     pub fn vault(&self) -> CmdResult<&Vault> {
         self.vault
             .as_ref()
@@ -140,8 +151,7 @@ impl AppState {
                 let Ok(mut session) = inner.lock() else { return };
 
                 if session.vault.is_some() && session.last_activity.elapsed() >= IDLE_LOCK {
-                    session.vault = None;
-                    session.import_files.clear();
+                    session.lock();
                     let _ = app.emit("vault-locked", ());
                 }
 
