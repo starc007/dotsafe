@@ -1,15 +1,17 @@
-import { useRef, useState, type FormEvent } from "react";
-import { api, message } from "../lib/api";
-import { displayPath } from "../lib/paths";
-import { Button, Input } from "../components/ui";
-import { Centered } from "../components/Centered";
+import { useState, type FormEvent } from "react";
+import { api, message } from "@/lib/api";
+import { displayPath } from "@/lib/paths";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Centered } from "@/components/Centered";
 
 export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; onUnlocked: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const input = useRef<HTMLInputElement>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -24,19 +26,18 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
       setAttempt((n) => n + 1);
       setPassword("");
       setBusy(false);
-      input.current?.focus();
     }
   }
 
   return (
     <Centered title="dotsafe is locked" subtitle="Enter your master password to unlock.">
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <div key={attempt} className={attempt > 0 ? "animate-shake" : undefined}>
-          <label htmlFor="password" className="sr-only">
+        {/* Re-keyed per failed attempt so the shake replays; autoFocus refocuses the new input. */}
+        <div key={attempt} className={attempt > 0 ? "motion-safe:animate-shake" : undefined}>
+          <Label htmlFor="password" className="sr-only">
             Master password
-          </label>
+          </Label>
           <Input
-            ref={input}
             id="password"
             type="password"
             autoComplete="current-password"
@@ -50,11 +51,12 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
           />
         </div>
         {error && (
-          <p id="unlock-error" role="alert" className="text-center text-xs text-danger">
+          <p id="unlock-error" role="alert" className="text-center text-xs text-destructive">
             {error}
           </p>
         )}
-        <Button type="submit" variant="primary" className="h-9 w-full" loading={busy} disabled={!password}>
+        <Button type="submit" size="lg" className="w-full" disabled={busy || !password}>
+          {busy && <Spinner />}
           Unlock
         </Button>
         {vaultPath && (

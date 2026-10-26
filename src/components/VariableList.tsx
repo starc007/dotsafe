@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { api, message, type EnvironmentView } from "../lib/api";
-import { Button, ConfirmDialog, IconButton, Input } from "./ui";
+import { api, message, type EnvironmentView } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { IconButton } from "@/components/IconButton";
 
 /** Revealed values hide again after this long. */
 const REVEAL_MS = 30_000;
 const MASK = "••••••••••••";
+/** Shared by the list rows and the edit row so the columns line up. */
+const NAME_COLUMN = "w-2/5 max-w-56 shrink-0";
 
 type Editing = { mode: "new" } | { mode: "edit"; key: string; value: string } | null;
 
 export function VariableList({
   environment,
   projectName,
-  notify,
   onChanged,
 }: {
   environment: EnvironmentView;
   projectName: string;
-  notify: (text: string) => void;
   onChanged: () => Promise<void>;
 }) {
   const envId = environment.id;
@@ -57,16 +66,16 @@ export function VariableList({
       setRevealed((r) => ({ ...r, [key]: value }));
       timers.current.set(key, window.setTimeout(() => hide(key), REVEAL_MS));
     } catch (e) {
-      notify(message(e));
+      toast.error(message(e));
     }
   }
 
   async function copy(key: string) {
     try {
       await api.copyVariable(envId, key);
-      notify(`Copied ${key}. Clipboard clears in 30 seconds.`);
+      toast(`Copied ${key}`, { description: "The clipboard clears in 30 seconds." });
     } catch (e) {
-      notify(message(e));
+      toast.error(message(e));
     }
   }
 
@@ -75,7 +84,7 @@ export function VariableList({
       const value = revealed[key] ?? (await api.revealVariable(envId, key));
       setEditing({ mode: "edit", key, value });
     } catch (e) {
-      notify(message(e));
+      toast.error(message(e));
     }
   }
 
@@ -85,7 +94,7 @@ export function VariableList({
     hide(key);
     await load();
     await onChanged();
-    notify(previousKey ? `Saved ${key}` : `Added ${key}`);
+    toast.success(previousKey ? `Saved ${key}` : `Added ${key}`);
   }
 
   async function deleteConfirmed() {
@@ -93,11 +102,11 @@ export function VariableList({
     try {
       await api.deleteVariable(envId, deleting);
       hide(deleting);
-      notify(`Deleted ${deleting}`);
+      toast(`Deleted ${deleting}`);
       await load();
       await onChanged();
     } catch (e) {
-      notify(message(e));
+      toast.error(message(e));
     } finally {
       setDeleting(null);
     }
@@ -108,7 +117,9 @@ export function VariableList({
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <p className="text-sm font-semibold">Couldn't load variables</p>
         <p className="selectable max-w-sm text-muted-foreground">{error}</p>
-        <Button onClick={load}>Try again</Button>
+        <Button variant="outline" onClick={load}>
+          Try again
+        </Button>
       </div>
     );
   }
@@ -124,18 +135,18 @@ export function VariableList({
         <div className="flex-1" />
         {keys && keys.length > 6 && (
           <div className="relative w-48">
-            <Search aria-hidden className="pointer-events-none absolute left-2 top-2 size-4 text-muted-foreground" />
+            <Search aria-hidden className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
             <Input
               aria-label="Filter variables"
               placeholder="Filter"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="h-8 pl-7"
+              className="pl-7"
             />
           </div>
         )}
-        <Button variant="primary" onClick={() => setEditing({ mode: "new" })} disabled={editing?.mode === "new"}>
-          <Plus aria-hidden className="size-3.5" />
+        <Button onClick={() => setEditing({ mode: "new" })} disabled={editing?.mode === "new"}>
+          <Plus aria-hidden />
           Add variable
         </Button>
       </div>
@@ -161,7 +172,7 @@ export function VariableList({
             </p>
           </div>
         ) : (
-          <ul aria-label="Variables" className="divide-y divide-border rounded-lg border border-border">
+          <ul aria-label="Variables" className="divide-y rounded-lg border">
             {visible.map((key) =>
               editing?.mode === "edit" && editing.key === key ? (
                 <li key={key}>
@@ -176,27 +187,30 @@ export function VariableList({
                 </li>
               ) : (
                 <li key={key} className="group flex min-h-10 items-center gap-3 px-3 py-1.5">
-                  <span className="selectable w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] font-medium" title={key}>
+                  <span className={cn(NAME_COLUMN, "selectable truncate font-mono text-[12.5px] font-medium")} title={key}>
                     {key}
                   </span>
                   <span
-                    className={`min-w-0 flex-1 truncate font-mono text-[12.5px] ${key in revealed ? "selectable" : "tracking-widest text-muted-foreground"}`}
+                    className={cn(
+                      "min-w-0 flex-1 truncate font-mono text-[12.5px]",
+                      key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
+                    )}
                     title={key in revealed ? revealed[key] : undefined}
                   >
                     {key in revealed ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em> : MASK}
                   </span>
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                     <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
-                      {key in revealed ? <EyeOff aria-hidden className="size-4" /> : <Eye aria-hidden className="size-4" />}
+                      {key in revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
                     </IconButton>
                     <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
-                      <Copy aria-hidden className="size-4" />
+                      <Copy aria-hidden />
                     </IconButton>
                     <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
-                      <Pencil aria-hidden className="size-4" />
+                      <Pencil aria-hidden />
                     </IconButton>
-                    <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-danger">
-                      <Trash2 aria-hidden className="size-4" />
+                    <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
+                      <Trash2 aria-hidden />
                     </IconButton>
                   </div>
                 </li>
@@ -212,7 +226,7 @@ export function VariableList({
       <ConfirmDialog
         open={deleting !== null}
         title={`Delete ${deleting}?`}
-        body={`It will be removed from ${projectName}/${environment.name} on every synced device.`}
+        description={`It will be removed from ${projectName}/${environment.name} on every synced device.`}
         confirmLabel="Delete"
         onConfirm={deleteConfirmed}
         onCancel={() => setDeleting(null)}
@@ -241,7 +255,6 @@ function EditRow({
   const [value, setValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const multiline = value.includes("\n");
 
   async function submit(e?: FormEvent) {
     e?.preventDefault();
@@ -268,47 +281,54 @@ function EditRow({
   return (
     <form
       onSubmit={submit}
-      onKeyDown={onKeyDown}
-      className={`flex flex-col gap-2 p-3 ${bare ? "bg-surface" : "mb-3 rounded-lg border border-border bg-surface"}`}
+      className={cn("flex flex-col gap-2 bg-muted/40 p-3", !bare && "mb-3 rounded-lg border")}
     >
       <div className="flex items-start gap-3">
-        <div className="w-2/5 max-w-56 shrink-0">
+        <div className={NAME_COLUMN}>
           <Input
             aria-label="Name"
             placeholder="API_KEY"
             autoFocus={!initialKey}
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             value={key}
             aria-invalid={!!error}
+            onKeyDown={onKeyDown}
             onChange={(e) => setKey(e.target.value.replace(/\s/g, "_"))}
-            className="font-mono text-[12.5px]"
+            className="bg-background font-mono text-[12.5px] md:text-[12.5px]"
           />
         </div>
-        <textarea
+        <Textarea
           aria-label="Value"
           placeholder="Value"
           autoFocus={!!initialKey}
-          rows={multiline ? Math.min(value.split("\n").length, 8) : 1}
-          spellCheck={false}
           autoCorrect="off"
           autoCapitalize="off"
+          spellCheck={false}
           value={value}
+          onKeyDown={onKeyDown}
           onChange={(e) => setValue(e.target.value)}
-          className="min-h-8 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-[7px] font-mono text-[12.5px] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="max-h-48 min-h-8 flex-1 resize-none bg-background py-1.5 font-mono text-[12.5px] md:text-[12.5px]"
         />
       </div>
       <div className="flex items-center gap-2">
         {error ? (
-          <p role="alert" className="text-xs text-danger">
+          <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         ) : (
-          <p className="text-xs text-muted-foreground">Enter to save · Shift+Enter for a new line · Esc to cancel</p>
+          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Kbd>Enter</Kbd> save <span aria-hidden>·</span> <Kbd>Shift</Kbd>
+            <Kbd>Enter</Kbd> new line <span aria-hidden>·</span> <Kbd>Esc</Kbd> cancel
+          </p>
         )}
         <div className="flex-1" />
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" loading={busy} disabled={!key.trim()}>
+        <Button type="submit" disabled={busy || !key.trim()}>
+          {busy && <Spinner />}
           Save
         </Button>
       </div>
@@ -318,11 +338,11 @@ function EditRow({
 
 function RowsSkeleton() {
   return (
-    <div aria-hidden className="divide-y divide-border rounded-lg border border-border">
+    <div aria-hidden className="divide-y rounded-lg border">
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex h-10 items-center gap-3 px-3">
-          <div className="h-3.5 w-40 animate-pulse rounded bg-muted" />
-          <div className="h-3.5 w-28 animate-pulse rounded bg-muted" />
+          <Skeleton className="h-3.5 w-40" />
+          <Skeleton className="h-3.5 w-28" />
         </div>
       ))}
     </div>

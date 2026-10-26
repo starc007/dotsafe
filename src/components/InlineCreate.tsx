@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
-import { message } from "../lib/api";
-import { Input } from "./ui";
+import { message } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 
 /** A one-field form that creates something on Enter and cancels on Escape or blur. */
 export function InlineCreate({
   label,
   placeholder,
-  className = "",
+  className,
   onCreate,
   onCancel,
 }: {
@@ -33,11 +34,14 @@ export function InlineCreate({
   }
 
   return (
-    <form onSubmit={submit} className={className}>
+    <form onSubmit={submit} className={cn(className)}>
       <Input
         aria-label={label}
         placeholder={placeholder}
         autoFocus
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         disabled={busy}
         value={name}
         aria-invalid={!!error}
@@ -50,7 +54,7 @@ export function InlineCreate({
         className="h-7"
       />
       {error && (
-        <p role="alert" className="mt-1 px-1 text-xs text-danger">
+        <p role="alert" className="mt-1 px-1 text-xs text-destructive">
           {error}
         </p>
       )}

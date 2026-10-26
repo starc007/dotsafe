@@ -1,10 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Folder } from "lucide-react";
-import { api, message } from "../lib/api";
-import { displayPath } from "../lib/paths";
-import { Button, Field, Input } from "../components/ui";
-import { Centered } from "../components/Centered";
+import { api, message } from "@/lib/api";
+import { displayPath } from "@/lib/paths";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { Centered, Panel } from "@/components/Centered";
+import { Field } from "@/components/Field";
 
 const MIN_LENGTH = 8;
 
@@ -74,56 +77,65 @@ export function Setup({
           : "Secrets are encrypted on this Mac with your master password, then synced through a folder you choose."
       }
     >
-      <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border border-border bg-background p-5 shadow-sm">
-        <Field
-          label="Vault folder"
-          htmlFor="vault-path"
-          hint={inICloud ? "iCloud Drive keeps it in sync across your Macs." : "Any synced folder works: Dropbox, Google Drive, Syncthing."}
-        >
-          <div className="flex gap-2">
-            <div
-              id="vault-path"
-              title={path}
-              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-muted-foreground"
-            >
-              <Folder aria-hidden className="size-3.5 shrink-0" />
-              <span className="truncate">
-                {path ? displayPath(path) : "No folder chosen"}
-              </span>
+      <form onSubmit={submit}>
+        <Panel>
+          <Field
+            label="Vault folder"
+            htmlFor="vault-path"
+            hint={
+              inICloud
+                ? "iCloud Drive keeps it in sync across your Macs."
+                : "Any synced folder works: Dropbox, Google Drive, Syncthing."
+            }
+          >
+            <div className="flex gap-2">
+              <div
+                id="vault-path"
+                title={path}
+                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg border bg-muted/50 px-2.5 text-muted-foreground"
+              >
+                <Folder aria-hidden className="size-3.5 shrink-0" />
+                <span className="truncate">{path ? displayPath(path) : "No folder chosen"}</span>
+              </div>
+              <Button type="button" variant="outline" onClick={chooseFolder}>
+                Change…
+              </Button>
             </div>
-            <Button type="button" onClick={chooseFolder}>
-              Change…
-            </Button>
-          </div>
-        </Field>
+          </Field>
 
-        <Field label="Master password" htmlFor="password" error={error}>
-          <Input
-            id="password"
-            type="password"
-            autoComplete={connecting ? "current-password" : "new-password"}
-            autoFocus
-            value={password}
-            aria-invalid={!!error}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </Field>
-
-        {!connecting && (
-          <Field label="Confirm password" htmlFor="confirm" hint="There's no way to reset it. You'll get a recovery key next.">
+          <Field label="Master password" htmlFor="password" error={error}>
             <Input
-              id="confirm"
+              id="password"
               type="password"
-              autoComplete="new-password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              autoComplete={connecting ? "current-password" : "new-password"}
+              autoFocus
+              value={password}
+              aria-invalid={!!error}
+              onChange={(e) => setPassword(e.target.value)}
             />
           </Field>
-        )}
 
-        <Button type="submit" variant="primary" className="mt-1 w-full" loading={busy} disabled={!path || hasVault === null}>
-          {connecting ? "Connect" : "Create vault"}
-        </Button>
+          {!connecting && (
+            <Field
+              label="Confirm password"
+              htmlFor="confirm"
+              hint="There's no way to reset it. You'll get a recovery key next."
+            >
+              <Input
+                id="confirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </Field>
+          )}
+
+          <Button type="submit" className="mt-1 w-full" disabled={busy || !path || hasVault === null}>
+            {busy && <Spinner />}
+            {connecting ? "Connect" : "Create vault"}
+          </Button>
+        </Panel>
       </form>
     </Centered>
   );
