@@ -1,4 +1,5 @@
 mod link;
+mod mcp;
 mod secrets;
 mod session;
 
@@ -88,6 +89,11 @@ enum Cmd {
     /// Shared secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
+    /// Serve the MCP tools AI agents use to run commands with secrets they never see
+    Mcp {
+        #[command(subcommand)]
+        action: Option<McpAction>,
+    },
     /// Run a command with the variables set in its environment
     Run {
         #[command(flatten)]
@@ -114,6 +120,12 @@ struct S3Args {
     /// Region (`auto` for R2)
     #[arg(long, default_value = "auto")]
     region: String,
+}
+
+#[derive(Subcommand)]
+enum McpAction {
+    /// Show how to add dotsafe to Claude Code, Cursor and other agents
+    Setup,
 }
 
 #[derive(Args)]
@@ -261,6 +273,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             eprintln!("You can delete {} and use `dotsafe run -- <command>` instead.", file.display());
         }
         Cmd::Secret(cmd) => secrets::run(cmd)?,
+        Cmd::Mcp { action: None } => mcp::serve()?,
+        Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
         Cmd::Run { env, command } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
