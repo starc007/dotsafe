@@ -1,0 +1,22 @@
+[package]
+name = "dotsafe-stores"
+description = "Network storage backends for dotsafe vaults (S3, R2, ...)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dotsafe-core.workspace = true
+keyring = "4.2.0"
+rusty-s3 = "0.10.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+ureq = "3.5.0"
+url = "2.5.8"
+zeroize = { version = "1.9.1", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tiny_http = "0.12.0"
+uuid = { version = "1.29.0", features = ["v4"] }
