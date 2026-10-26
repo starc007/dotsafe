@@ -16,7 +16,7 @@ export function LicenseCard({ licenseKey, onChanged }: { licenseKey: string | nu
   return (
     <Surface aria-labelledby="license-title">
       <SurfaceHeader icon={licenseKey ? <BadgeCheck aria-hidden className="text-primary" /> : <KeyRound aria-hidden />}>
-        <SurfaceTitle id="license-title">License</SurfaceTitle>
+        <SurfaceTitle id="license-title">License key</SurfaceTitle>
         <SurfaceDescription>{licenseKey ? "Activated on this Mac" : "Not activated yet"}</SurfaceDescription>
       </SurfaceHeader>
       <SurfaceBody>

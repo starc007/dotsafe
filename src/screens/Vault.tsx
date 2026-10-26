@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { FolderLock, Lock, Plus, Settings as SettingsIcon } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
+import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
 import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
+import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SettingsPage } from "@/screens/Settings";
 
@@ -19,7 +21,17 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The open settings section, or null when Settings is closed.
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  const settingsOpen = settingsSection !== null;
+  // Reopening Settings returns to the section viewed last.
+  const lastSection = useRef<SettingsSection>("license");
+  if (settingsSection) lastSection.current = settingsSection;
+  const setSettingsOpen = (open: boolean | ((open: boolean) => boolean)) =>
+    setSettingsSection((current) => {
+      const next = typeof open === "function" ? open(current !== null) : open;
+      return next ? (current ?? lastSection.current) : null;
+    });
 
   const load = useCallback(async () => {
     try {
@@ -59,6 +71,13 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   }
 
   function stepProject(delta: number) {
+    // In Settings, the same keys move between sections.
+    if (settingsSection) {
+      const at = SETTINGS_SECTIONS.findIndex((s) => s.id === settingsSection);
+      const n = SETTINGS_SECTIONS.length;
+      setSettingsSection(SETTINGS_SECTIONS[(at + delta + n) % n].id);
+      return;
+    }
     if (!projects?.length) return;
     const at = projects.findIndex((p) => p.id === selectedId);
     selectProject(projects[(at + delta + projects.length) % projects.length].id);
@@ -77,6 +96,10 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
       <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         {/* Space for the macOS traffic lights; also drags the window. */}
         <DragRegion className="h-12 shrink-0" />
+        {settingsSection ? (
+          <SettingsNav section={settingsSection} onSelect={setSettingsSection} onBack={() => setSettingsOpen(false)} />
+        ) : (
+        <>
         <div className="flex items-center justify-between px-3 pb-1">
           <h2 className="px-1 text-xs font-medium text-muted-foreground">Projects</h2>
           <IconButton label="New project" aria-keyshortcuts={ariaShortcut(SHORTCUTS.newProject)} onClick={startCreating}>
@@ -128,6 +151,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             })}
           </AnimatePresence>
         </nav>
+        </>
+        )}
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
           <SidebarAction
             icon={<SettingsIcon aria-hidden />}
@@ -141,8 +166,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        {settingsOpen ? (
-          <SettingsPage onClose={() => setSettingsOpen(false)} onLock={lock} />
+        {settingsSection ? (
+          <SettingsPage section={settingsSection} onClose={() => setSettingsOpen(false)} onLock={lock} />
         ) : error ? (
           <Message title="Couldn't load your projects" body={error}>
             <Button variant="outline" onClick={load}>
