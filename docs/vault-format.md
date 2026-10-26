@@ -1,4 +1,4 @@
-# Vault format (v2)
+# Vault format (v2 records, v3 header)
 
 A dotsafe vault is a set of objects in a store: today a folder, usually inside storage the user already syncs (iCloud Drive, Google Drive, Dropbox, OneDrive, Syncthing). The store only ever sees ciphertext. Implementation: `crates/core` (`vault.rs`, with the `Store` interface in `store.rs`).
 
@@ -69,6 +69,23 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
 - Each wrapped key's AAD is `"dotsafe/v1/slot" ‖ vault_id ‖ slot_id`, so a slot can't be moved to another vault or reused under another id.
 - `mac` = HMAC(header MAC key, header serialized with `mac` empty). It's checked right after unlocking, so anyone without the vault key can't add, swap or edit slots undetected.
 - `epoch` is omitted when 0 (v1) and `previous_keys` when empty, so a v1 header serializes, and verifies, exactly as v1 wrote it.
+
+### Header v3: devices, enrollment codes and re-keying
+
+- **New slot kinds:**
+  - `{ "kind": "device", "device_id", "name", "added", "salt" }`: KEK = HKDF-SHA256(salt, device key, "dotsafe/v3/device-kek"). The 32-byte device key lives in that device's keychain.
+  - `{ "kind": "enrollment", "expires", "salt" }`: KEK = HKDF-SHA256(salt, 128-bit code, "dotsafe/v3/enrollment-kek"). Ignored after `expires` (Unix ms), and removed on the next header write.
+- **Slot epochs:** every slot has an `epoch` (omitted when 0, meaning 1). A slot whose epoch isn't the header's is stale. A stale password or recovery slot is never used. A stale device slot means "unlock with the password once".
+- **Re-key** (on revoking a device):
+  1. Generate a new vault key, and bump `epoch`.
+  2. Store the old key in `previous_keys` as `{ epoch, wrapped_key }`, sealed under the new key with AAD `"dotsafe/v3/previous-key" ‖ vault_id ‖ epoch`.
+  3. Recreate the password and recovery slots for the new key; device slots go stale.
+  4. Re-seal every record and `head.json` under the new key, then empty `previous_keys`.
+  
+  A client that unlocks while `previous_keys` isn't empty finishes the re-seal first.
+- **Records from a dropped epoch** fail to open with no key, and are skipped, not trusted (`Vault::unreadable_records`).
+- **`head.json`** gains an `epoch` field (omitted means 1). A head from an epoch the client has no key for is replaced on the next write.
+- **Header writes** re-read the newest header, re-apply the change and write it conditionally on its ETag, retrying on conflict.
 
 ## `records/<uuid>.json`
 
@@ -151,6 +168,6 @@ Records go first and the header last, so an interrupted upgrade simply runs agai
 
 - **Rollback on synced folders:** see `head.json` above. Rollbacks are detected but can't yet be told apart from sync lag, and a device that has never seen the vault trusts the first head it reads. Bucket vaults keep the last-seen head in their cache, so they also notice across sessions.
 - **Clock skew:** a device whose clock runs far ahead still pushes everyone's stamps forward. Causally later edits now win, but a future-dated edit beats a concurrent one made elsewhere.
-- **Header conflicts:** if two devices change the password at the same moment, only one `vault.json` survives. Records are unaffected, because the vault key doesn't change. Conditional header writes and merging header copies come with device slots.
+- **Header conflicts on synced folders:** header writes are conditional, so on S3/R2 two simultaneous changes both survive. A synced folder can't check atomically, so a truly simultaneous write there can still lose one change; merging folder conflict copies of `vault.json` isn't built.
 - **Deleting a project doesn't cascade:** deleting a project doesn't delete its environments in storage. The app is expected to tombstone them too.
 - **Decrypted values aren't wiped:** decrypted variable values are ordinary `String`s and aren't wiped from memory after use.
