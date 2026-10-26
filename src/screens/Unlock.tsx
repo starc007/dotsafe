@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { api, message } from "@/lib/api";
+import { fast } from "@/lib/motion";
 import { displayPath } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +13,9 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  const [scope, animate] = useAnimate();
+  const reduceMotion = useReducedMotion();
+  const input = useRef<HTMLInputElement>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -23,21 +27,23 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
       onUnlocked();
     } catch (err) {
       setError(message(err));
-      setAttempt((n) => n + 1);
       setPassword("");
       setBusy(false);
+      input.current?.focus();
+      // A short horizontal shake, like the macOS login window.
+      if (!reduceMotion) animate(scope.current, { x: [0, -7, 6, -4, 3, 0] }, { duration: 0.36, ease: "easeOut" });
     }
   }
 
   return (
     <Centered title="dotsafe is locked" subtitle="Enter your master password to unlock.">
       <form onSubmit={submit} className="flex flex-col gap-3">
-        {/* Re-keyed per failed attempt so the shake replays; autoFocus refocuses the new input. */}
-        <div key={attempt} className={attempt > 0 ? "motion-safe:animate-shake" : undefined}>
+        <div ref={scope}>
           <Label htmlFor="password" className="sr-only">
             Master password
           </Label>
           <Input
+            ref={input}
             id="password"
             type="password"
             autoComplete="current-password"
@@ -50,11 +56,21 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        {error && (
-          <p id="unlock-error" role="alert" className="text-center text-xs text-destructive">
-            {error}
-          </p>
-        )}
+        <AnimatePresence initial={false}>
+          {error && (
+            <motion.p
+              id="unlock-error"
+              role="alert"
+              className="text-center text-xs text-destructive"
+              initial={{ opacity: 0, y: -2 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={fast}
+            >
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
         <Button type="submit" size="lg" className="w-full" disabled={busy || !password}>
           {busy && <Spinner />}
           Unlock
