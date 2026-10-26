@@ -48,7 +48,7 @@ export function ConfirmDialog({
               size="icon"
               aria-label="Close"
               onClick={onCancel}
-              className="rounded-full bg-card shadow-xs ring-1 ring-foreground/5 hover:bg-card/80"
+              className="rounded-full bg-card hover:bg-card/80"
             >
               <X aria-hidden />
             </Button>
