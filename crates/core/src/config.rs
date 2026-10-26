@@ -107,15 +107,19 @@ pub fn cache_dir(s3: &S3Location) -> Result<PathBuf> {
         .join(hash))
 }
 
-/// `DOTSAFE_CONFIG_DIR` overrides the location, for tests and portable setups.
-fn config_path() -> Result<PathBuf> {
-    let dir = match std::env::var_os("DOTSAFE_CONFIG_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => dirs::config_dir()
+/// This machine's dotsafe config directory. `DOTSAFE_CONFIG_DIR` overrides
+/// the location, for tests and portable setups.
+pub fn config_dir() -> Result<PathBuf> {
+    match std::env::var_os("DOTSAFE_CONFIG_DIR") {
+        Some(dir) => Ok(PathBuf::from(dir)),
+        None => Ok(dirs::config_dir()
             .ok_or_else(|| Error::Format("no config directory on this OS".into()))?
-            .join("dotsafe"),
-    };
-    Ok(dir.join("config.json"))
+            .join("dotsafe")),
+    }
+}
+
+fn config_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("config.json"))
 }
 
 /// Where a new vault goes by default: iCloud Drive when it's available, so it

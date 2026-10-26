@@ -1163,11 +1163,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotsafe-agent"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "base64 0.23.1",
+ "dotsafe-core",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
 name = "dotsafe-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "dotsafe-agent",
  "dotsafe-core",
  "dotsafe-stores",
  "keyring",
@@ -1203,6 +1219,7 @@ dependencies = [
 name = "dotsafe-desktop"
 version = "0.1.0"
 dependencies = [
+ "dotsafe-agent",
  "dotsafe-core",
  "dotsafe-stores",
  "serde",
