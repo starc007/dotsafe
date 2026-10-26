@@ -3,6 +3,7 @@
 //! Both the desktop app and the CLI depend on this crate so they read and
 //! write the same vault on disk. See `docs/vault-format.md` for the format.
 
+pub mod audit;
 pub mod cache;
 pub mod config;
 pub mod crypto;
