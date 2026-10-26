@@ -12,6 +12,7 @@ pub mod grants;
 pub mod ipc;
 pub mod policy;
 pub mod protocol;
+pub mod proxy;
 pub mod redact;
 pub mod run;
 

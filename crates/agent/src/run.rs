@@ -34,7 +34,12 @@ pub struct RunPlan {
     /// The client's `PATH`.
     pub path: Option<String>,
     /// (name, value) pairs injected as environment variables.
-    pub secrets: Vec<(String, String)>,
+    pub env: Vec<(String, String)>,
+    /// Values to scrub from the output: every secret involved, including
+    /// ones sent through the proxy instead of injected.
+    pub redact: Vec<(String, String)>,
+    /// Variables sent through the proxy, reported back to the client.
+    pub proxied: Vec<String>,
     pub timeout: Duration,
 }
 
@@ -47,7 +52,7 @@ pub fn run(plan: RunPlan) -> std::io::Result<RunOutput> {
         }
     }
     cmd.env("PATH", plan.path.as_deref().unwrap_or(DEFAULT_PATH));
-    cmd.envs(plan.secrets.iter().map(|(k, v)| (k, v)));
+    cmd.envs(plan.env.iter().map(|(k, v)| (k, v)));
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd.spawn()?;
@@ -67,7 +72,7 @@ pub fn run(plan: RunPlan) -> std::io::Result<RunOutput> {
         thread::sleep(Duration::from_millis(25));
     };
 
-    let redactor = Redactor::new(&plan.secrets);
+    let redactor = Redactor::new(&plan.redact);
     let (stdout, out_truncated) = stdout.map(|h| h.join().unwrap_or_default()).map(tail).unwrap_or_default();
     let (stderr, err_truncated) = stderr.map(|h| h.join().unwrap_or_default()).map(tail).unwrap_or_default();
     let (stdout, out_redactions) = redactor.redact(&String::from_utf8_lossy(&stdout));
@@ -79,6 +84,7 @@ pub fn run(plan: RunPlan) -> std::io::Result<RunOutput> {
         stderr,
         redactions: out_redactions + err_redactions,
         truncated: out_truncated || err_truncated,
+        proxied: plan.proxied,
     })
 }
 
@@ -120,7 +126,9 @@ mod tests {
             args: args.iter().map(|s| s.to_string()).collect(),
             cwd: std::env::temp_dir(),
             path: None,
-            secrets: secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            env: secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            redact: secrets.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            proxied: Vec::new(),
             timeout: Duration::from_secs(10),
         }
     }
