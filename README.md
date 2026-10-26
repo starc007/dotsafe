@@ -6,6 +6,7 @@ Local-first, zero-knowledge secret manager for developers. Secrets are encrypted
 
 ```
 crates/core   # vault format, encryption, sync engine (shared)
+crates/stores # S3/R2 storage backend and the keychain-backed store opener
 crates/cli    # `dotsafe` command-line tool
 src-tauri     # desktop app (Tauri 2)
 src           # desktop UI (React + Vite)
@@ -24,7 +25,11 @@ dotsafe list
 dotsafe unset API_KEY
 dotsafe run -- bun dev            # runs the command with the variables injected
 dotsafe unlock --for 8h           # cache the key in the OS keychain; `dotsafe lock` to forget it
+dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
+dotsafe sync                      # vaults in a bucket: exchange changes now
 ```
+
+**Vaults in a bucket.** Instead of a synced folder, a vault can live in any S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO). The bucket only ever holds encrypted files. Each machine keeps an encrypted copy, so dotsafe works offline and syncs when it's back online. The access key is kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
 
 The first write in a directory creates a project and a `.dotsafe.json` link file. It only holds ids, so commit it; other machines connected to the same vault then pick the project up. `dotsafe link <name>` attaches a directory to an existing project.
 

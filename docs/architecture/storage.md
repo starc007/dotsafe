@@ -1,6 +1,6 @@
 # Storage
 
-**Status:** proposed. Milestones M1 (interface, format v2) and M2 (S3/R2, replicas).
+**Status:** M1 and M2 are implemented, except replicas, WebDAV and moving a vault between stores (still proposed).
 
 ## Goals
 
@@ -72,6 +72,8 @@ Because merging is per record and deterministic, retries always converge.
 
 **S3 client:** a small SigV4 signer (for example `rusty-s3`) plus `ureq`, both blocking and rustls-based. Not the AWS SDK: it pulls in tokio and a large dependency tree we'd have to trust.
 
+**M2 status:** `crates/stores` has `S3Store` (rusty-s3 presigned requests over ureq, conditional `If-None-Match`/`If-Match` writes, paginated `ListObjectsV2`) and `open(config)`. It's tested against an in-process S3 stand-in, not yet against real R2 or AWS in CI.
+
 ## Local cache and sync
 
 ```
@@ -85,6 +87,7 @@ Because merging is per record and deterministic, retries always converge.
 - **Writes** go to the cache and an outbox. The outbox drains to the store with the CAS loop above. A write queued offline is pushed later and merged like any other.
 - **Pulls** fetch `head.json` first, compare it with the last-seen head, and download only the records whose entries changed. Listing every object is only a fallback.
 - **The folder backend** can skip the cache. The synced folder already is one.
+- **Implemented (M2)** as `CachedStore` in core. Conflicts with unpushed changes become `(remote)` copies the vault merges, `head.json` keeps its previous version until merged (rollback detection across sessions), and objects missing from the bucket are re-uploaded rather than deleted. Network calls happen outside the index lock. The desktop app syncs every minute and on demand; the CLI syncs on open and with `dotsafe sync`.
 
 ## Configuration and credentials
 

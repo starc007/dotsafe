@@ -10,8 +10,9 @@ dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets 
 
 ```
 crates/core   Vault format, crypto, merge/sync, config, storage (store.rs). Shared by app and CLI.
+crates/stores Network storage backends (S3/R2) and `open(config)`, which picks the right store and reads keys from the keychain.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
-src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client).
+src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults).
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 api           Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See api/README.md.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
@@ -46,6 +47,8 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 - **Crypto stays in `crates/core/src/crypto.rs`.** Use the existing primitives (XChaCha20-Poly1305, Argon2id, HKDF-SHA256, HMAC-SHA256 from RustCrypto). Never add new algorithms, hand-rolled crypto, or `rand`-based nonces.
 - **Format changes need a version bump.** Any change to `vault.json`, `head.json` or record files needs a `HEADER_VERSION`/`RECORD_VERSION`/`HEAD_VERSION` bump, an upgrade path from the previous version, and a matching update to `docs/vault-format.md`.
 - **Vaults go through `Store`.** `crates/core/src/vault.rs` never touches the filesystem directly; backends implement `Store` (`store.rs`). Writes use conditional puts and merge-and-retry.
+- **Network code stays out of core.** `crates/core` has no HTTP client; S3 lives in `crates/stores`. `CachedStore` (core) wraps any remote and must never hold its index lock across network calls.
+- **Storage keys live in the OS keychain** (`dotsafe_stores::save_credentials`), never in `config.json`, the vault, or the webview.
 - **Keep AAD bindings.** Wrapped keys and records are bound to the vault id and their own id via AAD. Keep it that way.
 - **Decrypted values only reach the webview through `reveal_variable`.** Listing commands return names only. Copying happens in Rust (`copy_variable`), never via the JS clipboard API.
 - **Webview permissions stay minimal.** `src-tauri/capabilities/default.json` grants core, window dragging and the folder picker only. Don't grant clipboard, filesystem or shell access to the webview. Keep the strict CSP in `tauri.conf.json`.
@@ -76,8 +79,8 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 ## Testing the desktop app
 
 - **Use a throwaway config.** `DOTSAFE_CONFIG_DIR=/some/tmp/dir bun run tauri dev` keeps testing away from the real config. The default vault location is the user's real iCloud Drive, so never create test vaults there.
-- **Browser mode:** `bun run dev` serves the UI at http://localhost:1420 with an in-memory mock (`src/dev/mockBackend.ts`). Unlock with `password123`; add `?setup` to start at setup and `?offline` to make license server calls fail. License keys containing `LIMIT` or `REVOKED` act out those answers. The mock is dev-only and stripped from production builds. Keep it in step when command signatures change.
+- **Browser mode:** `bun run dev` serves the UI at http://localhost:1420 with an in-memory mock (`src/dev/mockBackend.ts`). Unlock with `password123`; add `?setup` to start at setup, `?bucket` to start with a vault in a bucket, and `?offline` to make license server calls fail. In bucket setup, the bucket name `existing` has a vault (password `password123`) and `offline` can't be reached. License keys containing `LIMIT` or `REVOKED` act out those answers. The mock is dev-only and stripped from production builds. Keep it in step when command signatures change.
 - **Password fields can't be automated in the native app.** macOS secure input blocks synthetic keystrokes into password fields, so unlock flows can't be driven by automation there. Use the browser mock for UI flows and say clearly what wasn't verified natively.
 - **The app runs in WebKit (WKWebView), not Chromium.** The browser preview can hide WebKit-only bugs. Example: a container that fades its opacity while some children animate on their own layers can leave the other children painted after the fade. Give the fading container `will-change-[opacity]`, as the row actions in `VariableList.tsx` do.
-- **Licensing never blocks the vault.** License requests run off the session lock (`off_thread` in commands.rs), and network failures are `offline` errors, never revocations. Keep it that way.
+- **Licensing and sync never block the vault.** License requests run off the session lock (`off_thread` in commands.rs), and bucket sync uses the shared `Arc<Vault>` outside it (`sync.rs`). Network failures are `offline` errors, never revocations or data loss. Keep it that way.
 - **Known gap:** the desktop commands (`src-tauri/src/commands.rs`) have no automated tests yet.
