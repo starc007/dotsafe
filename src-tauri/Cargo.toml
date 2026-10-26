@@ -16,6 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+dotsafe-agent.workspace = true
 dotsafe-core.workspace = true
 dotsafe-stores.workspace = true
 tauri = { version = "2", features = [] }

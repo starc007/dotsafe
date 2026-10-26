@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AgentApproval } from "@/components/AgentApproval";
 import { DragRegion } from "@/components/DragRegion";
 
 type Screen =
@@ -53,6 +54,7 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={500}>
         <CurrentScreen screen={screen} setScreen={setScreen} refresh={refresh} />
+        <AgentApproval />
         <Toaster position="bottom-center" />
       </TooltipProvider>
     </MotionConfig>

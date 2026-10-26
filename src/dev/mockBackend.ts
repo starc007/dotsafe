@@ -1,6 +1,7 @@
 // In-memory stand-in for the Rust commands, so the UI can be developed in a
 // plain browser (`bun run dev`, then open http://localhost:1420). Only loaded
 // in dev mode outside Tauri; never part of a production build.
+import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
 type Env = { id: string; projectId: string; name: string; vars: Map<string, string> };
@@ -75,6 +76,26 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
   const sid = addSecret("STRIPE_SECRET_KEY", "sk_test_51Nx8abc", 120, 90);
   for (const e of envs.values()) if (projects.get(e.projectId) === "my-api") e.vars.set("STRIPE_SECRET_KEY", LINK + sid);
 }
+// Agents. `?agent` sends an approval request a moment after unlocking.
+type MockGrant = { command: string; cwd: string; variables: number; expiresIn: number | null };
+const agentGrants: MockGrant[] = [];
+const agentLog: { at: number; client: string; command: string; environment: string; outcome: string; detail: string | null }[] = [];
+const pendingAgent = new Map<string, { command: string[]; cwd: string; variables: number }>();
+function fakeAgentRequest() {
+  const req = {
+    id: id(),
+    client: "Claude Code",
+    command: ["bun", "test"],
+    programPath: "/opt/homebrew/bin/bun",
+    cwd: "/Users/you/code/my-api",
+    project: "my-api",
+    environment: "development",
+    variables: ["DATABASE_URL", "JWT_SECRET", "REDIS_URL", "STRIPE_SECRET_KEY"],
+  };
+  pendingAgent.set(req.id, { command: req.command, cwd: req.cwd, variables: req.variables.length });
+  emit("agent-request", req);
+}
+
 const linkOf = (v: string | undefined) => (v?.startsWith(LINK) ? v.slice(LINK.length) : null);
 const secret = (sid: string) => secrets.get(sid) ?? fail("other", "That shared secret no longer exists.");
 const currentOf = (s: MockSecret) =>
@@ -180,6 +201,23 @@ export function installMockBackend() {
           if (a.password !== password) fail("invalid_password", "Wrong password.");
           configured = unlocked = true;
           mustChangePassword = false;
+          if (new URLSearchParams(location.search).has("agent")) setTimeout(fakeAgentRequest, 1500);
+          return null;
+        case "answer_agent_request": {
+          const req = pendingAgent.get(a.id) ?? fail("other", "That request already expired.");
+          pendingAgent.delete(a.id);
+          const lifetime = (raw as { lifetime: string | null }).lifetime;
+          const command = req.command.join(" ");
+          if (lifetime && lifetime !== "once")
+            agentGrants.push({ command, cwd: req.cwd, variables: req.variables, expiresIn: lifetime === "lock" ? null : lifetime === "1h" ? 3600 : 900 });
+          agentLog.unshift({ at: Date.now(), client: "Claude Code", command, environment: "my-api/development", outcome: lifetime ? "ran" : "denied", detail: lifetime ? "exit 0" : null });
+          emit("agent-activity", null);
+          return null;
+        }
+        case "agent_activity":
+          return { grants: agentGrants, recent: agentLog };
+        case "revoke_agent_grants":
+          agentGrants.length = 0;
           return null;
         case "unlock_with_recovery":
           if (normalizeKey(a.recoveryKey ?? "").length !== 52)
