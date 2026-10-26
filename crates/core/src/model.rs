@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
+use crate::secret::Secret;
 
 /// When and where a change was made: a hybrid logical clock reading. Ordered
 /// by time, then counter, then device id as a deterministic tiebreak, so every
@@ -78,6 +79,7 @@ pub fn is_valid_var_name(key: &str) -> bool {
 pub enum Record {
     Project(Project),
     Environment(Environment),
+    Secret(Secret),
 }
 
 impl Record {
@@ -85,6 +87,17 @@ impl Record {
         match self {
             Record::Project(p) => p.id,
             Record::Environment(e) => e.id,
+            Record::Secret(s) => s.id,
+        }
+    }
+
+    /// Whether the record uses anything added in record format v3 (secrets,
+    /// linked variables), which older clients must not read and rewrite.
+    pub(crate) fn needs_v3(&self) -> bool {
+        match self {
+            Record::Project(_) => false,
+            Record::Environment(e) => e.vars.values().any(|v| v.secret.is_some()),
+            Record::Secret(_) => true,
         }
     }
 
@@ -94,6 +107,7 @@ impl Record {
         match self {
             Record::Project(p) => p.updated,
             Record::Environment(e) => e.vars.values().map(|v| v.stamp).fold(e.updated, Stamp::max),
+            Record::Secret(s) => s.max_stamp(),
         }
     }
 
@@ -106,6 +120,7 @@ impl Record {
             (Record::Environment(a), Record::Environment(b)) if a.id == b.id => {
                 Ok(Record::Environment(a.merge(b)))
             }
+            (Record::Secret(a), Record::Secret(b)) if a.id == b.id => Ok(Record::Secret(a.merge(b))),
             (a, _) => Err(Error::Format(format!("cannot merge different records into {}", a.id()))),
         }
     }
@@ -139,9 +154,30 @@ pub struct Environment {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Var {
-    /// `None` marks a deleted variable (tombstone).
+    /// The value, for a variable set directly.
     value: Option<String>,
+    /// The shared secret it's linked to. Neither set marks a deleted variable
+    /// (tombstone).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    secret: Option<Uuid>,
     stamp: Stamp,
+}
+
+/// What a variable holds: its own value, or a link to a shared secret.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Entry<'a> {
+    Value(&'a str),
+    Secret(Uuid),
+}
+
+impl Var {
+    fn entry(&self) -> Option<Entry<'_>> {
+        match (&self.value, self.secret) {
+            (_, Some(id)) => Some(Entry::Secret(id)),
+            (Some(value), None) => Some(Entry::Value(value)),
+            (None, None) => None,
+        }
+    }
 }
 
 impl Environment {
@@ -164,21 +200,39 @@ impl Environment {
         Uuid::new_v5(&project_id, name.as_bytes())
     }
 
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.vars.get(key)?.value.as_deref()
+    /// What `key` holds. Resolve a linked secret with [`Secrets::value`].
+    pub fn entry(&self, key: &str) -> Option<Entry<'_>> {
+        self.vars.get(key)?.entry()
+    }
+
+    /// The variable's own value: `None` if it isn't set or links to a secret.
+    pub fn value(&self, key: &str) -> Option<&str> {
+        match self.entry(key)? {
+            Entry::Value(value) => Some(value),
+            Entry::Secret(_) => None,
+        }
     }
 
     /// Live variables in key order.
-    pub fn vars(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.vars.iter().filter_map(|(k, v)| Some((k.as_str(), v.value.as_deref()?)))
+    pub fn entries(&self) -> impl Iterator<Item = (&str, Entry<'_>)> {
+        self.vars.iter().filter_map(|(k, v)| Some((k.as_str(), v.entry()?)))
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &str> {
+        self.entries().map(|(k, _)| k)
     }
 
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>, stamp: Stamp) {
-        self.vars.insert(key.into(), Var { value: Some(value.into()), stamp });
+        self.vars.insert(key.into(), Var { value: Some(value.into()), secret: None, stamp });
+    }
+
+    /// Links `key` to a shared secret, replacing any value it had.
+    pub fn link(&mut self, key: impl Into<String>, secret: Uuid, stamp: Stamp) {
+        self.vars.insert(key.into(), Var { value: None, secret: Some(secret), stamp });
     }
 
     pub fn remove(&mut self, key: impl Into<String>, stamp: Stamp) {
-        self.vars.insert(key.into(), Var { value: None, stamp });
+        self.vars.insert(key.into(), Var { value: None, secret: None, stamp });
     }
 
     fn merge(self, other: Environment) -> Environment {
@@ -192,5 +246,46 @@ impl Environment {
             }
         }
         newer
+    }
+}
+
+/// The secrets in a vault, for resolving linked variables.
+#[derive(Clone, Debug, Default)]
+pub struct Secrets(BTreeMap<Uuid, Secret>);
+
+impl Secrets {
+    /// The live secrets among `records`.
+    pub fn from_records<'a>(records: impl IntoIterator<Item = &'a Record>) -> Secrets {
+        Secrets(
+            records
+                .into_iter()
+                .filter_map(|r| match r {
+                    Record::Secret(s) if !s.deleted => Some((s.id, s.clone())),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    pub fn get(&self, id: Uuid) -> Option<&Secret> {
+        self.0.get(&id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Secret> {
+        self.0.values()
+    }
+
+    /// The value an entry stands for: its own, or its secret's current one.
+    /// `None` for a link to a secret that's gone or has no current value.
+    pub fn value<'a>(&'a self, entry: Entry<'a>) -> Option<&'a str> {
+        match entry {
+            Entry::Value(value) => Some(value),
+            Entry::Secret(id) => self.get(id)?.current_value(),
+        }
+    }
+
+    /// Every variable in `env` that has a value, with links resolved.
+    pub fn resolve<'a>(&'a self, env: &'a Environment) -> impl Iterator<Item = (&'a str, &'a str)> {
+        env.entries().filter_map(|(key, entry)| Some((key, self.value(entry)?)))
     }
 }

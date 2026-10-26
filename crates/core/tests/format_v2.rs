@@ -33,7 +33,7 @@ fn env(vars: &[(&str, &str)], at: u64) -> Environment {
 
 fn vars(record: Option<Record>) -> Vec<(String, String)> {
     let Some(Record::Environment(env)) = record else { panic!("expected an environment") };
-    env.vars().map(|(k, v)| (k.into(), v.into())).collect()
+    env.keys().filter_map(|k| Some((k.into(), env.value(k)?.into()))).collect()
 }
 
 #[test]
@@ -261,9 +261,9 @@ fn assert_fixture_data(vault: &Vault) {
             _ => None,
         })
         .unwrap();
-    assert_eq!(env.get("DATABASE_URL"), Some("postgres://localhost/app"));
-    assert_eq!(env.get("API_KEY"), Some("sk_test_123"));
-    assert_eq!(env.get("OLD"), None);
+    assert_eq!(env.value("DATABASE_URL"), Some("postgres://localhost/app"));
+    assert_eq!(env.value("API_KEY"), Some("sk_test_123"));
+    assert_eq!(env.value("OLD"), None);
 }
 
 #[test]

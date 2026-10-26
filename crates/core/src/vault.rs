@@ -22,7 +22,7 @@ use zeroize::Zeroizing;
 use crate::crypto::{self, KEY_LEN, KdfParams, Sealed, SecretKey};
 use crate::error::{Error, Result};
 use crate::header::{HEADER_VERSION, RecoveryKey, VaultHeader};
-use crate::model::{Clock, Record, Stamp};
+use crate::model::{Clock, Record, Secrets, Stamp};
 use crate::store::{Cond, ETag, Put, Store};
 
 const HEADER_KEY: &str = "vault.json";
@@ -30,9 +30,14 @@ const HEAD_KEY: &str = "head.json";
 const RECORDS_DIR: &str = "records";
 
 const RECORD_FORMAT: &str = "dotsafe-record";
+/// Records that use shared secrets or linked variables are written as v3, so
+/// clients that predate them refuse those records instead of rewriting them
+/// without the links. Everything else stays v2.
 const RECORD_VERSION: u32 = 2;
+const RECORD_VERSION_SECRETS: u32 = 3;
 const RECORD_AAD_V1: &[u8] = b"dotsafe/v1/record";
 const RECORD_AAD: &[u8] = b"dotsafe/v2/record";
+const RECORD_AAD_V3: &[u8] = b"dotsafe/v3/record";
 // A domain label, unchanged from v1 so the records key stays the same.
 const RECORDS_KEY_INFO: &[u8] = b"dotsafe/v1/records";
 
@@ -298,6 +303,11 @@ impl Vault {
         Ok(self.read_record_group(id, &keys)?.value)
     }
 
+    /// The vault's live shared secrets, for resolving linked variables.
+    pub fn secrets(&self) -> Result<Secrets> {
+        Ok(Secrets::from_records(&self.list()?))
+    }
+
     /// Reads every record, merging any sync-conflict copies.
     pub fn list(&self) -> Result<Vec<Record>> {
         self.refresh_head()?;
@@ -335,13 +345,14 @@ impl Vault {
 
     fn seal_record(&self, record: &Record) -> Result<Vec<u8>> {
         let id = record.id();
+        let version = if record.needs_v3() { RECORD_VERSION_SECRETS } else { RECORD_VERSION };
         let plaintext = padded(serde_json::to_vec(record)?);
         let file = RecordFile {
             format: RECORD_FORMAT.into(),
-            version: RECORD_VERSION,
+            version,
             id,
             epoch: self.epoch(),
-            sealed: crypto::seal(&self.records_key, &plaintext, &self.record_aad(id))?,
+            sealed: crypto::seal(&self.records_key, &plaintext, &self.record_aad(version, id))?,
         };
         Ok(serde_json::to_vec_pretty(&file)?)
     }
@@ -376,8 +387,8 @@ impl Vault {
         // another name (or another vault) fails to decrypt.
         let aad = match file.version {
             1 => [RECORD_AAD_V1, self.header.vault_id.as_bytes(), id.as_bytes()].concat(),
-            2 if file.epoch == self.epoch() => self.record_aad(id),
-            2 => {
+            2 | 3 if file.epoch == self.epoch() => self.record_aad(file.version, id),
+            2 | 3 => {
                 return Err(Error::Format(format!(
                     "record {id} is sealed in key epoch {}, which this vault doesn't have",
                     file.epoch
@@ -491,8 +502,11 @@ impl Vault {
         self.header.epoch.max(1)
     }
 
-    fn record_aad(&self, id: Uuid) -> Vec<u8> {
-        [RECORD_AAD, self.header.vault_id.as_bytes(), &self.epoch().to_be_bytes(), id.as_bytes()].concat()
+    /// Binds a record to its vault, key epoch, id and format version, so it
+    /// can't be moved, or relabelled as a version older clients would read.
+    fn record_aad(&self, version: u32, id: Uuid) -> Vec<u8> {
+        let label = if version == RECORD_VERSION_SECRETS { RECORD_AAD_V3 } else { RECORD_AAD };
+        [label, self.header.vault_id.as_bytes(), &self.epoch().to_be_bytes(), id.as_bytes()].concat()
     }
 
     fn head_aad(&self) -> Vec<u8> {

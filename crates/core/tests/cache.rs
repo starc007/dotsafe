@@ -114,7 +114,7 @@ fn setup() -> (RemoteHandle, Device, Environment) {
 fn other_devices_see_changes() {
     let (remote, _a, env) = setup();
     let b = Device::new();
-    assert_eq!(get_env(&b.unlock(&remote), env.id).get("A"), Some("1"));
+    assert_eq!(get_env(&b.unlock(&remote), env.id).value("A"), Some("1"));
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn works_offline_from_the_cache() {
     remote.0.offline.store(true, Ordering::SeqCst);
 
     let vault = a.unlock(&remote);
-    assert_eq!(get_env(&vault, env.id).get("A"), Some("1"));
+    assert_eq!(get_env(&vault, env.id).value("A"), Some("1"));
     assert!(matches!(vault.sync(), Err(Error::Unreachable(_))));
 
     // A device with nothing cached can't open the vault offline.
@@ -139,14 +139,14 @@ fn offline_changes_are_pushed_on_sync() {
     let mut edited = get_env(&vault, env.id);
     edited.set("B", "offline", vault.stamp(a.id));
     vault.put(Record::Environment(edited)).unwrap();
-    assert_eq!(get_env(&vault, env.id).get("B"), Some("offline"));
+    assert_eq!(get_env(&vault, env.id).value("B"), Some("offline"));
 
     let b = Device::new();
     remote.0.offline.store(false, Ordering::SeqCst);
-    assert_eq!(get_env(&b.unlock(&remote), env.id).get("B"), None, "not pushed yet");
+    assert_eq!(get_env(&b.unlock(&remote), env.id).value("B"), None, "not pushed yet");
 
     vault.sync().unwrap();
-    assert_eq!(get_env(&b.unlock(&remote), env.id).get("B"), Some("offline"));
+    assert_eq!(get_env(&b.unlock(&remote), env.id).value("B"), Some("offline"));
 }
 
 #[test]
@@ -170,11 +170,11 @@ fn changes_on_both_sides_are_merged() {
 
     vault_a.sync().unwrap();
     let merged = get_env(&vault_a, env.id);
-    assert_eq!((merged.get("FROM_A"), merged.get("FROM_B")), (Some("a"), Some("b")));
+    assert_eq!((merged.value("FROM_A"), merged.value("FROM_B")), (Some("a"), Some("b")));
 
     vault_b.sync().unwrap();
     let seen_by_b = get_env(&vault_b, env.id);
-    assert_eq!((seen_by_b.get("FROM_A"), seen_by_b.get("FROM_B")), (Some("a"), Some("b")));
+    assert_eq!((seen_by_b.value("FROM_A"), seen_by_b.value("FROM_B")), (Some("a"), Some("b")));
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn online_writes_that_lose_a_race_merge_and_retry() {
 
     let c = Device::new();
     let merged = get_env(&c.unlock(&remote), env.id);
-    assert_eq!((merged.get("FROM_A"), merged.get("FROM_B")), (Some("a"), Some("b")));
+    assert_eq!((merged.value("FROM_A"), merged.value("FROM_B")), (Some("a"), Some("b")));
 }
 
 #[test]
@@ -223,11 +223,11 @@ fn a_wiped_remote_is_restored_from_the_cache() {
     remote.0.restore(BTreeMap::new());
 
     let vault = a.unlock(&remote);
-    assert_eq!(get_env(&vault, env.id).get("A"), Some("1"));
+    assert_eq!(get_env(&vault, env.id).value("A"), Some("1"));
     vault.sync().unwrap();
 
     let b = Device::new();
-    assert_eq!(get_env(&b.unlock(&remote), env.id).get("A"), Some("1"), "the bucket was refilled");
+    assert_eq!(get_env(&b.unlock(&remote), env.id).value("A"), Some("1"), "the bucket was refilled");
 }
 
 #[test]
