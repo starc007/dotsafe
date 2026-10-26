@@ -30,7 +30,7 @@ export function SurfaceHeader({
   return (
     <div className={cn("flex items-center gap-3 px-3 pt-2.5 pb-3.5", className)}>
       {icon && (
-        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-card text-muted-foreground shadow-xs ring-1 ring-foreground/5 [&_svg]:size-5">
+        <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-card text-muted-foreground [&_svg]:size-5">
           {icon}
         </div>
       )}
