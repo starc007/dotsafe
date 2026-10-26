@@ -14,6 +14,7 @@ const SAMPLE_FILES: Record<string, string> = {
   ".env.local": "DATABASE_URL=postgres://localhost:5432/app_local\nFEATURE_FLAGS=beta\n",
 };
 let importFiles: string[] = [];
+let licenseKey: string | null = null;
 const projects = new Map<string, string>();
 const envs = new Map<string, Env>();
 
@@ -171,6 +172,25 @@ export function installMockBackend() {
           importFiles = [];
           return r;
         }
+        case "get_settings":
+          return {
+            vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe",
+            licenseKey,
+            version: "0.1.0",
+            autoLockMinutes: 15,
+            clipboardClearSeconds: 30,
+          };
+        case "activate_license": {
+          const key = (a.key ?? "").trim();
+          if (!key) fail("other", "Enter your license key.");
+          if (/\s/.test(key) || key.length < 8)
+            fail("other", "That doesn't look like a license key. Copy it again from your purchase email.");
+          licenseKey = key;
+          return key;
+        }
+        case "remove_license":
+          licenseKey = null;
+          return null;
         case "plugin:dialog|open":
           return null;
         default:

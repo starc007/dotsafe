@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Ellipsis, Plus, Trash2 } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
+import { SHORTCUTS, useShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -24,6 +25,15 @@ export function ProjectPane({ project, onChanged }: { project: ProjectView; onCh
   const [confirm, setConfirm] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
   const env = project.environments.find((e) => e.id === envId) ?? project.environments[0] ?? null;
+
+  function stepEnvironment(delta: number) {
+    const envs = project.environments;
+    if (envs.length < 2 || !env) return;
+    const at = envs.findIndex((e) => e.id === env.id);
+    setEnvId(envs[(at + delta + envs.length) % envs.length].id);
+  }
+  useShortcut(SHORTCUTS.previousEnvironment, () => stepEnvironment(-1));
+  useShortcut(SHORTCUTS.nextEnvironment, () => stepEnvironment(1));
 
   async function createEnvironment(name: string) {
     const created = await api.createEnvironment(project.id, name);
