@@ -3,6 +3,7 @@
 //! Both the desktop app and the CLI depend on this crate so they read and
 //! write the same vault on disk. See `docs/vault-format.md` for the format.
 
+pub mod cache;
 pub mod config;
 pub mod crypto;
 pub mod dotenv;
@@ -13,12 +14,13 @@ pub mod model;
 pub mod store;
 pub mod vault;
 
-pub use config::Config;
+pub use config::{Config, S3Location};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::RecoveryKey;
 pub use license::{License, LicenseStatus};
 pub use model::{Environment, Project, Record, Stamp, is_valid_var_name};
+pub use cache::CachedStore;
 pub use store::{Cond, FolderStore, Put, Store};
 pub use vault::Vault;
 

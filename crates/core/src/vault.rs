@@ -221,6 +221,52 @@ impl Vault {
         lock(&self.stale).iter().copied().collect()
     }
 
+    /// Exchanges changes with the store's remote, if it has one (a
+    /// [`crate::CachedStore`]), then merges anything that changed on both
+    /// sides. Returns whether anything came in. Fails with
+    /// [`Error::Unreachable`] when offline; local changes are kept and pushed
+    /// next time.
+    pub fn sync(&self) -> Result<bool> {
+        let changed = self.store.sync()?;
+        self.refresh_head()?;
+        for (id, keys) in self.record_keys()? {
+            if keys.len() > 1
+                && let Some(record) = self.read_record_group(id, &keys)?.value
+            {
+                self.put(record)?;
+            }
+        }
+        if !self.read_head()?.copies.is_empty() {
+            self.compact_head()?;
+        }
+        // Push the merges.
+        self.store.sync()?;
+        Ok(changed)
+    }
+
+    /// Checks `password` against this vault's password slot without touching
+    /// storage. For confirming the password before sensitive changes.
+    pub fn check_password(&self, password: &str) -> Result<()> {
+        let key = self.header.unlock_with_password(password.as_bytes())?;
+        if key.as_bytes() == self.vault_key.as_bytes() { Ok(()) } else { Err(Error::InvalidCredentials) }
+    }
+
+    /// Rewrites `head.json` with its copies merged in.
+    fn compact_head(&self) -> Result<()> {
+        for _ in 0..MAX_ATTEMPTS {
+            let group = self.read_head()?;
+            let head = group.value.unwrap_or_default();
+            let cond = group.etag.map_or(Cond::IfAbsent, Cond::IfMatch);
+            if let Put::Written(_) = self.store.put(HEAD_KEY, &self.seal_head(&head)?, cond)? {
+                for copy in &group.copies {
+                    let _ = self.store.delete(copy);
+                }
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
     /// Replaces the password. Records are untouched; only the key slot changes.
     pub fn change_password(&mut self, new_password: &str, params: KdfParams) -> Result<()> {
         let mut header = self.header.clone();

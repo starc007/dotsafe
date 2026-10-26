@@ -24,6 +24,13 @@ pub struct Object {
     pub etag: ETag,
 }
 
+/// An object's key and current version, from a listing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObjectMeta {
+    pub key: String,
+    pub etag: ETag,
+}
+
 /// The condition a write must meet to go ahead.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cond {
@@ -51,6 +58,50 @@ pub trait Store: Send + Sync {
     fn put(&self, key: &str, bytes: &[u8], cond: Cond) -> Result<Put>;
     /// Removes an object if it exists.
     fn delete(&self, key: &str) -> Result<()>;
+
+    /// Like [`Store::list`], with each object's version. Stores that can list
+    /// versions cheaply (S3) override this; the default reads every object.
+    fn list_meta(&self, dir: &str) -> Result<Vec<ObjectMeta>> {
+        let mut metas = Vec::new();
+        for key in self.list(dir)? {
+            if let Some(object) = self.get(&key)? {
+                metas.push(ObjectMeta { key, etag: object.etag });
+            }
+        }
+        Ok(metas)
+    }
+
+    /// Exchanges changes with the remote, for stores that keep a local copy
+    /// ([`crate::CachedStore`]), and returns whether anything came in. Fails
+    /// with [`crate::Error::Unreachable`] when offline. A no-op for everything
+    /// else.
+    fn sync(&self) -> Result<bool> {
+        Ok(false)
+    }
+}
+
+impl Store for Box<dyn Store> {
+    fn location(&self) -> String {
+        (**self).location()
+    }
+    fn list(&self, dir: &str) -> Result<Vec<String>> {
+        (**self).list(dir)
+    }
+    fn get(&self, key: &str) -> Result<Option<Object>> {
+        (**self).get(key)
+    }
+    fn put(&self, key: &str, bytes: &[u8], cond: Cond) -> Result<Put> {
+        (**self).put(key, bytes, cond)
+    }
+    fn delete(&self, key: &str) -> Result<()> {
+        (**self).delete(key)
+    }
+    fn list_meta(&self, dir: &str) -> Result<Vec<ObjectMeta>> {
+        (**self).list_meta(dir)
+    }
+    fn sync(&self) -> Result<bool> {
+        (**self).sync()
+    }
 }
 
 /// A vault in a local folder, usually one a sync client mirrors (iCloud Drive,
@@ -141,13 +192,13 @@ impl Store for FolderStore {
     }
 }
 
-fn etag(bytes: &[u8]) -> ETag {
+pub(crate) fn etag(bytes: &[u8]) -> ETag {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Writes via a hidden temp file and rename, so sync clients and readers never
 /// see a half-written file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let tmp = dir.join(format!(".{name}.{}.tmp", Uuid::new_v4()));
