@@ -39,10 +39,10 @@ export function SettingsPage({
 
   useEffect(() => {
     load();
-    // The background license check found a change.
-    const unlisten = listen("license-changed", load);
+    // The background license check or a sync found a change.
+    const unlisteners = [listen("license-changed", load), listen("vault-synced", load)];
     return () => {
-      unlisten.then((f) => f());
+      unlisteners.forEach((u) => u.then((f) => f()));
     };
   }, [load]);
 
@@ -100,7 +100,7 @@ export function SettingsPage({
                 <p className="px-1 text-muted-foreground">{meta.description}</p>
                 {section === "license" && <LicenseCard license={settings.license} onChanged={load} />}
                 {section === "appearance" && <AppearanceSettings />}
-                {section === "security" && <SecuritySettings settings={settings} onLock={onLock} />}
+                {section === "security" && <SecuritySettings settings={settings} onLock={onLock} onChanged={load} />}
                 {section === "shortcuts" && <ShortcutsSettings />}
                 <p className="pt-2 text-center text-xs text-muted-foreground">dotsafe {settings.version}</p>
               </motion.div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
 import { FolderLock, Lock, Plus, Settings as SettingsIcon } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
@@ -59,6 +60,11 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
 
   useEffect(() => {
     load();
+    // Another device's changes arrived through the bucket.
+    const unlisten = listen("vault-synced", load);
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [load]);
 
   async function createProject(name: string) {

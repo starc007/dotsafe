@@ -78,8 +78,12 @@ export function VariableList({
 
   useEffect(() => {
     load();
+    const unlisten = listen("vault-synced", load);
     const t = timers.current;
-    return () => t.forEach((id) => window.clearTimeout(id));
+    return () => {
+      unlisten.then((f) => f());
+      t.forEach((id) => window.clearTimeout(id));
+    };
   }, [load]);
 
   // Dropping .env files anywhere on the window opens the import dialog. Rust

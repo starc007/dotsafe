@@ -14,6 +14,11 @@ const SAMPLE_FILES: Record<string, string> = {
   ".env.local": "DATABASE_URL=postgres://localhost:5432/app_local\nFEATURE_FLAGS=beta\n",
 };
 let importFiles: string[] = [];
+// `?bucket` starts with a vault in an S3 bucket instead of iCloud Drive.
+let storage = new URLSearchParams(location.search).has("bucket")
+  ? { kind: "s3", path: "s3://my-vaults/dotsafe" }
+  : { kind: "folder", path: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
+let lastSyncedAt: number | null = Date.now() - 3 * 60_000;
 // `?offline` makes every license server call fail. Keys containing LIMIT or
 // REVOKED act out those answers.
 const licenseOffline = new URLSearchParams(location.search).has("offline");
@@ -80,12 +85,23 @@ export function installMockBackend() {
     async (cmd, raw) => {
       const a = (raw ?? {}) as Record<string, string>;
       await new Promise((r) => setTimeout(r, 120));
-      const needsUnlock = !["status", "folder_has_vault", "create_vault", "connect_vault", "unlock", "unlock_with_recovery", "lock"].includes(cmd);
+      const needsUnlock = ![
+        "status",
+        "folder_has_vault",
+        "create_vault",
+        "connect_vault",
+        "bucket_has_vault",
+        "create_bucket_vault",
+        "connect_bucket_vault",
+        "unlock",
+        "unlock_with_recovery",
+        "lock",
+      ].includes(cmd);
       if (needsUnlock && !unlocked) fail("locked", "The vault is locked.");
 
       switch (cmd) {
         case "status":
-          return { configured, unlocked, mustChangePassword, vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe", defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
+          return { configured, unlocked, mustChangePassword, vaultPath: storage.path, defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
         case "folder_has_vault":
           return false;
         case "create_vault":
@@ -201,9 +217,34 @@ export function installMockBackend() {
           importFiles = [];
           return r;
         }
+        case "bucket_has_vault": {
+          await delay(500);
+          const b = (raw as { bucket: { endpoint: string; bucket: string } }).bucket;
+          if (!b.endpoint.startsWith("https://")) fail("other", "The endpoint must start with https://.");
+          if (b.bucket === "offline") fail("offline", "Couldn't reach s3://offline. Check your connection and try again.");
+          return b.bucket === "existing";
+        }
+        case "create_bucket_vault":
+        case "connect_bucket_vault": {
+          await delay(500);
+          const b = (raw as { bucket: { bucket: string; prefix: string }; password: string });
+          if (cmd === "connect_bucket_vault" && b.password !== password) fail("invalid_password", "Wrong password.");
+          configured = true;
+          unlocked = true;
+          storage = { kind: "s3", path: `s3://${b.bucket.bucket}${b.bucket.prefix ? `/${b.bucket.prefix}` : ""}` };
+          lastSyncedAt = Date.now();
+          return cmd === "create_bucket_vault" ? recoveryKey : null;
+        }
+        case "sync_now":
+          await delay(600);
+          lastSyncedAt = Date.now();
+          return { lastSyncedAt, error: null };
         case "get_settings":
           return {
-            vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe",
+            vaultPath: storage.path,
+            storage: storage.kind,
+            lastSyncedAt: storage.kind === "s3" ? lastSyncedAt : null,
+            syncError: null,
             license,
             version: "0.1.0",
             autoLockMinutes: 15,

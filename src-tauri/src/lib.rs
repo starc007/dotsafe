@@ -2,6 +2,7 @@ mod commands;
 mod import;
 mod licensing;
 mod state;
+mod sync;
 
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 
@@ -17,6 +18,7 @@ pub fn run() {
             let state = app.state::<AppState>();
             state.spawn_housekeeping(app.handle().clone());
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
+            sync::spawn_syncer(state.inner().clone(), app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -41,6 +43,10 @@ pub fn run() {
             commands::folder_has_vault,
             commands::create_vault,
             commands::connect_vault,
+            commands::bucket_has_vault,
+            commands::create_bucket_vault,
+            commands::connect_bucket_vault,
+            commands::sync_now,
             commands::unlock,
             commands::unlock_with_recovery,
             commands::change_password,

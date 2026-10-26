@@ -32,15 +32,32 @@ export type License = {
   status: LicenseStatus;
 };
 
+/** An S3-compatible bucket and its access key, as entered during setup. */
+export type BucketInput = {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  prefix: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+};
+
+export type SyncView = { lastSyncedAt: number | null; error: string | null };
+
 export type Settings = {
+  /** A folder path, or `s3://bucket/prefix` for a vault in a bucket. */
   vaultPath: string | null;
+  storage: "folder" | "s3";
+  /** Milliseconds since the epoch. Bucket vaults only. */
+  lastSyncedAt: number | null;
+  syncError: string | null;
   license: License | null;
   version: string;
   autoLockMinutes: number;
   clipboardClearSeconds: number;
 };
 
-/** `offline`: the license server couldn't be reached. */
+/** `offline`: the license server or the vault's bucket couldn't be reached. */
 export type ErrorKind = "locked" | "invalid_password" | "offline" | "other";
 
 export class ApiError extends Error {
@@ -101,6 +118,12 @@ export const api = {
   importVariables: (environmentId: string, source: ImportSource, overwrite: boolean) =>
     call<ImportResult>("import_variables", { environmentId, source, overwrite }),
 
+  bucketHasVault: (bucket: BucketInput) => call<boolean>("bucket_has_vault", { bucket }),
+  createBucketVault: (bucket: BucketInput, password: string) =>
+    call<string>("create_bucket_vault", { bucket, password }),
+  connectBucketVault: (bucket: BucketInput, password: string) =>
+    call<void>("connect_bucket_vault", { bucket, password }),
+  syncNow: () => call<SyncView>("sync_now"),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),
