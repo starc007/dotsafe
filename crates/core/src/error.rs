@@ -20,6 +20,13 @@ pub enum Error {
     AlreadyExists(String),
     #[error("no vault found at {0}")]
     NotFound(String),
+    /// The store couldn't be reached (offline, timeout, server error). Worth
+    /// retrying later; a cached vault keeps working meanwhile.
+    #[error("couldn't reach {0}")]
+    Unreachable(String),
+    /// The store refused the request (bad credentials, missing bucket, ...).
+    #[error("storage error: {0}")]
+    Storage(String),
     #[error("system random number generator failed")]
     Rng,
     #[error(transparent)]
