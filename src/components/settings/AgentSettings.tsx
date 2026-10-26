@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { Bot, Check, Copy, History, ShieldCheck } from "lucide-react";
+import { Bot, Check, Copy, Fingerprint, History, ShieldCheck } from "lucide-react";
 import { api, message, type AgentActivity } from "@/lib/api";
 import { daysAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconButton } from "@/components/IconButton";
 import { ActionSwapIcon } from "@/components/motion/action-swap";
@@ -42,6 +44,17 @@ export function AgentSettings() {
     window.setTimeout(() => setCopied(false), 1500);
   }
 
+  async function setApprovalAuth(required: boolean) {
+    try {
+      await api.setAgentApprovalAuth(required);
+      toast(required ? "Approvals ask for Touch ID" : "Approvals no longer ask for Touch ID");
+    } catch (e) {
+      toast(message(e));
+    } finally {
+      load();
+    }
+  }
+
   async function revoke() {
     try {
       await api.revokeAgentGrants();
@@ -75,6 +88,40 @@ export function AgentSettings() {
             For Cursor and other agents, <code className="font-mono">dotsafe mcp setup</code> prints the config to add.
             Agents can only reach dotsafe while this app is open and unlocked.
           </p>
+        </SurfaceBody>
+      </Surface>
+
+      <Surface aria-labelledby="agents-approvals-title">
+        <SurfaceHeader icon={<Fingerprint aria-hidden />}>
+          <SurfaceTitle id="agents-approvals-title">Approvals</SurfaceTitle>
+          <SurfaceDescription>How you say yes to an agent.</SurfaceDescription>
+        </SurfaceHeader>
+        <SurfaceBody>
+          {activity === null ? (
+            <Skeleton aria-hidden className="h-5 w-1/2" />
+          ) : activity.approvalAuthAvailable ? (
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="approval-auth"
+                checked={activity.approvalAuth}
+                onCheckedChange={(checked) => setApprovalAuth(checked === true)}
+                className="mt-0.5"
+              />
+              <div className="flex flex-col gap-0.5">
+                <Label htmlFor="approval-auth" className="font-medium">
+                  Confirm with Touch ID
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Allowing a request asks for Touch ID, or your login password, so only someone at this Mac can approve
+                  it. Turning this off asks too.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground">
+              Requests are approved with a click. Touch ID confirmation needs a Mac with a login password.
+            </p>
+          )}
         </SurfaceBody>
       </Surface>
 

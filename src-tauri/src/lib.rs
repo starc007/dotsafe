@@ -2,6 +2,7 @@ mod broker;
 mod commands;
 mod import;
 mod licensing;
+mod presence;
 mod secrets;
 mod state;
 mod sync;
@@ -91,6 +92,7 @@ pub fn run() {
             broker::answer_agent_request,
             broker::agent_activity,
             broker::revoke_agent_grants,
+            broker::set_agent_approval_auth,
             commands::get_settings,
             commands::activate_license,
             commands::check_license,

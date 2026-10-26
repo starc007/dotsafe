@@ -35,7 +35,7 @@ dotsafe secret history STRIPE_KEY       # versions and notes, never values
 dotsafe secret due                      # what's due under each secret's rotation policy
 ```
 
-**AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
+**AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
 
 `dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key.
 

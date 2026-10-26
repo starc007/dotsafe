@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { ArrowLeftRight, Bot, Sparkles } from "lucide-react";
+import { ArrowLeftRight, Bot, Fingerprint, Sparkles } from "lucide-react";
 import { api, message, type ApprovalRequest, type GrantLifetime } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
@@ -20,12 +21,23 @@ const LIFETIMES: { value: GrantLifetime; label: string }[] = [
 export function AgentApproval() {
   const [queue, setQueue] = useState<ApprovalRequest[]>([]);
   const [lifetime, setLifetime] = useState<GrantLifetime>("once");
-  const [busy, setBusy] = useState(false);
+  // "allow" while Touch ID is up, so the button can say so.
+  const [busy, setBusy] = useState<"allow" | "deny" | null>(null);
+  // Whether allowing asks for Touch ID (or the login password).
+  const [needsAuth, setNeedsAuth] = useState(false);
   const current = queue[0] ?? null;
   // Keep showing the last request while the dialog animates closed.
   const [shown, setShown] = useState<ApprovalRequest | null>(null);
   useEffect(() => {
     if (current) setShown(current);
+  }, [current]);
+
+  useEffect(() => {
+    if (!current) return;
+    api
+      .agentActivity()
+      .then((a) => setNeedsAuth(a.approvalAuth))
+      .catch(() => setNeedsAuth(false));
   }, [current]);
 
   useEffect(() => {
@@ -39,17 +51,31 @@ export function AgentApproval() {
 
   async function answer(allow: boolean) {
     if (!current) return;
-    setBusy(true);
+    setBusy(allow ? "allow" : "deny");
     try {
       await api.answerAgentRequest(current.id, allow ? lifetime : null);
-    } catch (e) {
-      toast.error(message(e));
-    } finally {
       setQueue((q) => q.slice(1));
       setLifetime("once");
-      setBusy(false);
+    } catch (e) {
+      // Touch ID cancelled: the request stays open to try again or deny.
+      // Anything else (it expired) drops it.
+      const text = message(e);
+      if (text.startsWith("Not approved")) toast(text);
+      else {
+        toast.error(text);
+        setQueue((q) => q.slice(1));
+      }
+    } finally {
+      setBusy(null);
     }
   }
+
+  const allowLabel = (label: string) => (
+    <>
+      {busy === "allow" ? <Spinner /> : needsAuth && <Fingerprint aria-hidden />}
+      {busy === "allow" && needsAuth ? "Confirm with Touch ID…" : label}
+    </>
+  );
 
   const request = current ?? shown;
   return (
@@ -81,11 +107,11 @@ export function AgentApproval() {
             can use it.
           </p>
           <SurfaceFooter className="pt-1">
-            <Button variant="ghost" onClick={() => answer(false)} disabled={busy}>
+            <Button variant="ghost" onClick={() => answer(false)} disabled={busy !== null}>
               Deny
             </Button>
-            <Button onClick={() => answer(true)} disabled={busy}>
-              Add it
+            <Button onClick={() => answer(true)} disabled={busy !== null}>
+              {allowLabel("Add it")}
             </Button>
           </SurfaceFooter>
         </div>
@@ -151,11 +177,11 @@ export function AgentApproval() {
           </div>
 
           <SurfaceFooter className="pt-1">
-            <Button variant="ghost" onClick={() => answer(false)} disabled={busy}>
+            <Button variant="ghost" onClick={() => answer(false)} disabled={busy !== null}>
               Deny
             </Button>
-            <Button onClick={() => answer(true)} disabled={busy}>
-              Allow
+            <Button onClick={() => answer(true)} disabled={busy !== null}>
+              {allowLabel("Allow")}
             </Button>
           </SurfaceFooter>
         </div>

@@ -79,6 +79,8 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
 // Agents. `?agent` sends an approval request a moment after unlocking.
 type MockGrant = { command: string; cwd: string; variables: number; expiresIn: number | null };
 const agentGrants: MockGrant[] = [];
+// The mock's stand-in for Touch ID always confirms, after a moment.
+let agentApprovalAuth = true;
 const agentLog: { at: number; actor: string; action: string; outcome: string; summary: string; environment: string; variables: string[]; detail: string | null }[] = [];
 const pendingAgent = new Map<string, { command: string[]; cwd: string; variables: number }>();
 function fakeAgentRequest() {
@@ -221,6 +223,7 @@ export function installMockBackend() {
           if (new URLSearchParams(location.search).has("agent")) setTimeout(fakeAgentRequest, 1500);
           return null;
         case "answer_agent_request": {
+          if ((raw as { lifetime: string | null }).lifetime && agentApprovalAuth) await delay(700);
           const req = pendingAgent.get(a.id) ?? fail("other", "That request already expired.");
           pendingAgent.delete(a.id);
           const lifetime = (raw as { lifetime: string | null }).lifetime;
@@ -242,7 +245,11 @@ export function installMockBackend() {
           return null;
         }
         case "agent_activity":
-          return { grants: agentGrants, recent: agentLog };
+          return { approvalAuth: agentApprovalAuth, approvalAuthAvailable: true, grants: agentGrants, recent: agentLog };
+        case "set_agent_approval_auth":
+          await delay(400);
+          agentApprovalAuth = (raw as { required: boolean }).required;
+          return null;
         case "revoke_agent_grants":
           agentGrants.length = 0;
           return null;
