@@ -22,7 +22,10 @@ pub struct AppState(pub Arc<Mutex<Session>>);
 
 pub struct Session {
     pub config: Option<Config>,
-    pub vault: Option<Vault>,
+    /// Shared so background sync can use it without holding the session lock.
+    pub vault: Option<Arc<Vault>>,
+    /// Last background or manual sync with the bucket, for vaults in S3.
+    pub sync: SyncStatus,
     pub last_activity: Instant,
     /// Hash of a secret we put on the clipboard, so we only clear it if the
     /// user hasn't copied something else since.
@@ -40,12 +43,21 @@ impl Default for Session {
         Session {
             config: Config::load().ok().flatten(),
             vault: None,
+            sync: SyncStatus::default(),
             last_activity: Instant::now(),
             clipboard: None,
             import_files: Vec::new(),
             must_change_password: false,
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct SyncStatus {
+    /// Unix milliseconds of the last successful sync.
+    pub last_synced_at: Option<u64>,
+    /// Why the last attempt failed, if it did.
+    pub error: Option<String>,
 }
 
 /// Errors as the UI sees them: a kind it can branch on, and a message to show.
@@ -60,7 +72,7 @@ pub struct CmdError {
 pub enum ErrorKind {
     Locked,
     InvalidPassword,
-    /// The license server couldn't be reached.
+    /// The license server or the vault's bucket couldn't be reached.
     Offline,
     Other,
 }
@@ -80,6 +92,11 @@ impl From<dotsafe_core::Error> for CmdError {
             dotsafe_core::Error::NotFound(location) => {
                 CmdError::other(format!("No vault found at {location}. Is the synced folder available?"))
             }
+            dotsafe_core::Error::Unreachable(location) => CmdError {
+                kind: ErrorKind::Offline,
+                message: format!("Couldn't reach {location}. Check your connection and try again."),
+            },
+            dotsafe_core::Error::Storage(message) => CmdError::other(capitalize(&message)),
             e => CmdError::other(e.to_string()),
         }
     }
@@ -96,9 +113,15 @@ impl Session {
     }
 
     pub fn vault(&self) -> CmdResult<&Vault> {
-        self.vault
-            .as_ref()
-            .ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })
+        self.vault.as_deref().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })
+    }
+
+    /// The vault, for changes that need it to themselves (password, recovery
+    /// key). Fails briefly while a background sync is using it.
+    pub fn vault_mut(&mut self) -> CmdResult<&mut Vault> {
+        let vault =
+            self.vault.as_mut().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })?;
+        Arc::get_mut(vault).ok_or_else(|| CmdError::other("dotsafe is syncing. Try again in a moment."))
     }
 
     pub fn config(&self) -> CmdResult<&Config> {
@@ -168,6 +191,11 @@ impl AppState {
             }
         });
     }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
 pub fn hash_text(text: &str) -> [u8; 32] {

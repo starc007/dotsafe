@@ -3,13 +3,16 @@
 //! straight from Rust to the clipboard.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use dotsafe_core::license::unix_now;
 use dotsafe_core::{
-    Config, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Vault, config, is_valid_var_name,
+    CachedStore, Config, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey,
+    S3Location, Store, Vault, config, is_valid_var_name,
 };
-use serde::Serialize;
+use dotsafe_stores::{S3Credentials, S3Store};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
@@ -29,6 +32,7 @@ const DEFAULT_ENV: &str = "development";
 pub struct Status {
     configured: bool,
     unlocked: bool,
+    /// Where the vault lives, for display: a folder path or `s3://bucket/prefix`.
     vault_path: Option<String>,
     default_vault_path: Option<String>,
     must_change_password: bool,
@@ -63,7 +67,7 @@ pub async fn status(state: State<'_, AppState>) -> CmdResult<Status> {
             Ok(Status {
                 configured: s.config.is_some(),
                 unlocked: s.vault.is_some(),
-                vault_path: s.config.as_ref().map(|c| c.vault_path.display().to_string()),
+                vault_path: s.config.as_ref().map(Config::describe_location),
                 default_vault_path: config::default_vault_path().ok().map(|p| p.display().to_string()),
                 must_change_password: s.must_change_password,
             })
@@ -89,9 +93,119 @@ pub async fn create_vault(state: State<'_, AppState>, path: String, password: St
             let config = Config::for_vault(path);
             config.save()?;
             s.config = Some(config);
-            s.vault = Some(vault);
+            s.vault = Some(Arc::new(vault));
             Ok(recovery)
         })
+        .await
+}
+
+/// A bucket as the setup form describes it, with its access key.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketInput {
+    endpoint: String,
+    region: String,
+    bucket: String,
+    prefix: String,
+    access_key_id: String,
+    secret_access_key: String,
+}
+
+impl BucketInput {
+    fn parse(self) -> CmdResult<(S3Location, S3Credentials)> {
+        let endpoint = self.endpoint.trim().trim_end_matches('/').to_string();
+        let local = endpoint.starts_with("http://localhost") || endpoint.starts_with("http://127.0.0.1");
+        if !endpoint.starts_with("https://") && !local {
+            return Err(CmdError::other("The endpoint must start with https://."));
+        }
+        let bucket = required(self.bucket, "bucket")?;
+        let access_key_id = self.access_key_id.trim().to_string();
+        if access_key_id.is_empty() || self.secret_access_key.trim().is_empty() {
+            return Err(CmdError::other("Enter the access key ID and secret."));
+        }
+        let region = match self.region.trim() {
+            "" => "auto".to_string(),
+            region => region.to_string(),
+        };
+        let location = S3Location { endpoint, region, bucket, prefix: self.prefix.trim().trim_matches('/').to_string() };
+        let credentials =
+            S3Credentials { access_key_id, secret_access_key: Zeroizing::new(self.secret_access_key.trim().to_string()) };
+        Ok((location, credentials))
+    }
+}
+
+/// Whether the bucket already holds a vault. Also checks the access key works.
+#[tauri::command]
+pub async fn bucket_has_vault(bucket: BucketInput) -> CmdResult<bool> {
+    let (location, credentials) = bucket.parse()?;
+    tauri::async_runtime::spawn_blocking(move || -> CmdResult<bool> {
+        let store = S3Store::new(&location, &credentials)?;
+        Ok(store.get("vault.json")?.is_some())
+    })
+    .await
+    .map_err(|e| CmdError::other(e.to_string()))?
+}
+
+/// Creates a vault in a bucket and returns its recovery key, shown once.
+#[tauri::command]
+pub async fn create_bucket_vault(
+    state: State<'_, AppState>,
+    bucket: BucketInput,
+    password: String,
+) -> CmdResult<String> {
+    let password = Zeroizing::new(password);
+    check_new_password(&password).map_err(CmdError::other)?;
+    let (location, credentials) = bucket.parse()?;
+    state
+        .run(move |s| {
+            let store = CachedStore::open(S3Store::new(&location, &credentials)?, config::cache_dir(&location)?)?;
+            let mut vault = Vault::create(store, &password, KdfParams::default())?;
+            let recovery = vault.reset_recovery_key()?.to_display_string();
+            dotsafe_stores::save_credentials(&location, &credentials)?;
+            let config = Config::for_s3(location)?;
+            config.save()?;
+            s.config = Some(config);
+            s.vault = Some(Arc::new(vault));
+            Ok(recovery)
+        })
+        .await
+}
+
+/// Connects this machine to a vault that's already in a bucket.
+#[tauri::command]
+pub async fn connect_bucket_vault(state: State<'_, AppState>, bucket: BucketInput, password: String) -> CmdResult<()> {
+    let password = Zeroizing::new(password);
+    let (location, credentials) = bucket.parse()?;
+    state
+        .run(move |s| {
+            let store = CachedStore::open(S3Store::new(&location, &credentials)?, config::cache_dir(&location)?)?;
+            let vault = Vault::unlock(store, &password)?;
+            dotsafe_stores::save_credentials(&location, &credentials)?;
+            let config = Config::for_s3(location)?;
+            config.save()?;
+            s.config = Some(config);
+            s.vault = Some(Arc::new(vault));
+            Ok(())
+        })
+        .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncView {
+    last_synced_at: Option<u64>,
+    error: Option<String>,
+}
+
+/// Syncs a bucket vault now, instead of waiting for the background sync.
+#[tauri::command]
+pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> CmdResult<SyncView> {
+    let inner = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::sync::sync_once(&inner, Some(&app)))
+        .await
+        .map_err(|e| CmdError::other(e.to_string()))??;
+    state
+        .run(|s| Ok(SyncView { last_synced_at: s.sync.last_synced_at, error: s.sync.error.clone() }))
         .await
 }
 
@@ -106,7 +220,7 @@ pub async fn connect_vault(state: State<'_, AppState>, path: String, password: S
             let config = Config::for_vault(path);
             config.save()?;
             s.config = Some(config);
-            s.vault = Some(vault);
+            s.vault = Some(Arc::new(vault));
             Ok(())
         })
         .await
@@ -117,8 +231,9 @@ pub async fn unlock(state: State<'_, AppState>, password: String) -> CmdResult<(
     let password = Zeroizing::new(password);
     state
         .run(move |s| {
-            let vault = Vault::unlock(FolderStore::new(&s.config()?.vault_path), &password)?;
-            s.vault = Some(vault);
+            let vault = Vault::unlock(dotsafe_stores::open(s.config()?)?, &password)?;
+            s.vault = Some(Arc::new(vault));
+            s.sync = Default::default();
             s.must_change_password = false;
             Ok(())
         })
@@ -135,14 +250,16 @@ pub async fn unlock_with_recovery(state: State<'_, AppState>, recovery_key: Stri
     })?;
     state
         .run(move |s| {
-            let vault = Vault::unlock_with_recovery(FolderStore::new(&s.config()?.vault_path), &key).map_err(|e| match e {
+            let store = dotsafe_stores::open(s.config()?)?;
+            let vault = Vault::unlock_with_recovery(store, &key).map_err(|e| match e {
                 dotsafe_core::Error::InvalidCredentials => CmdError {
                     kind: ErrorKind::InvalidPassword,
                     message: "That recovery key doesn't match this vault.".into(),
                 },
                 e => e.into(),
             })?;
-            s.vault = Some(vault);
+            s.vault = Some(Arc::new(vault));
+            s.sync = Default::default();
             s.must_change_password = true;
             Ok(())
         })
@@ -165,8 +282,7 @@ pub async fn change_password(
             if !s.must_change_password {
                 verify_password(s, current.as_deref().map(String::as_str))?;
             }
-            let vault = s.vault.as_mut().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })?;
-            vault.change_password(&new_password, KdfParams::default())?;
+            s.vault_mut()?.change_password(&new_password, KdfParams::default())?;
             s.must_change_password = false;
             Ok(())
         })
@@ -181,8 +297,7 @@ pub async fn reset_recovery_key(state: State<'_, AppState>, password: String) ->
     state
         .run(move |s| {
             verify_password(s, Some(&password))?;
-            let vault = s.vault.as_mut().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })?;
-            Ok(vault.reset_recovery_key()?.to_display_string())
+            Ok(s.vault_mut()?.reset_recovery_key()?.to_display_string())
         })
         .await
 }
@@ -191,7 +306,7 @@ pub async fn reset_recovery_key(state: State<'_, AppState>, password: String) ->
 /// Mac left unattended can't be used to take over the vault.
 fn verify_password(s: &crate::state::Session, password: Option<&str>) -> CmdResult<()> {
     let password = password.filter(|p| !p.is_empty()).ok_or_else(|| CmdError::other("Enter your current password."))?;
-    match Vault::unlock(FolderStore::new(&s.config()?.vault_path), password) {
+    match s.vault()?.check_password(password) {
         Ok(_) => Ok(()),
         Err(dotsafe_core::Error::InvalidCredentials) => Err(CmdError {
             kind: ErrorKind::InvalidPassword,
@@ -526,6 +641,10 @@ pub async fn import_variables(
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     vault_path: Option<String>,
+    /// `folder` or `s3`.
+    storage: &'static str,
+    last_synced_at: Option<u64>,
+    sync_error: Option<String>,
     license: Option<LicenseView>,
     version: &'static str,
     auto_lock_minutes: u64,
@@ -560,7 +679,10 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
     state
         .run(|s| {
             Ok(Settings {
-                vault_path: s.config.as_ref().map(|c| c.vault_path.display().to_string()),
+                vault_path: s.config.as_ref().map(Config::describe_location),
+                storage: if s.config.as_ref().is_some_and(|c| c.s3.is_some()) { "s3" } else { "folder" },
+                last_synced_at: s.sync.last_synced_at,
+                sync_error: s.sync.error.clone(),
                 license: s.config.as_ref().and_then(|c| c.license.as_ref()).map(LicenseView::from),
                 version: env!("CARGO_PKG_VERSION"),
                 auto_lock_minutes: IDLE_LOCK.as_secs() / 60,

@@ -1,17 +1,42 @@
 import { useState } from "react";
-import { KeyRound, Lock, ShieldCheck } from "lucide-react";
-import type { Settings } from "@/lib/api";
+import { toast } from "sonner";
+import { KeyRound, Lock, RefreshCw, ShieldCheck } from "lucide-react";
+import { api, message, type Settings } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { SHORTCUTS, ariaShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { NewRecoveryKeyDialog } from "@/components/NewRecoveryKeyDialog";
 import { SettingsRow } from "@/components/SettingsRow";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
-export function SecuritySettings({ settings, onLock }: { settings: Settings; onLock: () => void }) {
+export function SecuritySettings({
+  settings,
+  onLock,
+  onChanged,
+}: {
+  settings: Settings;
+  onLock: () => void;
+  onChanged: () => void;
+}) {
   const [dialog, setDialog] = useState<"password" | "recovery" | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const inBucket = settings.storage === "s3";
+
+  async function syncNow() {
+    setSyncing(true);
+    try {
+      await api.syncNow();
+      toast.success("Synced");
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setSyncing(false);
+      onChanged();
+    }
+  }
   return (
     <>
       <Surface aria-labelledby="access-title">
@@ -46,11 +71,26 @@ export function SecuritySettings({ settings, onLock }: { settings: Settings; onL
           <SurfaceDescription>Where your vault lives and how dotsafe keeps it safe.</SurfaceDescription>
         </SurfaceHeader>
         <SurfaceBody className="divide-y">
-          <SettingsRow label="Vault location" detail="Synced by the service that owns this folder.">
+          <SettingsRow
+            label="Vault location"
+            detail={
+              inBucket
+                ? "Your bucket only ever holds encrypted files. A copy is cached on this Mac for offline use."
+                : "Synced by the service that owns this folder."
+            }
+          >
             <span title={settings.vaultPath ?? undefined} className="selectable block max-w-56 truncate">
               {settings.vaultPath ? displayPath(settings.vaultPath) : "Not set up"}
             </span>
           </SettingsRow>
+          {inBucket && (
+            <SettingsRow label="Sync" detail={settings.syncError ?? syncedLabel(settings.lastSyncedAt)}>
+              <Button variant="outline" onClick={syncNow} disabled={syncing}>
+                {syncing ? <Spinner /> : <RefreshCw aria-hidden />}
+                Sync now
+              </Button>
+            </SettingsRow>
+          )}
           <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while.">
             After {settings.autoLockMinutes} minutes
           </SettingsRow>
@@ -64,4 +104,11 @@ export function SecuritySettings({ settings, onLock }: { settings: Settings; onL
       <NewRecoveryKeyDialog open={dialog === "recovery"} onOpenChange={(open) => !open && setDialog(null)} />
     </>
   );
+}
+
+function syncedLabel(at: number | null): string {
+  if (!at) return "Syncs every minute while dotsafe is unlocked.";
+  const minutes = Math.round((Date.now() - at) / 60_000);
+  if (minutes < 1) return "Synced just now.";
+  return `Synced ${new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-minutes, "minute")}.`;
 }
