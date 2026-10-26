@@ -1,0 +1,7 @@
+# Copy to .dev.vars for `bun run dev`. Never commit .dev.vars.
+# Dodo dashboard → Developer → API Keys (test mode key for local dev)
+DODO_API_KEY=
+# Dodo dashboard → Developer → Webhooks → signing secret (whsec_...)
+DODO_WEBHOOK_KEY=
+# Override wrangler.jsonc vars locally, e.g. your test product id
+DODO_PRODUCT_ID=

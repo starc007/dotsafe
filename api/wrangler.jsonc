@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dotsafe-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  // Non-secret settings. Secrets (DODO_API_KEY, DODO_WEBHOOK_KEY) are set with
+  // `wrangler secret put` and, for local dev, in .dev.vars (gitignored).
+  "vars": {
+    "DODO_MODE": "test_mode",
+    "DODO_PRODUCT_ID": "",
+    "CHECKOUT_RETURN_URL": "https://dotsafe.app/thanks",
+    "ALLOWED_ORIGINS": "https://dotsafe.app,http://localhost:3000"
+  },
+  "env": {
+    "production": {
+      "vars": {
+        "DODO_MODE": "live_mode",
+        "DODO_PRODUCT_ID": "",
+        "CHECKOUT_RETURN_URL": "https://dotsafe.app/thanks",
+        "ALLOWED_ORIGINS": "https://dotsafe.app"
+      }
+    }
+  }
+}
