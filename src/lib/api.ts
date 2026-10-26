@@ -21,15 +21,27 @@ export type ImportPreview = {
 };
 export type ImportResult = { added: number; updated: number; unchanged: number; skipped: number };
 
+export type LicenseStatus = "active" | "unverified" | "revoked";
+export type License = {
+  key: string;
+  deviceName: string;
+  /** Milliseconds since the epoch. */
+  activatedAt: number;
+  /** When the license server last confirmed it. */
+  checkedAt: number;
+  status: LicenseStatus;
+};
+
 export type Settings = {
   vaultPath: string | null;
-  licenseKey: string | null;
+  license: License | null;
   version: string;
   autoLockMinutes: number;
   clipboardClearSeconds: number;
 };
 
-export type ErrorKind = "locked" | "invalid_password" | "other";
+/** `offline`: the license server couldn't be reached. */
+export type ErrorKind = "locked" | "invalid_password" | "offline" | "other";
 
 export class ApiError extends Error {
   constructor(
@@ -90,8 +102,10 @@ export const api = {
     call<ImportResult>("import_variables", { environmentId, source, overwrite }),
 
   getSettings: () => call<Settings>("get_settings"),
-  activateLicense: (key: string) => call<string>("activate_license", { key }),
-  removeLicense: () => call<void>("remove_license"),
+  activateLicense: (key: string) => call<License>("activate_license", { key }),
+  checkLicense: () => call<License | null>("check_license"),
+  /** `force` forgets the license even if the server can't be told. */
+  removeLicense: (force = false) => call<void>("remove_license", { force }),
 };
 
 export function message(e: unknown): string {

@@ -8,6 +8,7 @@ pub mod crypto;
 pub mod dotenv;
 pub mod error;
 pub mod header;
+pub mod license;
 pub mod model;
 pub mod vault;
 
@@ -15,6 +16,7 @@ pub use config::Config;
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::RecoveryKey;
+pub use license::{License, LicenseStatus};
 pub use model::{Environment, Project, Record, Stamp, is_valid_var_name};
 pub use vault::Vault;
 

@@ -60,6 +60,8 @@ pub struct CmdError {
 pub enum ErrorKind {
     Locked,
     InvalidPassword,
+    /// The license server couldn't be reached.
+    Offline,
     Other,
 }
 

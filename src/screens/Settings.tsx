@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
 import { api, message, type Settings } from "@/lib/api";
 import { fast } from "@/lib/motion";
@@ -38,6 +39,11 @@ export function SettingsPage({
 
   useEffect(() => {
     load();
+    // The background license check found a change.
+    const unlisten = listen("license-changed", load);
+    return () => {
+      unlisten.then((f) => f());
+    };
   }, [load]);
 
   // Esc closes settings. In a field with text, the first Esc only leaves the field.
@@ -92,7 +98,7 @@ export function SettingsPage({
                 className="flex flex-col gap-4"
               >
                 <p className="px-1 text-muted-foreground">{meta.description}</p>
-                {section === "license" && <LicenseCard licenseKey={settings.licenseKey} onChanged={load} />}
+                {section === "license" && <LicenseCard license={settings.license} onChanged={load} />}
                 {section === "appearance" && <AppearanceSettings />}
                 {section === "security" && <SecuritySettings settings={settings} onLock={onLock} />}
                 {section === "shortcuts" && <ShortcutsSettings />}

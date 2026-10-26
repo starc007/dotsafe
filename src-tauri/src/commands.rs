@@ -5,7 +5,10 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use dotsafe_core::{Config, Environment, KdfParams, Project, Record, RecoveryKey, Vault, config, is_valid_var_name};
+use dotsafe_core::license::unix_now;
+use dotsafe_core::{
+    Config, Environment, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Vault, config, is_valid_var_name,
+};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -15,6 +18,7 @@ use zeroize::Zeroizing;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
+use crate::licensing::{self, ApiError};
 use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind, IDLE_LOCK, hash_text};
 
 const MIN_PASSWORD_LEN: usize = 8;
@@ -522,10 +526,33 @@ pub async fn import_variables(
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     vault_path: Option<String>,
-    license_key: Option<String>,
+    license: Option<LicenseView>,
     version: &'static str,
     auto_lock_minutes: u64,
     clipboard_clear_seconds: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LicenseView {
+    key: String,
+    device_name: String,
+    /// Milliseconds, for JavaScript dates.
+    activated_at: u64,
+    checked_at: u64,
+    status: LicenseStatus,
+}
+
+impl From<&License> for LicenseView {
+    fn from(l: &License) -> Self {
+        LicenseView {
+            key: l.key.clone(),
+            device_name: l.device_name.clone(),
+            activated_at: l.activated_at * 1000,
+            checked_at: l.checked_at * 1000,
+            status: l.status(unix_now()),
+        }
+    }
 }
 
 #[tauri::command]
@@ -534,7 +561,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
         .run(|s| {
             Ok(Settings {
                 vault_path: s.config.as_ref().map(|c| c.vault_path.display().to_string()),
-                license_key: s.config.as_ref().and_then(|c| c.license_key.clone()),
+                license: s.config.as_ref().and_then(|c| c.license.as_ref()).map(LicenseView::from),
                 version: env!("CARGO_PKG_VERSION"),
                 auto_lock_minutes: IDLE_LOCK.as_secs() / 60,
                 clipboard_clear_seconds: CLIPBOARD_CLEAR.as_secs(),
@@ -543,33 +570,73 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
         .await
 }
 
-/// Saves a license key on this machine. Keys are only checked for shape here;
-/// verifying them with the store happens once licensing is wired up.
+/// Activates a license key for this machine with the license server and
+/// saves the activation.
 #[tauri::command]
-pub async fn activate_license(state: State<'_, AppState>, key: String) -> CmdResult<String> {
+pub async fn activate_license(state: State<'_, AppState>, key: String) -> CmdResult<LicenseView> {
     let key = normalize_license(&key).map_err(CmdError::other)?;
+    state.run(|s| s.config().map(|_| ())).await?;
+    let device_name = licensing::device_name();
+    let instance_id = {
+        let (key, device_name) = (key.clone(), device_name.clone());
+        off_thread(move || licensing::activate(&key, &device_name)).await?
+    };
     state
         .run(move |s| {
+            let now = unix_now();
+            let license = License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false };
+            let view = LicenseView::from(&license);
             let mut config = s.config()?.clone();
-            config.license_key = Some(key.clone());
+            config.license = Some(license);
             config.save()?;
             s.config = Some(config);
-            Ok(key)
+            Ok(view)
         })
         .await
 }
 
+/// Asks the license server about the saved license now. Errors with kind
+/// `offline` if it can't be reached, leaving the license as it was.
 #[tauri::command]
-pub async fn remove_license(state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn check_license(state: State<'_, AppState>) -> CmdResult<Option<LicenseView>> {
+    let Some(license) = state.run(|s| Ok(s.config()?.license.clone())).await? else { return Ok(None) };
+    let valid = {
+        let license = license.clone();
+        off_thread(move || licensing::validate(&license)).await?
+    };
+    let inner = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || licensing::record_check(&inner, &license.instance_id, valid))
+        .await
+        .map_err(|e| CmdError::other(e.to_string()))??;
+    state.run(|s| Ok(s.config()?.license.as_ref().map(LicenseView::from))).await
+}
+
+/// Deactivates the license on the server, freeing this device's slot, then
+/// forgets it here. With `force`, forgets it even when the server can't be
+/// reached (the slot then stays taken).
+#[tauri::command]
+pub async fn remove_license(state: State<'_, AppState>, force: bool) -> CmdResult<()> {
+    let Some(license) = state.run(|s| Ok(s.config()?.license.clone())).await? else { return Ok(()) };
+    match off_thread(move || licensing::deactivate(&license)).await {
+        Ok(()) => {}
+        Err(e) if force && matches!(e.kind, ErrorKind::Offline) => {}
+        Err(e) => return Err(e),
+    }
     state
         .run(|s| {
             let mut config = s.config()?.clone();
-            config.license_key = None;
+            config.license = None;
             config.save()?;
             s.config = Some(config);
             Ok(())
         })
         .await
+}
+
+/// Runs a license server request on a worker thread without holding the
+/// session lock.
+async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
 }
 
 fn check_new_password(password: &str) -> Result<(), String> {

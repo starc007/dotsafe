@@ -14,7 +14,10 @@ const SAMPLE_FILES: Record<string, string> = {
   ".env.local": "DATABASE_URL=postgres://localhost:5432/app_local\nFEATURE_FLAGS=beta\n",
 };
 let importFiles: string[] = [];
-let licenseKey: string | null = null;
+// `?offline` makes every license server call fail. Keys containing LIMIT or
+// REVOKED act out those answers.
+const licenseOffline = new URLSearchParams(location.search).has("offline");
+let license: { key: string; deviceName: string; activatedAt: number; checkedAt: number; status: string } | null = null;
 let mustChangePassword = false;
 let password = PASSWORD;
 let recoveryKey = "7K2M-9QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5ZEK-1MPQ-0VXT-3HBN-9WCR-4DQA";
@@ -23,6 +26,7 @@ const projects = new Map<string, string>();
 const envs = new Map<string, Env>();
 
 const id = () => crypto.randomUUID();
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function addProject(name: string, data: Record<string, Record<string, string>>) {
   const pid = id();
   projects.set(pid, name);
@@ -200,7 +204,7 @@ export function installMockBackend() {
         case "get_settings":
           return {
             vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe",
-            licenseKey,
+            license,
             version: "0.1.0",
             autoLockMinutes: 15,
             clipboardClearSeconds: 30,
@@ -210,11 +214,23 @@ export function installMockBackend() {
           if (!key) fail("other", "Enter your license key.");
           if (/\s/.test(key) || key.length < 8)
             fail("other", "That doesn't look like a license key. Copy it again from your purchase email.");
-          licenseKey = key;
-          return key;
+          await delay(600);
+          if (licenseOffline) fail("offline", "Couldn't reach the license server. Check your connection and try again.");
+          if (/LIMIT/i.test(key))
+            fail("other", "This key is already in use on the maximum number of devices. Deactivate it on another device first.");
+          license = { key, deviceName: "Your MacBook Pro", activatedAt: Date.now(), checkedAt: Date.now(), status: "active" };
+          return license;
         }
+        case "check_license":
+          await delay(500);
+          if (licenseOffline) fail("offline", "Couldn't reach the license server. Check your connection and try again.");
+          if (license) license = { ...license, checkedAt: Date.now(), status: /REVOKED/i.test(license.key) ? "revoked" : "active" };
+          return license;
         case "remove_license":
-          licenseKey = null;
+          await delay(400);
+          if (licenseOffline && !(raw as { force?: boolean }).force)
+            fail("offline", "Couldn't reach the license server. Check your connection and try again.");
+          license = null;
           return null;
         case "plugin:dialog|open":
           return null;
