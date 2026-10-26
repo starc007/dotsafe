@@ -203,8 +203,8 @@ fn put_merges_with_changes_from_another_device() {
     let merged = vault.put(Record::Environment(on_b)).unwrap();
 
     let Record::Environment(env) = merged else { panic!() };
-    assert_eq!(env.get("FROM_A"), Some("a"));
-    assert_eq!(env.get("SHARED"), Some("v2"));
+    assert_eq!(env.value("FROM_A"), Some("a"));
+    assert_eq!(env.value("SHARED"), Some("v2"));
 }
 
 #[test]
@@ -221,8 +221,8 @@ fn deletes_win_over_older_edits() {
     // A stale copy from before the delete must not bring it back.
     let merged = vault.put(Record::Environment(base.clone())).unwrap();
     let Record::Environment(env) = merged else { panic!() };
-    assert_eq!(env.get("OLD_KEY"), None);
-    assert_eq!(env.vars().count(), 0);
+    assert_eq!(env.value("OLD_KEY"), None);
+    assert_eq!(env.entries().count(), 0);
 }
 
 #[test]
@@ -247,9 +247,9 @@ fn sync_conflict_copies_are_merged_and_cleaned_up() {
     fs::rename(&parked, &copy).unwrap();
 
     let Some(Record::Environment(read)) = vault.get(base.id).unwrap() else { panic!() };
-    assert_eq!(read.get("A"), Some("1"));
-    assert_eq!(read.get("B"), Some("2"));
-    assert_eq!(read.get("C"), Some("3"));
+    assert_eq!(read.value("A"), Some("1"));
+    assert_eq!(read.value("B"), Some("2"));
+    assert_eq!(read.value("C"), Some("3"));
 
     vault.put(Record::Environment(read)).unwrap();
     assert!(!copy.exists(), "conflict copy removed after write");

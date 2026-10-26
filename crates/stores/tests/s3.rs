@@ -207,7 +207,7 @@ fn a_vault_in_a_bucket_syncs_between_devices() {
 
     let b = Vault::unlock(CachedStore::open(store(&endpoint, "v"), cache_b.path()).unwrap(), "pw").unwrap();
     let Some(Record::Environment(seen)) = b.get(env.id).unwrap() else { panic!() };
-    assert_eq!(seen.get("STRIPE_KEY"), Some("sk_live_x"));
+    assert_eq!(seen.value("STRIPE_KEY"), Some("sk_live_x"));
 
     // B changes it; A picks it up on sync.
     let mut edited = seen;
@@ -215,5 +215,5 @@ fn a_vault_in_a_bucket_syncs_between_devices() {
     b.put(Record::Environment(edited)).unwrap();
     a.sync().unwrap();
     let Some(Record::Environment(after)) = a.get(env.id).unwrap() else { panic!() };
-    assert_eq!(after.get("STRIPE_KEY"), Some("sk_live_rotated"));
+    assert_eq!(after.value("STRIPE_KEY"), Some("sk_live_rotated"));
 }

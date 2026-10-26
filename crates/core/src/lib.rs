@@ -11,6 +11,7 @@ pub mod error;
 pub mod header;
 pub mod license;
 pub mod model;
+pub mod secret;
 pub mod store;
 pub mod vault;
 
@@ -19,7 +20,8 @@ pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::RecoveryKey;
 pub use license::{License, LicenseStatus};
-pub use model::{Environment, Project, Record, Stamp, is_valid_var_name};
+pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_var_name};
+pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};
 pub use cache::CachedStore;
 pub use store::{Cond, FolderStore, Put, Store};
 pub use vault::Vault;

@@ -62,6 +62,13 @@ pub(crate) fn random_array<const N: usize>() -> Result<[u8; N]> {
     Ok(buf)
 }
 
+/// `n` bytes from the OS random number generator.
+pub(crate) fn random_bytes(n: usize) -> Result<Zeroizing<Vec<u8>>> {
+    let mut buf = Zeroizing::new(vec![0u8; n]);
+    getrandom::fill(&mut buf).map_err(|_| Error::Rng)?;
+    Ok(buf)
+}
+
 pub(crate) fn hkdf(salt: Option<&[u8]>, ikm: &[u8], info: &[u8]) -> SecretKey {
     let mut okm = [0u8; KEY_LEN];
     Hkdf::<Sha256>::new(salt, ikm)
