@@ -5,9 +5,11 @@ import { api, message, type Status } from "@/lib/api";
 import { Setup } from "@/screens/Setup";
 import { Recovery } from "@/screens/Recovery";
 import { Unlock } from "@/screens/Unlock";
+import { NewPassword } from "@/screens/NewPassword";
 import { VaultScreen } from "@/screens/Vault";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DragRegion } from "@/components/DragRegion";
 
@@ -17,6 +19,7 @@ type Screen =
   | { name: "setup"; status: Status }
   | { name: "recovery"; recoveryKey: string }
   | { name: "locked"; status: Status }
+  | { name: "new-password" }
   | { name: "vault" };
 
 export default function App() {
@@ -27,6 +30,7 @@ export default function App() {
       const status = await api.status();
       if (!status.configured) setScreen({ name: "setup", status });
       else if (!status.unlocked) setScreen({ name: "locked", status });
+      else if (status.mustChangePassword) setScreen({ name: "new-password" });
       else setScreen({ name: "vault" });
     } catch (e) {
       setScreen({ name: "error", message: message(e) });
@@ -89,7 +93,18 @@ function CurrentScreen({
     case "recovery":
       return <Recovery recoveryKey={screen.recoveryKey} onDone={() => setScreen({ name: "vault" })} />;
     case "locked":
-      return <Unlock vaultPath={screen.status.vaultPath} onUnlocked={() => setScreen({ name: "vault" })} />;
+      // Re-check status: a recovery-key unlock must set a new password first.
+      return <Unlock vaultPath={screen.status.vaultPath} onUnlocked={refresh} />;
+    case "new-password":
+      return (
+        <NewPassword
+          onDone={() => {
+            toast.success("New master password set");
+            refresh();
+          }}
+          onLock={() => api.lock().then(refresh)}
+        />
+      );
     case "vault":
       return <VaultScreen onLocked={refresh} />;
   }

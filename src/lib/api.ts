@@ -6,6 +6,8 @@ export type Status = {
   unlocked: boolean;
   vaultPath: string | null;
   defaultVaultPath: string | null;
+  /** Unlocked with the recovery key; a new password must be set first. */
+  mustChangePassword: boolean;
 };
 
 export type EnvironmentView = { id: string; name: string; varCount: number };
@@ -57,6 +59,10 @@ export const api = {
   createVault: (path: string, password: string) => call<string>("create_vault", { path, password }),
   connectVault: (path: string, password: string) => call<void>("connect_vault", { path, password }),
   unlock: (password: string) => call<void>("unlock", { password }),
+  unlockWithRecovery: (recoveryKey: string) => call<void>("unlock_with_recovery", { recoveryKey }),
+  changePassword: (currentPassword: string | null, newPassword: string) =>
+    call<void>("change_password", { currentPassword, newPassword }),
+  resetRecoveryKey: (password: string) => call<string>("reset_recovery_key", { password }),
   lock: () => call<void>("lock"),
 
   listProjects: () => call<ProjectView[]>("list_projects"),

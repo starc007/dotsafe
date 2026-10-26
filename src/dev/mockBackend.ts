@@ -15,6 +15,10 @@ const SAMPLE_FILES: Record<string, string> = {
 };
 let importFiles: string[] = [];
 let licenseKey: string | null = null;
+let mustChangePassword = false;
+let password = PASSWORD;
+let recoveryKey = "7K2M-9QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5ZEK-1MPQ-0VXT-3HBN-9WCR-4DQA";
+const normalizeKey = (k: string) => k.toUpperCase().replace(/[\s-]/g, "").replace(/[IL]/g, "1").replace(/O/g, "0");
 const projects = new Map<string, string>();
 const envs = new Map<string, Env>();
 
@@ -72,12 +76,12 @@ export function installMockBackend() {
     async (cmd, raw) => {
       const a = (raw ?? {}) as Record<string, string>;
       await new Promise((r) => setTimeout(r, 120));
-      const needsUnlock = !["status", "folder_has_vault", "create_vault", "connect_vault", "unlock", "lock"].includes(cmd);
+      const needsUnlock = !["status", "folder_has_vault", "create_vault", "connect_vault", "unlock", "unlock_with_recovery", "lock"].includes(cmd);
       if (needsUnlock && !unlocked) fail("locked", "The vault is locked.");
 
       switch (cmd) {
         case "status":
-          return { configured, unlocked, vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe", defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
+          return { configured, unlocked, mustChangePassword, vaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe", defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
         case "folder_has_vault":
           return false;
         case "create_vault":
@@ -85,11 +89,32 @@ export function installMockBackend() {
           return "7K2M-9QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5ZEK-1MPQ-0VXT-3HBN-9WCR-4DQA";
         case "connect_vault":
         case "unlock":
-          if (a.password !== PASSWORD) fail("invalid_password", "Wrong password.");
+          if (a.password !== password) fail("invalid_password", "Wrong password.");
           configured = unlocked = true;
+          mustChangePassword = false;
           return null;
+        case "unlock_with_recovery":
+          if (normalizeKey(a.recoveryKey ?? "").length !== 52)
+            fail("other", "That isn't a recovery key. It's 13 groups of 4 letters and numbers.");
+          if (normalizeKey(a.recoveryKey) !== normalizeKey(recoveryKey))
+            fail("invalid_password", "That recovery key doesn't match this vault.");
+          unlocked = true;
+          mustChangePassword = true;
+          return null;
+        case "change_password":
+          if ((a.newPassword ?? "").length < 8) fail("other", "Use at least 8 characters.");
+          if (!mustChangePassword && a.currentPassword !== password)
+            fail("invalid_password", "Your current password is wrong.");
+          password = a.newPassword;
+          mustChangePassword = false;
+          return null;
+        case "reset_recovery_key":
+          if (a.password !== password) fail("invalid_password", "Your current password is wrong.");
+          recoveryKey = "Q8ZD-2MKT-7HWX-4NRC-9BVA-3YEJ-6PGS-1TFK-5LMQ-0XWD-8HCN-2RVB-7JQA";
+          return recoveryKey;
         case "lock":
           unlocked = false;
+          mustChangePassword = false;
           return null;
         case "list_projects":
           return [...projects]
@@ -199,5 +224,5 @@ export function installMockBackend() {
     },
     { shouldMockEvents: true },
   );
-  console.info(`dotsafe mock backend: unlock with "${PASSWORD}". Add ?setup to start at setup.`);
+  console.info(`dotsafe mock backend: unlock with "${PASSWORD}" or recovery key ${recoveryKey}. Add ?setup to start at setup.`);
 }
