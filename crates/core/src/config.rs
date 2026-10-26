@@ -22,6 +22,10 @@ pub struct Config {
     /// The license activated on this machine, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<License>,
+    /// Approve agents' requests with a click alone, without Touch ID or the
+    /// login password. Off unless the user turns it on.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_approvals_without_auth: bool,
 }
 
 impl Config {
@@ -39,7 +43,13 @@ impl Config {
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
             Ok(Some(existing)) => Config { vault_path, s3: None, ..existing },
-            _ => Config { vault_path, s3: None, device_id: Uuid::new_v4(), license: None },
+            _ => Config {
+                vault_path,
+                s3: None,
+                device_id: Uuid::new_v4(),
+                license: None,
+                agent_approvals_without_auth: false,
+            },
         }
     }
 

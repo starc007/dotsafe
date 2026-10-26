@@ -106,6 +106,10 @@ export type AgentEvent = {
   detail?: string | null;
 };
 export type AgentActivity = {
+  /** Approving asks for Touch ID or the login password. */
+  approvalAuth: boolean;
+  /** This Mac can ask for it. */
+  approvalAuthAvailable: boolean;
   grants: { command: string; cwd: string; variables: number; expiresIn: number | null }[];
   recent: AgentEvent[];
 };
@@ -219,6 +223,8 @@ export const api = {
     call<void>("answer_agent_request", { id, lifetime }),
   agentActivity: () => call<AgentActivity>("agent_activity"),
   revokeAgentGrants: () => call<void>("revoke_agent_grants"),
+  /** Turning it off asks for Touch ID first. */
+  setAgentApprovalAuth: (required: boolean) => call<void>("set_agent_approval_auth", { required }),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),

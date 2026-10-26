@@ -1,6 +1,6 @@
 # Agent access
 
-**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret` and the audit log. Still proposed: Touch ID on approval, custom proxy profiles, `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
+**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret` and the audit log. Approvals ask for Touch ID (or the login password) on macOS. Still proposed: custom proxy profiles, `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
 
 ## The problem
 
@@ -67,7 +67,8 @@ Grant {
 }
 ```
 
-- **The approval dialog** is native, from the desktop app. It shows the program, full argv, working directory, which secrets, and who asked. Duration choices: once, 15 minutes, 1 hour, until lock. Touch ID will confirm (not yet built).
+- **The approval dialog** is native, from the desktop app. It shows the program, full argv, working directory, which secrets, and who asked. Duration choices: once, 15 minutes, 1 hour, until lock.
+- **Touch ID confirms** on macOS (LocalAuthentication, `DeviceOwnerAuthentication`, so the login password works on Macs without Touch ID). It's enforced in Rust inside `answer_agent_request`, not in the webview, so approving needs someone at the Mac even if the webview were compromised. A cancelled prompt leaves the request open to try again or deny. It's on by default; turning it off in Settings → Agents needs Touch ID too. Linux approves with the click.
 - **If the vault is locked,** unlocking and approving happen in one prompt.
 - **Refused for agents, whatever the user clicks:**
   - Shells and interpreters given inline code: `sh`, `bash -c`, `zsh -c`, `node -e/-p/--eval`, `python -c`, `ruby -e`, `perl -e`, `deno eval`, `bun -e`.
@@ -154,4 +155,5 @@ The setup screen also offers a snippet for the project's `AGENTS.md`: "Secrets a
 3. ✅ Redaction.
 4. ✅ Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
 5. ✅ `generate_secret` and the audit log.
-6. Touch ID on approval, Windows named pipes, a headless `dotsafe daemon`, custom proxy profiles.
+6. ✅ Touch ID on approval (macOS).
+7. Windows named pipes, a headless `dotsafe daemon`, custom proxy profiles.

@@ -36,7 +36,13 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Approvals waiting for the user, by request id.
 #[derive(Clone, Default)]
-pub struct Approvals(pub Arc<Mutex<HashMap<Uuid, Sender<Option<Lifetime>>>>>);
+pub struct Approvals(pub Arc<Mutex<HashMap<Uuid, Pending>>>);
+
+pub struct Pending {
+    answer: Sender<Option<Lifetime>>,
+    /// What the Touch ID prompt says: "dotsafe is trying to <reason>".
+    reason: String,
+}
 
 /// What the approval dialog shows.
 #[derive(Clone, Serialize)]
@@ -367,7 +373,19 @@ impl Broker {
     fn ask(&self, prompt: ApprovalRequest) -> Option<Lifetime> {
         let id = prompt.id;
         let (tx, rx) = mpsc::channel();
-        self.approvals.0.lock().ok()?.insert(id, tx);
+        let reason = match prompt.kind {
+            "generate" => format!("let {} add {} to {}", prompt.client, prompt.variables.join(""), prompt.project),
+            _ => {
+                let n = prompt.variables.len();
+                format!(
+                    "let {} run “{}” with {n} {}",
+                    prompt.client,
+                    prompt.command.join(" "),
+                    if n == 1 { "secret" } else { "secrets" }
+                )
+            }
+        };
+        self.approvals.0.lock().ok()?.insert(id, Pending { answer: tx, reason });
         if let Some(window) = self.app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
@@ -548,9 +566,12 @@ fn find_link(dir: &Path) -> Option<(Uuid, String)> {
 }
 
 /// The user's answer to an approval prompt. `lifetime` is `once`, `15m`,
-/// `1h` or `lock`; `None` denies.
+/// `1h` or `lock`; `None` denies. Approving first asks for Touch ID (or the
+/// login password) unless the user turned that off; if they cancel, the
+/// request stays open so they can try again or deny it.
 #[tauri::command]
 pub async fn answer_agent_request(
+    state: tauri::State<'_, AppState>,
     approvals: tauri::State<'_, Approvals>,
     id: Uuid,
     lifetime: Option<String>,
@@ -563,19 +584,56 @@ pub async fn answer_agent_request(
         Some("lock") => Some(Lifetime::UntilLock),
         Some(other) => return Err(crate::state::CmdError::other(format!("Unknown duration {other}."))),
     };
-    let sender = approvals.0.lock().ok().and_then(|mut p| p.remove(&id));
-    match sender {
-        Some(tx) => {
-            let _ = tx.send(lifetime);
-            Ok(())
+    let expired = || crate::state::CmdError::other("That request already expired.");
+    if lifetime.is_some() {
+        let without_auth = state.run(|s| Ok(s.config()?.agent_approvals_without_auth)).await?;
+        // A Mac that can't ask (no login password) falls back to the click.
+        if !without_auth && crate::presence::available() {
+            let reason = {
+                let pending = approvals.0.lock().map_err(|_| expired())?;
+                pending.get(&id).ok_or_else(expired)?.reason.clone()
+            };
+            tauri::async_runtime::spawn_blocking(move || crate::presence::confirm(&reason))
+                .await
+                .map_err(|e| crate::state::CmdError::other(e.to_string()))?
+                .map_err(|why| crate::state::CmdError::other(format!("Not approved: {why}")))?;
         }
-        None => Err(crate::state::CmdError::other("That request already expired.")),
     }
+    let pending = approvals.0.lock().ok().and_then(|mut p| p.remove(&id)).ok_or_else(expired)?;
+    let _ = pending.answer.send(lifetime);
+    Ok(())
+}
+
+/// Turns the Touch ID check on agent approvals on or off. Turning it off
+/// needs Touch ID itself, or it would protect nothing.
+#[tauri::command]
+pub async fn set_agent_approval_auth(state: tauri::State<'_, AppState>, required: bool) -> crate::state::CmdResult<()> {
+    if !required && crate::presence::available() {
+        tauri::async_runtime::spawn_blocking(|| {
+            crate::presence::confirm("stop asking for Touch ID when agents need approval")
+        })
+        .await
+        .map_err(|e| crate::state::CmdError::other(e.to_string()))?
+        .map_err(|why| crate::state::CmdError::other(format!("Not changed: {why}")))?;
+    }
+    state
+        .run(move |s| {
+            let mut config = s.config()?.clone();
+            config.agent_approvals_without_auth = !required;
+            config.save()?;
+            s.config = Some(config);
+            Ok(())
+        })
+        .await
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentActivity {
+    /// Approvals ask for Touch ID or the login password.
+    approval_auth: bool,
+    /// This Mac can ask for it.
+    approval_auth_available: bool,
     grants: Vec<GrantView>,
     /// From the vault's audit log, every device, newest first.
     recent: Vec<AuditEvent>,
@@ -611,7 +669,9 @@ pub async fn agent_activity(state: tauri::State<'_, AppState>) -> crate::state::
                 })
                 .collect();
             let recent = audit::recent(s.vault()?, 50)?;
-            Ok(AgentActivity { grants, recent })
+            let available = crate::presence::available();
+            let approval_auth = available && !s.config()?.agent_approvals_without_auth;
+            Ok(AgentActivity { approval_auth, approval_auth_available: available, grants, recent })
         })
         .await
 }
