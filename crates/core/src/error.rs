@@ -6,8 +6,16 @@ pub enum Error {
     InvalidCredentials,
     #[error("vault header failed authentication; it may be corrupted or tampered with")]
     HeaderTampered,
+    /// This device's unlock is from before the vault was re-keyed; unlock
+    /// with the password once to refresh it.
+    #[error("this device needs the password once, because the vault's key changed")]
+    DeviceStale,
     #[error("record {0} failed authentication; it may be corrupted or tampered with")]
     RecordTampered(Uuid),
+    /// Sealed with a vault key from before a re-key, which this vault no
+    /// longer has.
+    #[error("record {0} is sealed with a key this vault no longer has")]
+    UnknownEpoch(Uuid),
     #[error("the vault's head failed authentication; it may be corrupted or tampered with")]
     HeadTampered,
     #[error("record {0} kept changing while it was being saved; try again")]

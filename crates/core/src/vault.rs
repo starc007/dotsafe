@@ -21,7 +21,7 @@ use zeroize::Zeroizing;
 
 use crate::crypto::{self, KEY_LEN, KdfParams, Sealed, SecretKey};
 use crate::error::{Error, Result};
-use crate::header::{HEADER_VERSION, RecoveryKey, VaultHeader};
+use crate::header::{DeviceInfo, DeviceKey, EnrollmentCode, HEADER_VERSION, RecoveryKey, VaultHeader};
 use crate::model::{Clock, Record, Secrets, Stamp};
 use crate::store::{Cond, ETag, Put, Store};
 
@@ -68,6 +68,9 @@ fn is_zero(n: &u32) -> bool {
 struct HeadFile {
     format: String,
     version: u32,
+    /// The key epoch it's sealed in. Absent (epoch 1) before re-keying existed.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    epoch: u32,
     sealed: Sealed,
 }
 
@@ -111,12 +114,17 @@ pub struct Vault {
     header: VaultHeader,
     vault_key: SecretKey,
     records_key: SecretKey,
+    /// The records key of the epoch before, while a re-key is re-sealing.
+    previous: Option<(u32, SecretKey)>,
     clock: Clock,
     /// The newest stamp seen for each record, from heads and from records.
     known: Mutex<Head>,
     /// Records last read older than `known`: rolled back by storage, or not
     /// finished syncing yet.
     stale: Mutex<BTreeSet<Uuid>>,
+    /// Records sealed with a key this vault no longer has (written by a
+    /// device that hadn't seen a re-key, or by a removed one). Skipped.
+    unreadable: Mutex<BTreeSet<Uuid>>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -165,6 +173,36 @@ impl Vault {
         Vault::unlocked(store, header, vault_key)
     }
 
+    /// Unlocks with this device's own key (see [`Vault::enroll_device`]).
+    /// Fails with [`Error::DeviceStale`] after a re-key: unlock with the
+    /// password, then enroll again.
+    pub fn unlock_with_device(store: impl Store + 'static, device_id: Uuid, key: &DeviceKey) -> Result<Vault> {
+        let store: Box<dyn Store> = Box::new(store);
+        let header = read_header(&*store)?;
+        let vault_key = header.unlock_with_device(device_id, key)?;
+        Vault::unlocked(store, header, vault_key)
+    }
+
+    /// Joins with a code from [`Vault::create_enrollment_code`] on another
+    /// device: enrolls this device and uses up the code. Returns the vault
+    /// and this device's key, for its keychain.
+    pub fn enroll_with_code(
+        store: impl Store + 'static,
+        code: &EnrollmentCode,
+        device_id: Uuid,
+        name: &str,
+    ) -> Result<(Vault, DeviceKey)> {
+        let store: Box<dyn Store> = Box::new(store);
+        let header = read_header(&*store)?;
+        let (vault_key, slot) = header.unlock_with_enrollment(code, now_ms())?;
+        let mut vault = Vault::unlocked(store, header, vault_key)?;
+        let key = vault.update_header(|header, key| {
+            header.remove_slot(key, slot)?;
+            header.set_device(key, device_id, name, now_ms())
+        })?;
+        Ok((vault, key))
+    }
+
     /// The raw vault key, for caching in secure OS storage. Anyone holding it
     /// can read the vault, so never write it anywhere else.
     pub fn session_key(&self) -> Zeroizing<[u8; KEY_LEN]> {
@@ -173,35 +211,44 @@ impl Vault {
 
     fn open(store: Box<dyn Store>, header: VaultHeader, vault_key: SecretKey) -> Vault {
         let records_key = vault_key.derive(RECORDS_KEY_INFO);
+        let previous = header.previous_keys.first().and_then(|p| {
+            header.previous_key(&vault_key, p.epoch).map(|key| (p.epoch, key.derive(RECORDS_KEY_INFO)))
+        });
         Vault {
             store,
             header,
             vault_key,
             records_key,
+            previous,
             clock: Clock::default(),
             known: Mutex::default(),
             stale: Mutex::default(),
+            unreadable: Mutex::default(),
         }
     }
 
-    /// Opens an unlocked vault, upgrading an older format first.
+    /// Opens an unlocked vault, upgrading an older format and finishing an
+    /// interrupted re-key first.
     fn unlocked(store: Box<dyn Store>, header: VaultHeader, vault_key: SecretKey) -> Result<Vault> {
         let mut vault = Vault::open(store, header, vault_key);
         if vault.header.version < HEADER_VERSION {
             vault.upgrade()?;
         }
+        if !vault.header.previous_keys.is_empty() {
+            vault.finish_rekey()?;
+        }
         Ok(vault)
     }
 
-    /// Upgrades a v1 vault in place. Records are re-sealed first and the
-    /// header goes last, so an interrupted upgrade just runs again next time.
+    /// Upgrades an older vault in place. v1 records are re-sealed first and
+    /// the header goes last, so an interrupted upgrade just runs again.
     fn upgrade(&mut self) -> Result<()> {
-        for record in self.list()? {
-            self.put(record)?;
+        if self.header.version == 1 {
+            for record in self.list()? {
+                self.put(record)?;
+            }
         }
-        let mut header = self.header.clone();
-        header.upgrade(&self.vault_key)?;
-        self.commit_header(header)
+        self.update_header(|header, key| header.upgrade(key))
     }
 
     pub fn id(&self) -> Uuid {
@@ -274,26 +321,105 @@ impl Vault {
 
     /// Replaces the password. Records are untouched; only the key slot changes.
     pub fn change_password(&mut self, new_password: &str, params: KdfParams) -> Result<()> {
-        let mut header = self.header.clone();
-        header.set_password(&self.vault_key, new_password.as_bytes(), params)?;
-        self.commit_header(header)
+        self.update_header(|header, key| header.set_password(key, new_password.as_bytes(), params))
     }
 
     /// Creates a recovery key, replacing any previous one. Show it to the user
     /// once; it can't be retrieved later.
     pub fn reset_recovery_key(&mut self) -> Result<RecoveryKey> {
-        let mut header = self.header.clone();
-        let recovery = header.set_recovery(&self.vault_key)?;
-        self.commit_header(header)?;
+        self.update_header(|header, key| header.set_recovery(key))
+    }
+
+    /// Enrolled devices.
+    pub fn devices(&self) -> Vec<DeviceInfo> {
+        self.header.devices()
+    }
+
+    /// Lets this device unlock with its own key (behind Touch ID), replacing
+    /// any slot it had. Keep the returned key in the device's keychain only.
+    pub fn enroll_device(&mut self, device_id: Uuid, name: &str) -> Result<DeviceKey> {
+        self.update_header(|header, key| header.set_device(key, device_id, name, now_ms()))
+    }
+
+    /// Removes a device's slot without re-keying: for turning off Touch ID
+    /// unlock on this device. To shut out a lost device, use
+    /// [`Vault::revoke_device`]. Returns whether it had a slot.
+    pub fn forget_device(&mut self, device_id: Uuid) -> Result<bool> {
+        self.update_header(|header, key| header.remove_device(key, device_id))
+    }
+
+    /// A one-time code another device can use, for ten minutes, to join
+    /// without the password.
+    pub fn create_enrollment_code(&mut self) -> Result<EnrollmentCode> {
+        self.update_header(|header, key| header.add_enrollment(key, now_ms()))
+    }
+
+    /// Shuts a device out: removes its slot and switches the vault to a new
+    /// key, re-sealing every record, so anything it still holds can't read
+    /// what's written from now on. Needs the password, which is set again for
+    /// the new key; the recovery key is replaced, and the new one returned to
+    /// show once. Other devices' Touch ID unlock needs the password once.
+    pub fn revoke_device(&mut self, device_id: Uuid, password: &str, params: KdfParams) -> Result<RecoveryKey> {
+        self.check_password(password)?;
+        let new_key = SecretKey::generate()?;
+        let old_key = self.vault_key.clone();
+        let old_epoch = self.epoch();
+        let recovery = self.update_header(|header, key| {
+            header.remove_device(key, device_id)?;
+            header.rekey(key, &new_key, password.as_bytes(), params)
+        })?;
+        self.previous = Some((old_epoch, old_key.derive(RECORDS_KEY_INFO)));
+        self.records_key = new_key.derive(RECORDS_KEY_INFO);
+        self.vault_key = new_key;
+        self.finish_rekey()?;
         Ok(recovery)
     }
 
-    // Header writes aren't conditional yet: two devices changing the password
-    // at once still lose one change (see docs/vault-format.md).
-    fn commit_header(&mut self, header: VaultHeader) -> Result<()> {
-        self.store.put(HEADER_KEY, &serde_json::to_vec_pretty(&header)?, Cond::Any)?;
-        self.header = header;
+    /// Re-seals every record (and the head) under the current key, then drops
+    /// the previous key from the header. Safe to run again if interrupted.
+    fn finish_rekey(&mut self) -> Result<()> {
+        for (id, keys) in self.record_keys()? {
+            if let Some(record) = self.read_record_group(id, &keys)?.value {
+                self.put(record)?;
+            }
+        }
+        self.compact_head()?;
+        self.update_header(|header, key| header.drop_previous_keys(key))?;
+        self.previous = None;
         Ok(())
+    }
+
+    /// Records skipped because they're sealed with a key this vault no longer
+    /// has.
+    pub fn unreadable_records(&self) -> Vec<Uuid> {
+        lock(&self.unreadable).iter().copied().collect()
+    }
+
+    /// Applies `change` to the newest header and writes it only if nobody
+    /// else changed it meanwhile; otherwise re-reads and applies it again, so
+    /// two devices changing the header at once both keep their change. (On
+    /// synced folders the check can't be atomic; see docs/vault-format.md.)
+    fn update_header<T>(&mut self, mut change: impl FnMut(&mut VaultHeader, &SecretKey) -> Result<T>) -> Result<T> {
+        for _ in 0..MAX_ATTEMPTS {
+            let object = self.store.get(HEADER_KEY)?.ok_or_else(|| Error::NotFound(self.location()))?;
+            let mut header: VaultHeader = serde_json::from_slice(&object.bytes)?;
+            header.check_version()?;
+            if header.vault_id != self.header.vault_id {
+                return Err(Error::Format("the vault at this location was replaced".into()));
+            }
+            // Another device may have re-keyed: then our key no longer fits.
+            header
+                .unlock_with_key(self.vault_key.clone())
+                .map_err(|_| Error::Invalid("the vault's key changed on another device; lock and unlock again".into()))?;
+            header.prune_enrollments(now_ms());
+            let out = change(&mut header, &self.vault_key)?;
+            let bytes = serde_json::to_vec_pretty(&header)?;
+            if let Put::Written(_) = self.store.put(HEADER_KEY, &bytes, Cond::IfMatch(object.etag))? {
+                self.header = header;
+                return Ok(out);
+            }
+        }
+        Err(Error::Busy(self.header.vault_id))
     }
 
     /// Reads one record, merging any sync-conflict copies of it.
@@ -347,12 +473,13 @@ impl Vault {
         let id = record.id();
         let version = if record.needs_v3() { RECORD_VERSION_SECRETS } else { RECORD_VERSION };
         let plaintext = padded(serde_json::to_vec(record)?);
+        let epoch = self.epoch();
         let file = RecordFile {
             format: RECORD_FORMAT.into(),
             version,
             id,
-            epoch: self.epoch(),
-            sealed: crypto::seal(&self.records_key, &plaintext, &self.record_aad(version, id))?,
+            epoch,
+            sealed: crypto::seal(&self.records_key, &plaintext, &self.record_aad(version, epoch, id))?,
         };
         Ok(serde_json::to_vec_pretty(&file)?)
     }
@@ -361,7 +488,14 @@ impl Vault {
         let mut group = Group { value: None::<Record>, etag: None, copies: Vec::new() };
         for key in keys {
             let Some(object) = self.store.get(key)? else { continue };
-            let record = self.open_record(id, key, &object.bytes)?;
+            let record = match self.open_record(id, key, &object.bytes) {
+                Ok(record) => record,
+                Err(Error::UnknownEpoch(_)) => {
+                    lock(&self.unreadable).insert(id);
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             if *key == record_key(id) {
                 group.etag = Some(object.etag);
             } else {
@@ -385,18 +519,15 @@ impl Vault {
         }
         // The AAD uses the id from the object's name, so a record moved to
         // another name (or another vault) fails to decrypt.
+        // v1 records have no epoch; they were sealed in epoch 1.
+        let epoch = file.epoch.max(1);
+        let records_key = self.records_key_for(epoch).ok_or(Error::UnknownEpoch(id))?;
         let aad = match file.version {
             1 => [RECORD_AAD_V1, self.header.vault_id.as_bytes(), id.as_bytes()].concat(),
-            2 | 3 if file.epoch == self.epoch() => self.record_aad(file.version, id),
-            2 | 3 => {
-                return Err(Error::Format(format!(
-                    "record {id} is sealed in key epoch {}, which this vault doesn't have",
-                    file.epoch
-                )));
-            }
+            2 | 3 => self.record_aad(file.version, epoch, id),
             version => return Err(Error::UnsupportedVersion { kind: "record", version }),
         };
-        let plaintext = crypto::open(&self.records_key, &file.sealed, &aad).ok_or(Error::RecordTampered(id))?;
+        let plaintext = crypto::open(records_key, &file.sealed, &aad).ok_or(Error::RecordTampered(id))?;
         let record: Record = serde_json::from_slice(&plaintext)?;
         if record.id() != id {
             return Err(Error::RecordTampered(id));
@@ -451,6 +582,7 @@ impl Vault {
         let file = HeadFile {
             format: HEAD_FORMAT.into(),
             version: HEAD_VERSION,
+            epoch: self.epoch(),
             sealed: crypto::seal(&self.records_key, &plaintext, &self.head_aad())?,
         };
         Ok(serde_json::to_vec_pretty(&file)?)
@@ -466,14 +598,16 @@ impl Vault {
             if file.format != HEAD_FORMAT || file.version != HEAD_VERSION {
                 return Err(Error::UnsupportedVersion { kind: "head", version: file.version });
             }
-            let plaintext =
-                crypto::open(&self.records_key, &file.sealed, &self.head_aad()).ok_or(Error::HeadTampered)?;
-            let head: Head = serde_json::from_slice(&plaintext)?;
             if key == HEAD_KEY {
                 group.etag = Some(object.etag);
             } else {
                 group.copies.push(key.clone());
             }
+            // A head sealed with a key we no longer have is simply replaced
+            // on the next write.
+            let Some(head_key) = self.records_key_for(file.epoch.max(1)) else { continue };
+            let plaintext = crypto::open(head_key, &file.sealed, &self.head_aad()).ok_or(Error::HeadTampered)?;
+            let head: Head = serde_json::from_slice(&plaintext)?;
             group.value.get_or_insert_with(Head::default).merge(&head);
         }
         Ok(group)
@@ -499,19 +633,33 @@ impl Vault {
 
     /// v1 headers have no epoch; their records are moved into epoch 1.
     fn epoch(&self) -> u32 {
-        self.header.epoch.max(1)
+        self.header.current_epoch()
+    }
+
+    /// The records key for `epoch`: the current one, or the previous one
+    /// while a re-key is re-sealing.
+    fn records_key_for(&self, epoch: u32) -> Option<&SecretKey> {
+        match &self.previous {
+            _ if epoch == self.epoch() => Some(&self.records_key),
+            Some((previous, key)) if *previous == epoch => Some(key),
+            _ => None,
+        }
     }
 
     /// Binds a record to its vault, key epoch, id and format version, so it
     /// can't be moved, or relabelled as a version older clients would read.
-    fn record_aad(&self, version: u32, id: Uuid) -> Vec<u8> {
+    fn record_aad(&self, version: u32, epoch: u32, id: Uuid) -> Vec<u8> {
         let label = if version == RECORD_VERSION_SECRETS { RECORD_AAD_V3 } else { RECORD_AAD };
-        [label, self.header.vault_id.as_bytes(), &self.epoch().to_be_bytes(), id.as_bytes()].concat()
+        [label, self.header.vault_id.as_bytes(), &epoch.to_be_bytes(), id.as_bytes()].concat()
     }
 
     fn head_aad(&self) -> Vec<u8> {
         [HEAD_AAD, self.header.vault_id.as_bytes()].concat()
     }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 fn record_key(id: Uuid) -> String {
