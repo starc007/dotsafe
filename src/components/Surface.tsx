@@ -55,7 +55,7 @@ export function SurfaceBody({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
       data-slot="surface-body"
-      className={cn("rounded-[18px] bg-card p-5 text-card-foreground shadow-xs ring-1 ring-foreground/5", className)}
+      className={cn("rounded-[18px] bg-card p-5 text-card-foreground", className)}
       {...props}
     />
   );
