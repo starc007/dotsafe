@@ -10,4 +10,16 @@ name = "dotsafe"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+dirs = "7.0.0"
 dotsafe-core.workspace = true
+keyring = "4.2.0"
+rpassword = "7.5.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+uuid = { version = "1.29.0", features = ["v4", "serde"] }
+zeroize = "1.9.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"
