@@ -1,4 +1,3 @@
-mod dotenv;
 mod link;
 mod session;
 
@@ -8,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use dotsafe_core::{Config, Environment, KdfParams, Project, Record, Stamp, Vault, config};
+use dotsafe_core::{Config, Environment, KdfParams, Project, Record, Stamp, Vault, config, dotenv, is_valid_var_name};
 use uuid::Uuid;
 
 use link::{DEFAULT_ENV, LINK_FILE, Link};
@@ -147,7 +146,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                         (var, v)
                     }
                 };
-                if !dotenv::is_valid_key(&key) {
+                if !is_valid_var_name(&key) {
                     bail!("invalid variable name {key:?}");
                 }
                 target.env.set(&key, value, ctx.stamp());

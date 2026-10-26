@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod crypto;
+pub mod dotenv;
 pub mod error;
 pub mod header;
 pub mod model;

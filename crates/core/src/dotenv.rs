@@ -1,10 +1,12 @@
-//! A small `.env` parser for `dotsafe import`.
+//! A small `.env` parser, shared by `dotsafe import` and the desktop app's import.
 //!
 //! Supports `KEY=value`, `export KEY=value`, comments, single quotes (literal),
 //! double quotes (with `\n`, `\t`, `\"`, `\\` escapes, and values spanning
 //! lines), and trailing ` # comments` on unquoted values. Unlike some dotenv
 //! libraries it never expands `$VARS`, so nothing from the current shell leaks
 //! into the vault.
+
+use crate::model::is_valid_var_name;
 
 pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
     let mut vars = Vec::new();
@@ -20,7 +22,7 @@ pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
             .split_once('=')
             .ok_or_else(|| format!("line {lineno}: expected KEY=value"))?;
         let key = key.trim();
-        if !is_valid_key(key) {
+        if !is_valid_var_name(key) {
             return Err(format!("line {lineno}: invalid variable name {key:?}"));
         }
         let rest = rest.trim_start();
@@ -51,7 +53,6 @@ pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
     Ok(vars)
 }
 
-pub use dotsafe_core::is_valid_var_name as is_valid_key;
 
 fn closing_quote(s: &str) -> Option<usize> {
     let mut escaped = false;
