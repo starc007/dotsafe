@@ -1,6 +1,6 @@
 # Secrets and rotation
 
-**Status:** proposed. Milestones M3 (shared secrets, history, rotation flow) and M5 (provider plugins, push targets).
+**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5 (provider plugins, push targets) is still proposed, and so are `targets`/`provider` on secrets and the device-revoked bulk queue.
 
 ## The problem
 

@@ -27,7 +27,15 @@ dotsafe run -- bun dev            # runs the command with the variables injected
 dotsafe unlock --for 8h           # cache the key in the OS keychain; `dotsafe lock` to forget it
 dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
 dotsafe sync                      # vaults in a bucket: exchange changes now
+dotsafe secret share STRIPE_KEY --all   # one shared secret, linked wherever it had the same value
+dotsafe secret rotate STRIPE_KEY        # new value everywhere it's linked; old one kept as previous
+dotsafe secret rotate STRIPE_KEY --leaked --generate
+dotsafe secret retire STRIPE_KEY        # once the old value is revoked with its provider
+dotsafe secret history STRIPE_KEY       # versions and notes, never values
+dotsafe secret due                      # what's due under each secret's rotation policy
 ```
+
+**Shared secrets.** A variable can link to a shared secret instead of holding its own value. Rotate the secret once and every linked environment, in any project, gets the new value. Each secret keeps its history, so a bad rotation can be rolled back or an earlier value restored.
 
 **Vaults in a bucket.** Instead of a synced folder, a vault can live in any S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO). The bucket only ever holds encrypted files. Each machine keeps an encrypted copy, so dotsafe works offline and syncs when it's back online. The access key is kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
 
