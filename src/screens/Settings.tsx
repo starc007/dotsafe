@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { DragRegion } from "@/components/DragRegion";
 import { LicenseCard } from "@/components/LicenseCard";
+import { NewRecoveryKeyDialog } from "@/components/NewRecoveryKeyDialog";
 import { SettingsRow } from "@/components/SettingsRow";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
@@ -22,6 +24,7 @@ export function SettingsPage({ onClose, onLock }: { onClose: () => void; onLock:
   const [error, setError] = useState<string | null>(null);
   const { preference, setPreference } = useTheme();
   const scroller = useRef<HTMLDivElement>(null);
+  const [dialog, setDialog] = useState<"password" | "recovery" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +122,16 @@ export function SettingsPage({ onClose, onLock }: { onClose: () => void; onLock:
                       {settings.vaultPath ? displayPath(settings.vaultPath) : "Not set up"}
                     </span>
                   </SettingsRow>
+                  <SettingsRow label="Master password" detail="Unlocks this vault on every device.">
+                    <Button variant="outline" onClick={() => setDialog("password")}>
+                      Change…
+                    </Button>
+                  </SettingsRow>
+                  <SettingsRow label="Recovery key" detail="Gets you back in if you forget your password.">
+                    <Button variant="outline" onClick={() => setDialog("recovery")}>
+                      Create new key…
+                    </Button>
+                  </SettingsRow>
                   <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while.">
                     After {settings.autoLockMinutes} minutes
                   </SettingsRow>
@@ -177,6 +190,8 @@ export function SettingsPage({ onClose, onLock }: { onClose: () => void; onLock:
           )}
         </div>
       </div>
+      <ChangePasswordDialog open={dialog === "password"} onOpenChange={(open) => !open && setDialog(null)} />
+      <NewRecoveryKeyDialog open={dialog === "recovery"} onOpenChange={(open) => !open && setDialog(null)} />
     </div>
   );
 }
