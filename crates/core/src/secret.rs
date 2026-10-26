@@ -101,7 +101,7 @@ impl Secret {
     /// Versions, newest first.
     pub fn versions(&self) -> Vec<(Uuid, &Version)> {
         let mut versions: Vec<_> = self.versions.iter().map(|(id, v)| (*id, v)).collect();
-        versions.sort_by(|a, b| b.1.created.cmp(&a.1.created));
+        versions.sort_by_key(|(_, v)| std::cmp::Reverse(v.created));
         versions
     }
 
