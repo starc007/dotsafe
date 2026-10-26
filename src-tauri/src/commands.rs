@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use dotsafe_core::license::unix_now;
 use dotsafe_core::{
-    Config, Environment, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Vault, config, is_valid_var_name,
+    Config, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Vault, config, is_valid_var_name,
 };
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -84,7 +84,7 @@ pub async fn create_vault(state: State<'_, AppState>, path: String, password: St
     check_new_password(&password).map_err(CmdError::other)?;
     state
         .run(move |s| {
-            let mut vault = Vault::create(&path, &password, KdfParams::default())?;
+            let mut vault = Vault::create(FolderStore::new(&path), &password, KdfParams::default())?;
             let recovery = vault.reset_recovery_key()?.to_display_string();
             let config = Config::for_vault(path);
             config.save()?;
@@ -102,7 +102,7 @@ pub async fn connect_vault(state: State<'_, AppState>, path: String, password: S
     let path = absolute(path)?;
     state
         .run(move |s| {
-            let vault = Vault::unlock(&path, &password)?;
+            let vault = Vault::unlock(FolderStore::new(&path), &password)?;
             let config = Config::for_vault(path);
             config.save()?;
             s.config = Some(config);
@@ -117,7 +117,7 @@ pub async fn unlock(state: State<'_, AppState>, password: String) -> CmdResult<(
     let password = Zeroizing::new(password);
     state
         .run(move |s| {
-            let vault = Vault::unlock(&s.config()?.vault_path, &password)?;
+            let vault = Vault::unlock(FolderStore::new(&s.config()?.vault_path), &password)?;
             s.vault = Some(vault);
             s.must_change_password = false;
             Ok(())
@@ -135,7 +135,7 @@ pub async fn unlock_with_recovery(state: State<'_, AppState>, recovery_key: Stri
     })?;
     state
         .run(move |s| {
-            let vault = Vault::unlock_with_recovery(&s.config()?.vault_path, &key).map_err(|e| match e {
+            let vault = Vault::unlock_with_recovery(FolderStore::new(&s.config()?.vault_path), &key).map_err(|e| match e {
                 dotsafe_core::Error::InvalidCredentials => CmdError {
                     kind: ErrorKind::InvalidPassword,
                     message: "That recovery key doesn't match this vault.".into(),
@@ -191,7 +191,7 @@ pub async fn reset_recovery_key(state: State<'_, AppState>, password: String) ->
 /// Mac left unattended can't be used to take over the vault.
 fn verify_password(s: &crate::state::Session, password: Option<&str>) -> CmdResult<()> {
     let password = password.filter(|p| !p.is_empty()).ok_or_else(|| CmdError::other("Enter your current password."))?;
-    match Vault::unlock(&s.config()?.vault_path, password) {
+    match Vault::unlock(FolderStore::new(&s.config()?.vault_path), password) {
         Ok(_) => Ok(()),
         Err(dotsafe_core::Error::InvalidCredentials) => Err(CmdError {
             kind: ErrorKind::InvalidPassword,

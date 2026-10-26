@@ -1,0 +1,36 @@
+{
+  "format": "dotsafe-vault",
+  "version": 1,
+  "vault_id": "9f3f7e7f-ec51-4c52-bbc7-5a4c3507637e",
+  "key_slots": [
+    {
+      "id": "d1e2818b-e078-4b01-ac23-9c5115fc9759",
+      "unlock": {
+        "kind": "password",
+        "kdf": {
+          "alg": "argon2id",
+          "m_cost_kib": 64,
+          "t_cost": 1,
+          "p_cost": 1,
+          "salt": "U/VFq2x/nOafsL53qKTjRw=="
+        }
+      },
+      "wrapped_key": {
+        "nonce": "E5c+wiDawPA6jXtmIJ0d0SK9EGeY7S6s",
+        "ct": "ZN7V5hr+Em1axeW452JWUDKadWmRKyJtsgtc+LODw+ookMYMUbCW7BzTS0LmMg+g"
+      }
+    },
+    {
+      "id": "c4a701c9-f86a-4bc1-9269-31f4e9377f53",
+      "unlock": {
+        "kind": "recovery",
+        "salt": "8JYyUT7DbKPycGthuyuUeg=="
+      },
+      "wrapped_key": {
+        "nonce": "2eGyZ8K9u1IDNhrG9GK8lL7dBaH9r9qG",
+        "ct": "sxIyeeR6kUWsSqvkRQRrX/cHZfXFiWOqw5KRNwyUPKf993LGEzwGet0P0A48Er0s"
+      }
+    }
+  ],
+  "mac": "f2zoAu7n5+n3oixNLcCMYJe38sj7p0BK/gSgRAhWoPo="
+}
