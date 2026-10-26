@@ -1,6 +1,18 @@
 # Devices and keys
 
-**Status:** proposed. Milestone M4, with format changes in M1 (format v2).
+**Status:** M4 is implemented on macOS (header format v3). See [As built](#as-built-m4) for where it differs from the design below. Team sharing is still an open decision.
+
+## As built (M4)
+
+- **Header v3:** `device` and `enrollment` slots, a per-slot `epoch`, and `previous_keys`. Older clients refuse v3 headers ("unsupported vault version 3") instead of misreading them.
+- **Device key storage:** the device key is in the **login keychain** (`app.dotsafe.device`, keyed by this machine's device id). dotsafe asks for Touch ID or the login password in Rust (LocalAuthentication) before reading it. Hardware-bound access control (`biometryCurrentSet`, or the Secure Enclave) needs the signed app's keychain entitlements, so it comes with code signing; until then the gate is dotsafe's own check. Only macOS offers device unlock: elsewhere there's no presence check, so a device key would mean unlocking with nothing.
+- **Password freshness:** Touch ID unlock is offered for 14 days after the last password unlock, then the password is needed once.
+- **Enrollment codes** are 128 bits shown as 26 Crockford base32 characters in groups of four (no word list or QR code yet). They're valid for 10 minutes and single use, and expired ones are pruned on every header write. Joining with a code enrolls the new Mac for Touch ID unlock straight away.
+- **Revoking** needs the password. It removes the slot, generates a new vault key, recreates the password slot (same password) and the recovery slot, which means **a new recovery key** (the old slot can't be re-wrapped without the paper key). It re-seals every record and the head, then drops the old key. It all happens at once, not in the background: vaults are small, and an interrupted re-key finishes on the next unlock.
+- **Other devices** keep their slots, which go **stale**: Touch ID unlock answers "needs the password once", and after a password unlock the app re-enrolls the device automatically.
+- **Records sealed with a dropped key** (written by a device that hadn't seen the re-key, or by the revoked one) are skipped and reported by `Vault::unreadable_records()`, never trusted.
+- **Concurrent header changes:** every header change re-reads the newest header, re-applies itself and writes conditionally, retrying on conflict. Changes from two devices both survive on stores with conditional writes (S3/R2). On synced folders the check can't be atomic, so a true simultaneous write can still lose one; merging folder conflict copies of `vault.json` isn't built.
+- **Not built yet:** suggesting a password change on revoke, the bulk rotation queue after revoking, Windows Hello and Linux, and CLI device unlock (the CLI has `dotsafe device list` and `dotsafe device remove`).
 
 ## Goals
 
