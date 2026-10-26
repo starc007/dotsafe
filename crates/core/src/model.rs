@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::audit::AuditDay;
 use crate::error::{Error, Result};
 use crate::secret::Secret;
 
@@ -80,6 +81,7 @@ pub enum Record {
     Project(Project),
     Environment(Environment),
     Secret(Secret),
+    Audit(AuditDay),
 }
 
 impl Record {
@@ -88,6 +90,7 @@ impl Record {
             Record::Project(p) => p.id,
             Record::Environment(e) => e.id,
             Record::Secret(s) => s.id,
+            Record::Audit(a) => a.id,
         }
     }
 
@@ -97,7 +100,7 @@ impl Record {
         match self {
             Record::Project(_) => false,
             Record::Environment(e) => e.vars.values().any(|v| v.secret.is_some()),
-            Record::Secret(_) => true,
+            Record::Secret(_) | Record::Audit(_) => true,
         }
     }
 
@@ -108,6 +111,7 @@ impl Record {
             Record::Project(p) => p.updated,
             Record::Environment(e) => e.vars.values().map(|v| v.stamp).fold(e.updated, Stamp::max),
             Record::Secret(s) => s.max_stamp(),
+            Record::Audit(a) => a.updated,
         }
     }
 
@@ -121,6 +125,7 @@ impl Record {
                 Ok(Record::Environment(a.merge(b)))
             }
             (Record::Secret(a), Record::Secret(b)) if a.id == b.id => Ok(Record::Secret(a.merge(b))),
+            (Record::Audit(a), Record::Audit(b)) if a.id == b.id => Ok(Record::Audit(a.merge(b))),
             (a, _) => Err(Error::Format(format!("cannot merge different records into {}", a.id()))),
         }
     }
