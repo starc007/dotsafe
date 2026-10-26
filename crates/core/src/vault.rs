@@ -18,8 +18,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
-use crate::crypto::{self, KdfParams, Sealed, SecretKey};
+use crate::crypto::{self, KEY_LEN, KdfParams, Sealed, SecretKey};
 use crate::error::{Error, Result};
 use crate::header::{RecoveryKey, VaultHeader};
 use crate::model::Record;
@@ -82,6 +83,22 @@ impl Vault {
         let header = read_header(&root)?;
         let vault_key = header.unlock_with_recovery(recovery)?;
         Ok(Vault::open(root, header, vault_key))
+    }
+
+    /// Unlocks with a key from [`Vault::session_key`], so a client can cache it
+    /// (for example in the OS keychain) instead of asking for the password on
+    /// every use. Fails if the vault was replaced since the key was cached.
+    pub fn unlock_with_session_key(root: impl Into<PathBuf>, key: &[u8; KEY_LEN]) -> Result<Vault> {
+        let root = root.into();
+        let header = read_header(&root)?;
+        let vault_key = header.unlock_with_key(SecretKey::from_bytes(*key))?;
+        Ok(Vault::open(root, header, vault_key))
+    }
+
+    /// The raw vault key, for caching in secure OS storage. Anyone holding it
+    /// can read the vault, so never write it anywhere else.
+    pub fn session_key(&self) -> Zeroizing<[u8; KEY_LEN]> {
+        Zeroizing::new(*self.vault_key.as_bytes())
     }
 
     fn open(root: PathBuf, header: VaultHeader, vault_key: SecretKey) -> Vault {
@@ -151,7 +168,7 @@ impl Vault {
             None => record,
         };
 
-        let plaintext = zeroize::Zeroizing::new(serde_json::to_vec(&merged)?);
+        let plaintext = Zeroizing::new(serde_json::to_vec(&merged)?);
         let file = RecordFile {
             format: RECORD_FORMAT.into(),
             version: RECORD_VERSION,
