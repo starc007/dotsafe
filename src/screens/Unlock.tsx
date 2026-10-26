@@ -1,6 +1,6 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
-import { KeyRound, Lock } from "lucide-react";
+import { Fingerprint, KeyRound, Lock } from "lucide-react";
 import { api, message } from "@/lib/api";
 import { fast } from "@/lib/motion";
 import { displayPath } from "@/lib/paths";
@@ -12,8 +12,21 @@ import { Centered } from "@/components/Centered";
 
 type Mode = "password" | "recovery";
 
-export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; onUnlocked: () => void }) {
+export function Unlock({
+  vaultPath,
+  touchId,
+  passwordDue,
+  onUnlocked,
+}: {
+  vaultPath: string | null;
+  /** Offer Touch ID (this Mac is set up for it, and the password isn't due). */
+  touchId: boolean;
+  /** Touch ID is set up, but it's time for the password again. */
+  passwordDue: boolean;
+  onUnlocked: () => void;
+}) {
   const [mode, setMode] = useState<Mode>("password");
+  const [touchBusy, setTouchBusy] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,6 +34,30 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
   const reduceMotion = useReducedMotion();
   const input = useRef<HTMLInputElement>(null);
   const recovering = mode === "recovery";
+
+  async function unlockWithTouchId() {
+    setTouchBusy(true);
+    setError(null);
+    try {
+      await api.unlockWithTouchId();
+      onUnlocked();
+    } catch (err) {
+      setError(message(err));
+      setTouchBusy(false);
+      input.current?.focus();
+    }
+  }
+
+  // Ask for Touch ID straight away, like macOS's own lock screens. Cancelling
+  // leaves the password field ready.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (touchId && !asked.current) {
+      asked.current = true;
+      unlockWithTouchId();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [touchId]);
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -56,10 +93,23 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
       subtitle={
         recovering
           ? "Enter the key you saved when you set up dotsafe. You'll choose a new password next."
-          : "Enter your master password to unlock."
+          : touchId
+            ? "Use Touch ID or your master password."
+            : passwordDue
+              ? "Enter your password this time. dotsafe asks every two weeks so you don't forget it."
+              : "Enter your master password to unlock."
       }
     >
       <form onSubmit={submit} className="flex flex-col gap-3">
+        {touchId && !recovering && (
+          <>
+            <Button type="button" size="lg" onClick={unlockWithTouchId} disabled={touchBusy || busy}>
+              {touchBusy ? <Spinner /> : <Fingerprint aria-hidden />}
+              Unlock with Touch ID
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">or use your password</p>
+          </>
+        )}
         <div ref={scope}>
           <Label htmlFor="unlock-input" className="sr-only">
             {recovering ? "Recovery key" : "Master password"}
@@ -116,7 +166,13 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
           >
             {recovering ? "Use my password instead" : "Forgot your password?"}
           </button>
-          <Button type="submit" size="lg" className="px-4" disabled={busy || !value.trim()}>
+          <Button
+            type="submit"
+            size="lg"
+            variant={touchId && !recovering ? "outline" : "default"}
+            className="px-4"
+            disabled={busy || !value.trim()}
+          >
             {busy && <Spinner />}
             Unlock
           </Button>

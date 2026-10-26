@@ -76,6 +76,13 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
   const sid = addSecret("STRIPE_SECRET_KEY", "sk_test_51Nx8abc", 120, 90);
   for (const e of envs.values()) if (projects.get(e.projectId) === "my-api") e.vars.set("STRIPE_SECRET_KEY", LINK + sid);
 }
+// Devices. `?touchid` starts as a Mac set up for Touch ID unlock.
+let touchIdUnlock = new URLSearchParams(location.search).has("touchid");
+const mockDevices = [
+  { deviceId: "this-mac", name: "Your MacBook Pro", added: Date.now() - 40 * DAY, stale: false, thisDevice: true },
+  { deviceId: "studio", name: "Studio Mac", added: Date.now() - 12 * DAY, stale: false, thisDevice: false },
+];
+
 // Agents. `?agent` sends an approval request a moment after unlocking.
 type MockGrant = { command: string; cwd: string; variables: number; expiresIn: number | null };
 const agentGrants: MockGrant[] = [];
@@ -199,6 +206,8 @@ export function installMockBackend() {
         "create_vault",
         "connect_vault",
         "bucket_has_vault",
+        "unlock_with_touch_id",
+        "connect_with_code",
         "create_bucket_vault",
         "connect_bucket_vault",
         "unlock",
@@ -209,7 +218,47 @@ export function installMockBackend() {
 
       switch (cmd) {
         case "status":
-          return { configured, unlocked, mustChangePassword, vaultPath: storage.path, defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
+          return {
+            configured,
+            unlocked,
+            mustChangePassword,
+            vaultPath: storage.path,
+            defaultVaultPath: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe",
+            touchIdUnlock,
+            passwordDue: false,
+            canJoinWithCode: true,
+          };
+        case "unlock_with_touch_id":
+          await delay(700);
+          if (!touchIdUnlock) fail("other", "Use your password to unlock.");
+          unlocked = true;
+          return null;
+        case "set_touch_id_unlock":
+          await delay(500);
+          touchIdUnlock = (raw as { enabled: boolean }).enabled;
+          return null;
+        case "list_devices":
+          return {
+            devices: mockDevices.filter((d) => !d.thisDevice || touchIdUnlock),
+            touchIdUnlock,
+            touchIdAvailable: true,
+          };
+        case "create_enrollment_code":
+          return { code: "7QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5Z", expiresAt: Date.now() + 10 * 60_000 };
+        case "revoke_device": {
+          await delay(800);
+          if ((raw as { password: string }).password !== password) fail("invalid_password", "Wrong password.");
+          const i = mockDevices.findIndex((d) => d.deviceId === (raw as { deviceId: string }).deviceId);
+          if (i >= 0) mockDevices.splice(i, 1);
+          return recoveryKey;
+        }
+        case "connect_with_code": {
+          await delay(600);
+          const code = ((raw as { code: string }).code ?? "").replace(/[^0-9a-z]/gi, "");
+          if (code.length !== 26) fail("other", "That isn't a code. It's 7 groups of letters and numbers.");
+          configured = unlocked = touchIdUnlock = true;
+          return null;
+        }
         case "folder_has_vault":
           return false;
         case "create_vault":

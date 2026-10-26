@@ -17,6 +17,8 @@ type Where = "folder" | "bucket";
 
 type Props = {
   defaultPath: string;
+  /** This Mac can join with a code from another device instead of the password. */
+  canJoinWithCode: boolean;
   onCreated: (recoveryKey: string) => void;
   onConnected: () => void;
 };
@@ -65,9 +67,11 @@ export function Setup(props: Props) {
 
 type FormProps = Props & { onConnectingChange: (connecting: boolean) => void };
 
-function FolderSetup({ defaultPath, onCreated, onConnected, onConnectingChange }: FormProps) {
+function FolderSetup({ defaultPath, canJoinWithCode, onCreated, onConnected, onConnectingChange }: FormProps) {
   const [path, setPath] = useState(defaultPath);
   const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [useCode, setUseCode] = useState(false);
+  const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +105,10 @@ function FolderSetup({ defaultPath, onCreated, onConnected, onConnectingChange }
     if (invalid) return setError(invalid);
     setBusy(true);
     try {
-      if (hasVault) {
+      if (hasVault && useCode) {
+        await api.connectWithCode({ path }, code);
+        onConnected();
+      } else if (hasVault) {
         await api.connectVault(path, password);
         onConnected();
       } else {
@@ -142,17 +149,35 @@ function FolderSetup({ defaultPath, onCreated, onConnected, onConnectingChange }
         </div>
       </Field>
 
-      <PasswordFields
-        connecting={connecting}
-        password={password}
-        confirm={confirm}
-        error={error}
-        onPassword={setPassword}
-        onConfirm={setConfirm}
-      />
+      {connecting && useCode ? (
+        <CodeField code={code} error={error} onCode={setCode} />
+      ) : (
+        <PasswordFields
+          connecting={connecting}
+          password={password}
+          confirm={confirm}
+          error={error}
+          onPassword={setPassword}
+          onConfirm={setConfirm}
+        />
+      )}
+      {connecting && canJoinWithCode && (
+        <CodeToggle
+          useCode={useCode}
+          onToggle={() => {
+            setUseCode((u) => !u);
+            setError(null);
+          }}
+        />
+      )}
 
       <SurfaceFooter className="pt-1">
-        <Button type="submit" size="lg" className="px-4" disabled={busy || !path || hasVault === null}>
+        <Button
+          type="submit"
+          size="lg"
+          className="px-4"
+          disabled={busy || !path || hasVault === null || (connecting && useCode && !code.trim())}
+        >
           {busy && <Spinner />}
           {connecting ? "Connect" : "Create vault"}
         </Button>
@@ -170,7 +195,9 @@ const EMPTY_BUCKET: BucketInput = {
   secretAccessKey: "",
 };
 
-function BucketSetup({ onCreated, onConnected, onConnectingChange }: FormProps) {
+function BucketSetup({ canJoinWithCode, onCreated, onConnected, onConnectingChange }: FormProps) {
+  const [useCode, setUseCode] = useState(false);
+  const [code, setCode] = useState("");
   const [bucket, setBucket] = useState(EMPTY_BUCKET);
   // null until the bucket is checked; then whether it already has a vault.
   const [hasVault, setHasVault] = useState<boolean | null>(null);
@@ -204,7 +231,10 @@ function BucketSetup({ onCreated, onConnected, onConnectingChange }: FormProps) 
     if (invalid) return setError(invalid);
     setBusy(true);
     try {
-      if (hasVault) {
+      if (hasVault && useCode) {
+        await api.connectWithCode({ bucket }, code);
+        onConnected();
+      } else if (hasVault) {
         await api.connectBucketVault(bucket, password);
         onConnected();
       } else {
@@ -293,15 +323,28 @@ function BucketSetup({ onCreated, onConnected, onConnectingChange }: FormProps) 
         s3://{bucket.bucket.trim()}
         {bucket.prefix.trim() && `/${bucket.prefix.trim().replace(/^\/+|\/+$/g, "")}`}
       </p>
-      <PasswordFields
-        connecting={hasVault}
-        password={password}
-        confirm={confirm}
-        error={error}
-        onPassword={setPassword}
-        onConfirm={setConfirm}
-        autoFocus
-      />
+      {hasVault && useCode ? (
+        <CodeField code={code} error={error} onCode={setCode} />
+      ) : (
+        <PasswordFields
+          connecting={hasVault}
+          password={password}
+          confirm={confirm}
+          error={error}
+          onPassword={setPassword}
+          onConfirm={setConfirm}
+          autoFocus
+        />
+      )}
+      {hasVault && canJoinWithCode && (
+        <CodeToggle
+          useCode={useCode}
+          onToggle={() => {
+            setUseCode((u) => !u);
+            setError(null);
+          }}
+        />
+      )}
       <SurfaceFooter className="pt-1">
         <Button type="button" variant="ghost" size="lg" onClick={back} disabled={busy}>
           <ArrowLeft aria-hidden />
@@ -313,6 +356,41 @@ function BucketSetup({ onCreated, onConnected, onConnectingChange }: FormProps) 
         </Button>
       </SurfaceFooter>
     </form>
+  );
+}
+
+function CodeField({ code, error, onCode }: { code: string; error: string | null; onCode: (code: string) => void }) {
+  return (
+    <Field
+      label="Code from your other device"
+      htmlFor="join-code"
+      error={error}
+      hint="On a device that's set up: Settings, Devices, Add a device. Codes work once, for ten minutes."
+    >
+      <Input
+        id="join-code"
+        autoFocus
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="XXXX-XXXX-XXXX-…"
+        className="h-9 font-mono text-[13px] tracking-wider uppercase md:text-[13px]"
+        value={code}
+        aria-invalid={!!error}
+        onChange={(e) => onCode(e.target.value)}
+      />
+    </Field>
+  );
+}
+
+function CodeToggle({ useCode, onToggle }: { useCode: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="-mt-1 self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none"
+    >
+      {useCode ? "Use the password instead" : "Have a code from another device?"}
+    </button>
   );
 }
 

@@ -1,5 +1,6 @@
 mod broker;
 mod commands;
+mod devices;
 mod import;
 mod licensing;
 mod presence;
@@ -89,6 +90,12 @@ pub fn run() {
             secrets::restore_secret_version,
             secrets::update_secret_settings,
             secrets::delete_secret,
+            devices::unlock_with_touch_id,
+            devices::set_touch_id_unlock,
+            devices::list_devices,
+            devices::create_enrollment_code,
+            devices::revoke_device,
+            devices::connect_with_code,
             broker::answer_agent_request,
             broker::agent_activity,
             broker::revoke_agent_grants,

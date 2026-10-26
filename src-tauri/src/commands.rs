@@ -36,6 +36,12 @@ pub struct Status {
     vault_path: Option<String>,
     default_vault_path: Option<String>,
     must_change_password: bool,
+    /// Offer Touch ID on the unlock screen.
+    touch_id_unlock: bool,
+    /// Touch ID is set up, but it's time to enter the password again.
+    password_due: bool,
+    /// This Mac can join a vault with a code instead of the password.
+    can_join_with_code: bool,
 }
 
 #[derive(Serialize)]
@@ -70,6 +76,12 @@ pub async fn status(state: State<'_, AppState>) -> CmdResult<Status> {
                 vault_path: s.config.as_ref().map(Config::describe_location),
                 default_vault_path: config::default_vault_path().ok().map(|p| p.display().to_string()),
                 must_change_password: s.must_change_password,
+                touch_id_unlock: s.config.as_ref().is_some_and(crate::devices::touch_id_offered),
+                password_due: s
+                    .config
+                    .as_ref()
+                    .is_some_and(|c| c.device_unlock && crate::devices::password_due(c)),
+                can_join_with_code: crate::presence::available(),
             })
         })
         .await
@@ -112,7 +124,7 @@ pub struct BucketInput {
 }
 
 impl BucketInput {
-    fn parse(self) -> CmdResult<(S3Location, S3Credentials)> {
+    pub(crate) fn parse(self) -> CmdResult<(S3Location, S3Credentials)> {
         let endpoint = self.endpoint.trim().trim_end_matches('/').to_string();
         let local = endpoint.starts_with("http://localhost") || endpoint.starts_with("http://127.0.0.1");
         if !endpoint.starts_with("https://") && !local {
@@ -235,6 +247,7 @@ pub async fn unlock(state: State<'_, AppState>, password: String) -> CmdResult<(
             s.vault = Some(Arc::new(vault));
             s.sync = Default::default();
             s.must_change_password = false;
+            crate::devices::after_password_unlock(s)?;
             Ok(())
         })
         .await
@@ -261,6 +274,7 @@ pub async fn unlock_with_recovery(state: State<'_, AppState>, recovery_key: Stri
             s.vault = Some(Arc::new(vault));
             s.sync = Default::default();
             s.must_change_password = true;
+            crate::devices::after_password_unlock(s)?;
             Ok(())
         })
         .await

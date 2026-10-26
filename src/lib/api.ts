@@ -8,7 +8,16 @@ export type Status = {
   defaultVaultPath: string | null;
   /** Unlocked with the recovery key; a new password must be set first. */
   mustChangePassword: boolean;
+  /** Offer Touch ID on the unlock screen. */
+  touchIdUnlock: boolean;
+  /** Touch ID is set up, but it's time to enter the password again. */
+  passwordDue: boolean;
+  /** This Mac can join a vault with a code from another device. */
+  canJoinWithCode: boolean;
 };
+
+export type DeviceView = { deviceId: string; name: string; added: number; stale: boolean; thisDevice: boolean };
+export type DevicesView = { devices: DeviceView[]; touchIdUnlock: boolean; touchIdAvailable: boolean };
 
 export type EnvironmentView = { id: string; name: string; varCount: number };
 export type ProjectView = { id: string; name: string; environments: EnvironmentView[] };
@@ -218,6 +227,14 @@ export const api = {
   connectBucketVault: (bucket: BucketInput, password: string) =>
     call<void>("connect_bucket_vault", { bucket, password }),
   syncNow: () => call<SyncView>("sync_now"),
+  unlockWithTouchId: () => call<void>("unlock_with_touch_id"),
+  setTouchIdUnlock: (enabled: boolean) => call<void>("set_touch_id_unlock", { enabled }),
+  listDevices: () => call<DevicesView>("list_devices"),
+  createEnrollmentCode: () => call<{ code: string; expiresAt: number }>("create_enrollment_code"),
+  /** Re-keys the vault; returns the new recovery key. */
+  revokeDevice: (deviceId: string, password: string) => call<string>("revoke_device", { deviceId, password }),
+  connectWithCode: (where: { path: string } | { bucket: BucketInput }, code: string) =>
+    call<void>("connect_with_code", { ...where, code }),
   /** `lifetime: null` denies. */
   answerAgentRequest: (id: string, lifetime: GrantLifetime | null) =>
     call<void>("answer_agent_request", { id, lifetime }),

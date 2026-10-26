@@ -88,6 +88,7 @@ function CurrentScreen({
       return (
         <Setup
           defaultPath={screen.status.defaultVaultPath ?? ""}
+          canJoinWithCode={screen.status.canJoinWithCode}
           onCreated={(recoveryKey) => setScreen({ name: "recovery", recoveryKey })}
           onConnected={() => setScreen({ name: "vault" })}
         />
@@ -96,7 +97,14 @@ function CurrentScreen({
       return <Recovery recoveryKey={screen.recoveryKey} onDone={() => setScreen({ name: "vault" })} />;
     case "locked":
       // Re-check status: a recovery-key unlock must set a new password first.
-      return <Unlock vaultPath={screen.status.vaultPath} onUnlocked={refresh} />;
+      return (
+        <Unlock
+          vaultPath={screen.status.vaultPath}
+          touchId={screen.status.touchIdUnlock}
+          passwordDue={screen.status.passwordDue}
+          onUnlocked={refresh}
+        />
+      );
     case "new-password":
       return (
         <NewPassword

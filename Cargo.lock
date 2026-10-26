@@ -1226,6 +1226,7 @@ dependencies = [
  "dotsafe-agent",
  "dotsafe-core",
  "dotsafe-stores",
+ "keyring",
  "objc2",
  "objc2-foundation",
  "objc2-local-authentication",
