@@ -16,6 +16,19 @@ import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SettingsPage } from "@/screens/Settings";
 
+/** Slide between projects and settings. `custom` is the direction (see `direction`). */
+const swapMotion = {
+  variants: {
+    enter: (d: number) => ({ x: d * 24, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (d: number) => ({ x: d * -24, opacity: 0 }),
+  },
+  initial: "enter",
+  animate: "center",
+  exit: "exit",
+  transition: base,
+} as const;
+
 export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [projects, setProjects] = useState<ProjectView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,69 +103,79 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   useShortcut(SHORTCUTS.nextProject, () => stepProject(1));
 
   const selected = projects?.find((p) => p.id === selectedId) ?? null;
+  // New content enters from the right going into Settings, from the left coming back.
+  const direction = settingsOpen ? 1 : -1;
 
   return (
     <div className="flex h-full">
       <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
         {/* Space for the macOS traffic lights; also drags the window. */}
         <DragRegion className="h-12 shrink-0" />
-        {settingsSection ? (
-          <SettingsNav section={settingsSection} onSelect={setSettingsSection} onBack={() => setSettingsOpen(false)} />
-        ) : (
-        <>
-        <div className="flex items-center justify-between px-3 pb-1">
-          <h2 className="px-1 text-xs font-medium text-muted-foreground">Projects</h2>
-          <IconButton label="New project" aria-keyshortcuts={ariaShortcut(SHORTCUTS.newProject)} onClick={startCreating}>
-            <Plus aria-hidden />
-          </IconButton>
-        </div>
-        <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 pb-2">
-          {creating && (
-            <InlineCreate
-              label="Project name"
-              placeholder="my-app"
-              className="mb-1"
-              onCreate={createProject}
-              onCancel={() => setCreating(false)}
-            />
-          )}
-          {projects === null && !error && <SidebarSkeleton />}
-          <AnimatePresence initial={false}>
-            {projects?.map((p) => {
-              const current = p.id === selectedId && !settingsOpen;
-              return (
-                <motion.button
-                  key={p.id}
-                  layout="position"
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                  transition={base}
-                  aria-current={current ? "page" : undefined}
-                  onClick={() => selectProject(p.id)}
-                  className={cn(
-                    "relative flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
-                    "hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                    "aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
-                  )}
-                >
-                  {/* One highlight that slides between projects as the selection moves. */}
-                  {current && (
-                    <motion.span
-                      layoutId="project-highlight"
-                      aria-hidden
-                      className="absolute inset-0 rounded-md bg-sidebar-accent"
-                      transition={snappy}
-                    />
-                  )}
-                  <span className="relative truncate">{p.name}</span>
-                </motion.button>
-              );
-            })}
+        {/* Projects and settings slide past each other: into Settings to the left,
+            back to projects to the right. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+            {settingsSection ? (
+              <motion.div key="settings" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
+                <SettingsNav section={settingsSection} onSelect={setSettingsSection} onBack={() => setSettingsOpen(false)} />
+              </motion.div>
+            ) : (
+              <motion.div key="projects" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex items-center justify-between px-3 pb-1">
+              <h2 className="px-1 text-xs font-medium text-muted-foreground">Projects</h2>
+              <IconButton label="New project" aria-keyshortcuts={ariaShortcut(SHORTCUTS.newProject)} onClick={startCreating}>
+                <Plus aria-hidden />
+              </IconButton>
+            </div>
+            <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 pb-2">
+              {creating && (
+                <InlineCreate
+                  label="Project name"
+                  placeholder="my-app"
+                  className="mb-1"
+                  onCreate={createProject}
+                  onCancel={() => setCreating(false)}
+                />
+              )}
+              {projects === null && !error && <SidebarSkeleton />}
+              <AnimatePresence initial={false}>
+                {projects?.map((p) => {
+                  const current = p.id === selectedId && !settingsOpen;
+                  return (
+                    <motion.button
+                      key={p.id}
+                      layout="position"
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                      transition={base}
+                      aria-current={current ? "page" : undefined}
+                      onClick={() => selectProject(p.id)}
+                      className={cn(
+                        "relative flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
+                        "hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                        "aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
+                      )}
+                    >
+                      {/* One highlight that slides between projects as the selection moves. */}
+                      {current && (
+                        <motion.span
+                          layoutId="project-highlight"
+                          aria-hidden
+                          className="absolute inset-0 rounded-md bg-sidebar-accent"
+                          transition={snappy}
+                        />
+                      )}
+                      <span className="relative truncate">{p.name}</span>
+                    </motion.button>
+                  );
+                })}
+              </AnimatePresence>
+            </nav>
+              </motion.div>
+            )}
           </AnimatePresence>
-        </nav>
-        </>
-        )}
+        </div>
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
           <SidebarAction
             icon={<SettingsIcon aria-hidden />}
@@ -165,31 +188,39 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
-        {settingsSection ? (
-          <SettingsPage section={settingsSection} onClose={() => setSettingsOpen(false)} onLock={lock} />
-        ) : error ? (
-          <Message title="Couldn't load your projects" body={error}>
-            <Button variant="outline" onClick={load}>
-              Try again
-            </Button>
-          </Message>
-        ) : projects === null ? (
-          <DragRegion className="h-12" />
-        ) : selected ? (
-          <ProjectPane key={selected.id} project={selected} onChanged={load} />
-        ) : (
-          <Message
-            icon={<FolderLock aria-hidden className="size-5" />}
-            title="No projects yet"
-            body="A project holds the variables for one app, split into environments like development and production."
-          >
-            <Button onClick={startCreating}>
-              <Plus aria-hidden />
-              New project
-            </Button>
-          </Message>
-        )}
+      <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+          {settingsSection ? (
+            <motion.div key="settings" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
+              <SettingsPage section={settingsSection} onClose={() => setSettingsOpen(false)} onLock={lock} />
+            </motion.div>
+          ) : (
+            <motion.div key="projects" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
+              {error ? (
+                <Message title="Couldn't load your projects" body={error}>
+                  <Button variant="outline" onClick={load}>
+                    Try again
+                  </Button>
+                </Message>
+              ) : projects === null ? (
+                <DragRegion className="h-12" />
+              ) : selected ? (
+                <ProjectPane key={selected.id} project={selected} onChanged={load} />
+              ) : (
+                <Message
+                  icon={<FolderLock aria-hidden className="size-5" />}
+                  title="No projects yet"
+                  body="A project holds the variables for one app, split into environments like development and production."
+                >
+                  <Button onClick={startCreating}>
+                    <Plus aria-hidden />
+                    New project
+                  </Button>
+                </Message>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
     </div>
   );
