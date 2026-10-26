@@ -1,6 +1,6 @@
 # Agent access
 
-**Status:** proposed. Milestone M6. It can start before format v2; only the audit log needs v2.
+**Status:** M6 steps 1–3 are implemented (macOS and Linux): `dotsafe mcp`, the broker in the desktop app with approvals and grants, the refusal list, the runner and redaction. Still proposed: the secret proxy, `generate_secret`, the persistent audit log, Touch ID on approval, Windows named pipes and a headless `dotsafe daemon`.
 
 ## The problem
 
@@ -44,8 +44,8 @@ Coding agents (Claude Code, Cursor, Codex, and so on) need secrets to run tests,
 | Tool | Returns | Needs approval |
 |---|---|---|
 | `list_projects` | Project and environment names | No |
-| `list_secrets(project, env)` | Names, age, source, where used. **Never values** | No |
-| `run(argv, cwd, secrets, timeout)` | Exit code, redacted stdout/stderr | Yes, unless a grant covers it |
+| `list_variables(project, env)` | Variable names, and which are shared secrets. **Never values** | No |
+| `run_with_secrets(command, cwd, variables, timeout)` | Exit code, redacted stdout/stderr | Yes, unless a grant covers it |
 | `proxy(secret, profile)` | Env vars to set (`OPENAI_BASE_URL=…`, a dummy key) | Yes |
 | `generate_secret(name, generator, env)` | The new secret's name. **The value is generated in the broker and never returned** | Yes |
 | `propose_rotation(secret)` | A proposal the user reviews in the app | The user acts on it |
@@ -67,7 +67,7 @@ Grant {
 }
 ```
 
-- **The approval dialog** is native, from the desktop app. It shows the program, full argv, working directory, which secrets, and who asked. Duration choices: once, 15 minutes, 1 hour, until lock. Touch ID confirms.
+- **The approval dialog** is native, from the desktop app. It shows the program, full argv, working directory, which secrets, and who asked. Duration choices: once, 15 minutes, 1 hour, until lock. Touch ID will confirm (not yet built).
 - **If the vault is locked,** unlocking and approving happen in one prompt.
 - **Refused for agents, whatever the user clicks:**
   - Shells and interpreters given inline code: `sh`, `bash -c`, `zsh -c`, `node -e/-p/--eval`, `python -c`, `ruby -e`, `perl -e`, `deno eval`, `bun -e`.
@@ -78,7 +78,7 @@ Grant {
 
 ## Runner
 
-- **The broker spawns the process, not the agent.** The environment is a minimal copy of the parent's, plus only the granted secrets. Stdin is closed by default.
+- **The broker spawns the process, not the agent.** The environment is a fixed allowlist of the broker's own variables (`HOME`, `USER`, `SHELL`, `LANG`, `TERM`, `TMPDIR`, `TZ`, …), the agent's `PATH` (to find programs the way the agent would), and only the granted variables. Nothing else from the agent passes through, so `DYLD_*`, `LD_*` or `NODE_OPTIONS` can't be slipped in. Stdin is closed.
 - **Output** streams back through the redactor to the MCP client.
 - **When the grant expires,** in-flight processes are left alone and new runs need approval.
 
@@ -92,7 +92,7 @@ Grant {
   - JSON string escaping.
 - **Streaming:** Aho-Corasick over the stream, keeping an overlap buffer as long as the longest pattern, so values split across chunks are still caught.
 - **Replacement:** `[dotsafe:STRIPE_SECRET_KEY]`.
-- Values shorter than 6 characters can't be redacted reliably. They're refused for agent runs, with an explanation.
+- Values shorter than 6 characters aren't redacted: "true" or "3000" would mangle normal output, and they're rarely secrets. They're still injected.
 - **This catches accidents** (a stack trace printing a connection string), not adversaries.
 
 ## Secret proxy
@@ -146,8 +146,8 @@ The setup screen also offers a snippet for the project's `AGENTS.md`: "Secrets a
 
 ## Milestones
 
-1. `dotsafe mcp` with `list_projects` and `list_secrets` (names only). No format change.
-2. Broker, IPC, approvals, runner, refusal list.
-3. Redaction.
+1. ✅ `dotsafe mcp` with `list_projects` and `list_variables` (names only). No format change.
+2. ✅ Broker, IPC, approvals, runner, refusal list (macOS and Linux; Windows and Touch ID still to do).
+3. ✅ Redaction.
 4. Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
 5. `generate_secret` and the audit log (format v2).

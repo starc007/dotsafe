@@ -35,6 +35,8 @@ dotsafe secret history STRIPE_KEY       # versions and notes, never values
 dotsafe secret due                      # what's due under each secret's rotation policy
 ```
 
+**AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while. The output comes back with secret values replaced by `[dotsafe:NAME]`. Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
+
 **Shared secrets.** A variable can link to a shared secret instead of holding its own value. Rotate the secret once and every linked environment, in any project, gets the new value. Each secret keeps its history, so a bad rotation can be rolled back or an earlier value restored.
 
 **Vaults in a bucket.** Instead of a synced folder, a vault can live in any S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO). The bucket only ever holds encrypted files. Each machine keeps an encrypted copy, so dotsafe works offline and syncs when it's back online. The access key is kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
