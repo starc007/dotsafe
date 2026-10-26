@@ -12,6 +12,9 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use tauri_plugin_dialog::DialogExt;
+
+use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
 use crate::state::{AppState, CmdError, CmdResult, hash_text};
 
 const MIN_PASSWORD_LEN: usize = 8;
@@ -122,6 +125,7 @@ pub async fn lock(state: State<'_, AppState>) -> CmdResult<()> {
     state
         .run(|s| {
             s.vault = None;
+            s.import_files.clear();
             Ok(())
         })
         .await
@@ -334,6 +338,106 @@ pub async fn delete_variable(state: State<'_, AppState>, environment_id: Uuid, k
             env.remove(&key, stamp);
             s.vault()?.put(Record::Environment(env))?;
             Ok(())
+        })
+        .await
+}
+
+/// Opens the native picker for `.env` files and remembers the choice for the
+/// next preview or import. Returns the chosen file names.
+#[tauri::command]
+pub async fn pick_env_files(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    state.run(|s| s.vault().map(|_| ())).await?;
+    // The picker runs outside the session lock so other commands keep working.
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("Import .env files").blocking_pick_files()
+    })
+    .await
+    .map_err(|e| CmdError::other(e.to_string()))?;
+    let paths: Vec<PathBuf> = picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .collect();
+    state
+        .run(move |s| {
+            s.import_files = paths;
+            Ok(s.import_files.iter().map(|p| import::file_name(p)).collect())
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn clear_import_files(state: State<'_, AppState>) -> CmdResult<()> {
+    state
+        .run(|s| {
+            s.import_files.clear();
+            Ok(())
+        })
+        .await
+}
+
+/// What importing `source` into an environment would change. Names only.
+#[tauri::command]
+pub async fn preview_import(
+    state: State<'_, AppState>,
+    environment_id: Uuid,
+    source: ImportSource,
+) -> CmdResult<Preview> {
+    state
+        .run(move |s| {
+            let env = s.environment(environment_id)?;
+            let (parsed, errors) = import::collect(&source, &s.import_files);
+            let entries = import::plan(&env, &parsed)
+                .into_iter()
+                .map(|(change, p)| PreviewEntry { key: p.key, change, file: p.file })
+                .collect();
+            Ok(Preview { entries, errors })
+        })
+        .await
+}
+
+/// Writes the variables from `source`. With `overwrite` off, existing values
+/// are kept and only new variables are added.
+#[tauri::command]
+pub async fn import_variables(
+    state: State<'_, AppState>,
+    environment_id: Uuid,
+    source: ImportSource,
+    overwrite: bool,
+) -> CmdResult<ImportResult> {
+    state
+        .run(move |s| {
+            let stamp = s.stamp()?;
+            let mut env = s.environment(environment_id)?;
+            let (parsed, errors) = import::collect(&source, &s.import_files);
+            if parsed.is_empty() {
+                return Err(CmdError::other(
+                    errors.into_iter().next().unwrap_or_else(|| "There's nothing to import.".into()),
+                ));
+            }
+            let mut result = ImportResult::default();
+            for (change, p) in import::plan(&env, &parsed) {
+                match change {
+                    Change::New => result.added += 1,
+                    Change::Unchanged => {
+                        result.unchanged += 1;
+                        continue;
+                    }
+                    Change::Update if overwrite => result.updated += 1,
+                    Change::Update => {
+                        result.skipped += 1;
+                        continue;
+                    }
+                }
+                env.set(p.key, p.value, stamp);
+            }
+            if result.added + result.updated > 0 {
+                s.vault()?.put(Record::Environment(env))?;
+            }
+            if matches!(source, ImportSource::Files) {
+                s.import_files.clear();
+            }
+            Ok(result)
         })
         .await
 }
