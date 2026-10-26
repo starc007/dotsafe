@@ -101,6 +101,16 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
 - **`FolderStore`:** ETags are SHA-256 hashes of the bytes, and the check-then-rename isn't atomic. A sync client can't offer anything stronger, so merge-on-read and conflict-copy handling remain the real safety net there.
 - `vault.json` writes are not yet conditional (see limitations).
 
+## Local cache (vaults in a bucket)
+
+A vault in a bucket is opened through `CachedStore` (`cache.rs`): a mirror of the bucket's objects (ciphertext only) in the app data directory, plus an `index.json` of each object's remote ETag.
+
+- **Reads** come from the mirror, so the vault opens fast and works offline.
+- **Writes** go to the bucket with the remote ETag as the condition. Unreachable means the write is kept locally as unpushed and pushed by the next sync.
+- **Both sides changed:** if the bucket changed under an unpushed local write, the remote version is kept beside it as `<uuid> (remote).json`. The vault merges it like any sync-conflict copy, and the local write isn't pushed until it has been merged.
+- **`head.json`** is never simply replaced: the version this device last saw is kept as `head (cached).json` until merged, so a rolled-back bucket can't make the device forget newer stamps. This is what makes rollback detection work across sessions for bucket vaults.
+- **Missing objects** (a wiped or rolled-back bucket) are uploaded again from the mirror, never deleted locally. The vault never deletes its own objects (deletes are tombstones), so anything missing was lost remotely.
+
 ## Sync and merging
 
 - **Environment ids:** a new environment's id is UUIDv5(project id, name). If two devices both create "development" for a project before syncing, they produce the same record, and the two versions merge. If that id is already taken by an environment that was renamed, the client falls back to a random id.
@@ -126,7 +136,7 @@ Records go first and the header last, so an interrupted upgrade simply runs agai
 
 ## Known limitations (v2)
 
-- **Rollback on synced folders:** see `head.json` above. Rollbacks are detected but can't yet be told apart from sync lag, and a device that has never seen the vault trusts the first head it reads.
+- **Rollback on synced folders:** see `head.json` above. Rollbacks are detected but can't yet be told apart from sync lag, and a device that has never seen the vault trusts the first head it reads. Bucket vaults keep the last-seen head in their cache, so they also notice across sessions.
 - **Clock skew:** a device whose clock runs far ahead still pushes everyone's stamps forward. Causally later edits now win, but a future-dated edit beats a concurrent one made elsewhere.
 - **Header conflicts:** if two devices change the password at the same moment, only one `vault.json` survives. Records are unaffected, because the vault key doesn't change. Conditional header writes and merging header copies come with device slots.
 - **Deleting a project doesn't cascade:** deleting a project doesn't delete its environments in storage. The app is expected to tombstone them too.
