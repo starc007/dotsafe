@@ -1,6 +1,7 @@
 mod commands;
 mod import;
 mod licensing;
+mod secrets;
 mod state;
 mod sync;
 
@@ -66,6 +67,23 @@ pub fn run() {
             commands::clear_import_files,
             commands::preview_import,
             commands::import_variables,
+            secrets::list_secrets,
+            secrets::get_secret,
+            secrets::reveal_secret,
+            secrets::copy_secret,
+            secrets::share_preview,
+            secrets::share_variable,
+            secrets::link_variable,
+            secrets::unlink_variable,
+            secrets::stage_secret,
+            secrets::promote_secret,
+            secrets::cancel_staged_secret,
+            secrets::roll_back_secret,
+            secrets::retire_previous_secret,
+            secrets::rotate_leaked_secret,
+            secrets::restore_secret_version,
+            secrets::update_secret_settings,
+            secrets::delete_secret,
             commands::get_settings,
             commands::activate_license,
             commands::check_license,

@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use dotsafe_core::license::unix_now;
 use dotsafe_core::{
-    CachedStore, Config, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey,
+    CachedStore, Config, Entry, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey,
     S3Location, Store, Vault, config, is_valid_var_name,
 };
 use dotsafe_stores::{S3Credentials, S3Store};
@@ -56,7 +56,7 @@ pub struct EnvironmentView {
 
 impl From<&Environment> for EnvironmentView {
     fn from(e: &Environment) -> Self {
-        EnvironmentView { id: e.id, name: e.name.clone(), var_count: e.vars().count() }
+        EnvironmentView { id: e.id, name: e.name.clone(), var_count: e.entries().count() }
     }
 }
 
@@ -450,12 +450,54 @@ pub async fn delete_environment(state: State<'_, AppState>, environment_id: Uuid
         .await
 }
 
-/// Variable names in an environment. Values stay in Rust until revealed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariableView {
+    key: String,
+    /// The shared secret it's linked to, if any.
+    secret: Option<SecretRef>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretRef {
+    id: Uuid,
+    name: String,
+}
+
+/// Variable names in an environment, and which are linked to shared secrets.
+/// Values stay in Rust until revealed.
 #[tauri::command]
-pub async fn list_variables(state: State<'_, AppState>, environment_id: Uuid) -> CmdResult<Vec<String>> {
+pub async fn list_variables(state: State<'_, AppState>, environment_id: Uuid) -> CmdResult<Vec<VariableView>> {
     state
-        .run(move |s| Ok(s.environment(environment_id)?.vars().map(|(k, _)| k.to_string()).collect()))
+        .run(move |s| {
+            let env = s.environment(environment_id)?;
+            let secrets = s.vault()?.secrets()?;
+            Ok(env
+                .entries()
+                .map(|(key, entry)| VariableView {
+                    key: key.to_string(),
+                    secret: match entry {
+                        Entry::Secret(id) => Some(SecretRef {
+                            id,
+                            name: secrets.get(id).map_or_else(|| "Deleted secret".into(), |s| s.name.clone()),
+                        }),
+                        Entry::Value(_) => None,
+                    },
+                })
+                .collect())
+        })
         .await
+}
+
+/// The variable's value, with a linked secret resolved to its current value.
+fn resolved_value(s: &crate::state::Session, env: &Environment, key: &str) -> CmdResult<String> {
+    let entry = env.entry(key).ok_or_else(|| CmdError::other(format!("{key} isn't set.")))?;
+    let secrets = s.vault()?.secrets()?;
+    secrets
+        .value(entry)
+        .map(str::to_string)
+        .ok_or_else(|| CmdError::other(format!("{key} is linked to a shared secret that has no value.")))
 }
 
 #[tauri::command]
@@ -463,7 +505,7 @@ pub async fn reveal_variable(state: State<'_, AppState>, environment_id: Uuid, k
     state
         .run(move |s| {
             let env = s.environment(environment_id)?;
-            env.get(&key).map(str::to_string).ok_or_else(|| CmdError::other(format!("{key} isn't set.")))
+            resolved_value(s, &env, &key)
         })
         .await
 }
@@ -480,9 +522,9 @@ pub async fn copy_variable(
     state
         .run(move |s| {
             let env = s.environment(environment_id)?;
-            let value = env.get(&key).ok_or_else(|| CmdError::other(format!("{key} isn't set.")))?;
-            app.clipboard().write_text(value).map_err(|e| CmdError::other(e.to_string()))?;
-            s.clipboard = Some((hash_text(value), Instant::now()));
+            let value = Zeroizing::new(resolved_value(s, &env, &key)?);
+            app.clipboard().write_text(value.as_str()).map_err(|e| CmdError::other(e.to_string()))?;
+            s.clipboard = Some((hash_text(&value), Instant::now()));
             Ok(())
         })
         .await
@@ -511,8 +553,13 @@ pub async fn set_variable(
             // Only an in-place edit may write over an existing name; adds and
             // renames must not silently replace another variable.
             let editing_in_place = previous_key.as_deref() == Some(key.as_str());
-            if !editing_in_place && env.get(&key).is_some() {
+            if !editing_in_place && env.entry(&key).is_some() {
                 return Err(CmdError::other(format!("{key} already exists.")));
+            }
+            if editing_in_place && matches!(env.entry(&key), Some(Entry::Secret(_))) {
+                return Err(CmdError::other(format!(
+                    "{key} is linked to a shared secret. Rotate the secret, or unlink {key} first."
+                )));
             }
             if let Some(old) = previous_key.filter(|p| *p != key) {
                 env.remove(old, stamp);
@@ -619,7 +666,7 @@ pub async fn import_variables(
                         continue;
                     }
                     Change::Update if overwrite => result.updated += 1,
-                    Change::Update => {
+                    Change::Update | Change::Linked => {
                         result.skipped += 1;
                         continue;
                     }

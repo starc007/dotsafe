@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, Lock, Plus, Settings as SettingsIcon } from "lucide-react";
+import { FolderLock, Lock, Plus, Settings as SettingsIcon, Share2 } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
@@ -15,6 +15,7 @@ import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
 import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
+import { SecretsPage } from "@/screens/Secrets";
 import { SettingsPage } from "@/screens/Settings";
 
 /** Slide between projects and settings. `custom` is the direction (see `direction`). */
@@ -38,6 +39,11 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
+  // Shared secrets, and the secret whose details are open there.
+  const [secretsOpen, setSecretsOpen] = useState(false);
+  const [openSecretId, setOpenSecretId] = useState<string | null>(null);
+  // An environment to open in the selected project, when jumping from a secret.
+  const [focusEnvironment, setFocusEnvironment] = useState<string | null>(null);
   // Reopening Settings returns to the section viewed last.
   const lastSection = useRef<SettingsSection>("license");
   if (settingsSection) lastSection.current = settingsSection;
@@ -82,7 +88,29 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   function selectProject(id: string) {
     setSelectedId(id);
     setSettingsOpen(false);
+    setSecretsOpen(false);
+    setFocusEnvironment(null);
   }
+
+  function openSecrets(secretId: string | null = null) {
+    setSettingsOpen(false);
+    setSecretsOpen(true);
+    setOpenSecretId(secretId);
+  }
+
+  function openEnvironment(projectId: string, environmentId: string) {
+    setOpenSecretId(null);
+    setSecretsOpen(false);
+    setSelectedId(projectId);
+    setFocusEnvironment(environmentId);
+  }
+
+  // A linked variable's badge asks to open its secret.
+  useEffect(() => {
+    const onOpen = (e: Event) => openSecrets((e as CustomEvent<string>).detail);
+    window.addEventListener("dotsafe:open-secret", onOpen);
+    return () => window.removeEventListener("dotsafe:open-secret", onOpen);
+  });
 
   function startCreating() {
     setSettingsOpen(false);
@@ -103,14 +131,19 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   }
 
   useShortcut(SHORTCUTS.lock, lock);
-  useShortcut(SHORTCUTS.settings, () => setSettingsOpen((open) => !open));
+  useShortcut(SHORTCUTS.settings, () => {
+    setSecretsOpen(false);
+    setSettingsOpen((open) => !open);
+  });
+  useShortcut(SHORTCUTS.secrets, () => (secretsOpen ? setSecretsOpen(false) : openSecrets()));
   useShortcut(SHORTCUTS.newProject, startCreating);
   useShortcut(SHORTCUTS.previousProject, () => stepProject(-1));
   useShortcut(SHORTCUTS.nextProject, () => stepProject(1));
 
   const selected = projects?.find((p) => p.id === selectedId) ?? null;
-  // New content enters from the right going into Settings, from the left coming back.
-  const direction = settingsOpen ? 1 : -1;
+  // New content enters from the right going into Settings or Shared secrets,
+  // from the left coming back.
+  const direction = settingsOpen || secretsOpen ? 1 : -1;
 
   return (
     <div className="flex h-full">
@@ -146,7 +179,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               {projects === null && !error && <SidebarSkeleton />}
               <AnimatePresence initial={false}>
                 {projects?.map((p) => {
-                  const current = p.id === selectedId && !settingsOpen;
+                  const current = p.id === selectedId && !settingsOpen && !secretsOpen;
                   return (
                     <motion.button
                       key={p.id}
@@ -184,11 +217,21 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
         </div>
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
           <SidebarAction
+            icon={<Share2 aria-hidden />}
+            label="Secrets"
+            shortcut={SHORTCUTS.secrets}
+            active={secretsOpen}
+            onClick={() => (secretsOpen ? setSecretsOpen(false) : openSecrets())}
+          />
+          <SidebarAction
             icon={<SettingsIcon aria-hidden />}
             label="Settings"
             shortcut={SHORTCUTS.settings}
             active={settingsOpen}
-            onClick={() => setSettingsOpen((open) => !open)}
+            onClick={() => {
+              setSecretsOpen(false);
+              setSettingsOpen((open) => !open);
+            }}
           />
           <SidebarAction icon={<Lock aria-hidden />} label="Lock" shortcut={SHORTCUTS.lock} onClick={lock} />
         </div>
@@ -199,6 +242,15 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           {settingsSection ? (
             <motion.div key="settings" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
               <SettingsPage section={settingsSection} onClose={() => setSettingsOpen(false)} onLock={lock} />
+            </motion.div>
+          ) : secretsOpen ? (
+            <motion.div key="secrets" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
+              <SecretsPage
+                openSecretId={openSecretId}
+                onOpenSecret={setOpenSecretId}
+                onClose={() => setSecretsOpen(false)}
+                onOpenEnvironment={openEnvironment}
+              />
             </motion.div>
           ) : (
             <motion.div key="projects" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
@@ -211,7 +263,12 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               ) : projects === null ? (
                 <DragRegion className="h-12" />
               ) : selected ? (
-                <ProjectPane key={selected.id} project={selected} onChanged={load} />
+                <ProjectPane
+                  key={`${selected.id}:${focusEnvironment ?? ""}`}
+                  project={selected}
+                  initialEnvironmentId={focusEnvironment}
+                  onChanged={load}
+                />
               ) : (
                 <Message
                   icon={<FolderLock aria-hidden className="size-5" />}

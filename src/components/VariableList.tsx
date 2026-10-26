@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { Check, Copy, Eye, EyeOff, FileUp, KeyRound, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
-import { api, message, type EnvironmentView, type ImportResult } from "@/lib/api";
+import { Check, Copy, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
+import { api, message, type EnvironmentView, type ImportResult, type SecretRef } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
 import { SHORTCUTS, ariaShortcut, useShortcut, type Shortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
 import { ImportDialog } from "@/components/ImportDialog";
+import { ShareDialog } from "@/components/ShareDialog";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
@@ -50,10 +51,17 @@ export function VariableList({
   const envId = environment.id;
   const label = `${projectName}/${environment.name}`;
   const [keys, setKeys] = useState<string[] | null>(null);
+  // Variables linked to a shared secret, by name.
+  const [links, setLinks] = useState<Record<string, SecretRef>>({});
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<Dialog>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [sharing, setSharing] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState<string | null>(null);
+  // Keeps the share dialog's variable while it animates closed.
+  const lastShared = useRef("");
+  if (sharing) lastShared.current = sharing;
   const [filter, setFilter] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -69,7 +77,9 @@ export function VariableList({
   const load = useCallback(async () => {
     setInstant(false);
     try {
-      setKeys(await api.listVariables(envId));
+      const vars = await api.listVariables(envId);
+      setKeys(vars.map((v) => v.key));
+      setLinks(Object.fromEntries(vars.flatMap((v) => (v.secret ? [[v.key, v.secret]] : []))));
       setError(null);
     } catch (e) {
       setError(message(e));
@@ -176,6 +186,29 @@ export function VariableList({
       result.skipped && `${result.skipped} kept as they were`,
     ].filter(Boolean);
     toast.success(`Saved to ${label}`, { description: parts.join(" · ") || "Everything was already up to date." });
+  }
+
+  async function shared(key: string, name: string, linked: number) {
+    setSharing(null);
+    hide(key);
+    await load();
+    await onChanged();
+    toast.success(name === key ? `${key} is now shared` : `${key} is now the shared secret ${name}`, {
+      description: linked ? `Also linked in ${linked} other ${linked === 1 ? "environment" : "environments"}.` : undefined,
+    });
+  }
+
+  async function unlinkConfirmed() {
+    if (!unlinking) return;
+    try {
+      await api.unlinkVariable(envId, unlinking);
+      toast(`${unlinking} has its own value now`, { description: "Rotating the shared secret won't change it." });
+      await load();
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setUnlinking(null);
+    }
   }
 
   async function deleteConfirmed() {
@@ -296,6 +329,21 @@ export function VariableList({
                     <span className="selectable w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] font-medium" title={key}>
                       {key}
                     </span>
+                    {links[key] && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => window.dispatchEvent(new CustomEvent("dotsafe:open-secret", { detail: links[key].id }))}
+                            className="flex max-w-40 shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary outline-none hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <Link2 aria-hidden className="size-3 shrink-0" />
+                            <span className="truncate">{links[key].name}</span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>Shared secret. Open it to rotate or see where it's used.</TooltipContent>
+                      </Tooltip>
+                    )}
                     {/* Revealing rolls the mask away and the value up into place. */}
                     <span className="min-w-0 flex-1">
                       <ActionSwapText
@@ -327,9 +375,20 @@ export function VariableList({
                           {copiedKey === key ? <Check aria-hidden /> : <Copy aria-hidden />}
                         </ActionSwapIcon>
                       </IconButton>
-                      <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
-                        <Pencil aria-hidden />
-                      </IconButton>
+                      {links[key] ? (
+                        <IconButton label={`Unlink ${key} from ${links[key].name}`} onClick={() => setUnlinking(key)}>
+                          <Unlink aria-hidden />
+                        </IconButton>
+                      ) : (
+                        <>
+                          <IconButton label={`Share ${key}`} onClick={() => setSharing(key)}>
+                            <Share2 aria-hidden />
+                          </IconButton>
+                          <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
+                            <Pencil aria-hidden />
+                          </IconButton>
+                        </>
+                      )}
                       <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
                         <Trash2 aria-hidden />
                       </IconButton>
@@ -377,6 +436,21 @@ export function VariableList({
         environmentLabel={label}
         droppedFiles={lastImportDialog.current?.droppedFiles}
         onImported={imported}
+      />
+      <ShareDialog
+        open={sharing !== null}
+        onOpenChange={(open) => !open && setSharing(null)}
+        environmentId={envId}
+        variable={lastShared.current}
+        onShared={(name, linked) => shared(lastShared.current, name, linked)}
+      />
+      <ConfirmDialog
+        open={unlinking !== null}
+        title={`Unlink ${unlinking}?`}
+        description={`It keeps the current value, but stops following ${unlinking ? links[unlinking]?.name : "the secret"} when it's rotated.`}
+        confirmLabel="Unlink"
+        onConfirm={unlinkConfirmed}
+        onCancel={() => setUnlinking(null)}
       />
       <ConfirmDialog
         open={deleting !== null}

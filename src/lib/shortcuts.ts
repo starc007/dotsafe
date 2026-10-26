@@ -17,6 +17,7 @@ export type Shortcut = {
 export const SHORTCUTS = {
   lock: { key: "l", label: "Lock the vault", group: "General" },
   settings: { key: ",", label: "Open or close settings", group: "General" },
+  secrets: { key: "s", shift: true, label: "Open shared secrets", group: "General" },
   newProject: { key: "n", shift: true, label: "New project", group: "Projects" },
   previousProject: { key: "ArrowUp", label: "Previous project", group: "Projects" },
   nextProject: { key: "ArrowDown", label: "Next project", group: "Projects" },

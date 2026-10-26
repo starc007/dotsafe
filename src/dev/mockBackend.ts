@@ -53,6 +53,74 @@ addProject("my-api", {
 });
 addProject("marketing-site", { development: {} });
 
+// Shared secrets. A linked variable is stored in `vars` as LINK + secret id.
+const LINK = "\u0000secret:";
+const DAY = 24 * 60 * 60 * 1000;
+type MockVersion = { id: string; value: string | null; state: string; createdAt: number; changedAt: number; note: string | null };
+type MockSecret = { id: string; name: string; rotateEveryDays: number | null; versions: MockVersion[] };
+const secrets = new Map<string, MockSecret>();
+function addSecret(name: string, value: string, ageDays: number, rotateEveryDays: number | null = null) {
+  const sid = id();
+  const at = Date.now() - ageDays * DAY;
+  secrets.set(sid, {
+    id: sid,
+    name,
+    rotateEveryDays,
+    versions: [{ id: id(), value, state: "current", createdAt: at, changedAt: at, note: null }],
+  });
+  return sid;
+}
+{
+  // Seed: one secret linked into both environments of my-api, overdue for rotation.
+  const sid = addSecret("STRIPE_SECRET_KEY", "sk_test_51Nx8abc", 120, 90);
+  for (const e of envs.values()) if (projects.get(e.projectId) === "my-api") e.vars.set("STRIPE_SECRET_KEY", LINK + sid);
+}
+const linkOf = (v: string | undefined) => (v?.startsWith(LINK) ? v.slice(LINK.length) : null);
+const secret = (sid: string) => secrets.get(sid) ?? fail("other", "That shared secret no longer exists.");
+const currentOf = (s: MockSecret) =>
+  s.versions.filter((v) => v.state === "current").sort((x, y) => y.changedAt - x.changedAt)[0] ?? null;
+const resolve = (v: string | undefined) => {
+  const sid = linkOf(v);
+  return sid ? (secrets.get(sid) && currentOf(secrets.get(sid)!)?.value) ?? undefined : v;
+};
+function secretView(s: MockSecret) {
+  const current = currentOf(s);
+  const age = current ? Date.now() - current.createdAt : 0;
+  const limit = (s.rotateEveryDays ?? 0) * DAY;
+  return {
+    id: s.id,
+    name: s.name,
+    rotatedAt: current?.createdAt ?? null,
+    due: !s.rotateEveryDays ? "no_policy" : age >= limit ? "overdue" : age + 7 * DAY >= limit ? "soon" : "ok",
+    rotateEveryDays: s.rotateEveryDays,
+    staged: s.versions.some((v) => v.state === "pending"),
+    hasPrevious: s.versions.some((v) => v.state === "previous"),
+    usedIn: [...envs.values()].flatMap((e) =>
+      [...e.vars].filter(([, v]) => linkOf(v) === s.id).map(([key]) => ({
+        projectId: e.projectId,
+        project: projects.get(e.projectId) ?? "",
+        environmentId: e.id,
+        environment: e.name,
+        key,
+      })),
+    ),
+  };
+}
+const secretDetail = (s: MockSecret) => ({
+  ...secretView(s),
+  versions: [...s.versions]
+    .sort((x, y) => y.createdAt - x.createdAt)
+    .map(({ value, ...v }) => ({ ...v, wiped: value === null })),
+});
+function promote(s: MockSecret, now: number) {
+  for (const v of s.versions) {
+    const next = v.state === "pending" ? "current" : v.state === "current" ? "previous" : v.state === "previous" ? "retired" : null;
+    if (next) Object.assign(v, { state: next, changedAt: now });
+  }
+}
+const newValue = (value: string | null | undefined) =>
+  value ?? Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(36).padStart(2, "0")).join("").slice(0, 40);
+
 const fail = (kind: string, message: string) => {
   throw { kind, message };
 };
@@ -167,9 +235,106 @@ export function installMockBackend() {
           envs.delete(a.environmentId);
           return null;
         case "list_variables":
-          return [...env(a.environmentId).vars.keys()].sort();
+          return [...env(a.environmentId).vars]
+            .sort(([x], [y]) => x.localeCompare(y))
+            .map(([key, v]) => {
+              const sid = linkOf(v);
+              return { key, secret: sid ? { id: sid, name: secrets.get(sid)?.name ?? "Deleted secret" } : null };
+            });
         case "reveal_variable":
-          return env(a.environmentId).vars.get(a.key) ?? fail("other", `${a.key} isn't set.`);
+          return resolve(env(a.environmentId).vars.get(a.key)) ?? fail("other", `${a.key} isn't set.`);
+        case "list_secrets":
+          return [...secrets.values()].map(secretView).sort((x, y) => x.name.localeCompare(y.name));
+        case "get_secret":
+          return secretDetail(secret(a.id));
+        case "reveal_secret":
+          return currentOf(secret(a.id))?.value ?? fail("other", "This secret has no value.");
+        case "copy_secret":
+          return null;
+        case "share_preview": {
+          const value = env(a.environmentId).vars.get(a.key);
+          return {
+            copies: [...envs.values()]
+              .filter((e) => e.id !== a.environmentId && e.vars.get(a.key) === value)
+              .map((e) => ({ projectId: e.projectId, project: projects.get(e.projectId), environmentId: e.id, environment: e.name, key: a.key })),
+          };
+        }
+        case "share_variable": {
+          const e = env(a.environmentId);
+          const value = e.vars.get(a.key) ?? fail("other", `${a.key} isn't set.`);
+          const sid = addSecret((raw as { name: string }).name, value, 0);
+          if ((raw as { linkCopies: boolean }).linkCopies)
+            for (const other of envs.values()) if (other.vars.get(a.key) === value) other.vars.set(a.key, LINK + sid);
+          e.vars.set(a.key, LINK + sid);
+          return secretView(secret(sid));
+        }
+        case "link_variable":
+          env(a.environmentId).vars.set(a.key, LINK + (raw as { secretId: string }).secretId);
+          return null;
+        case "unlink_variable": {
+          const e = env(a.environmentId);
+          e.vars.set(a.key, resolve(e.vars.get(a.key)) ?? "");
+          return null;
+        }
+        case "stage_secret": {
+          const s = secret(a.id);
+          if (s.versions.some((v) => v.state === "pending")) fail("other", "a new value is already staged; promote or cancel it first");
+          const now = Date.now();
+          s.versions.push({ id: id(), value: newValue(a.value), state: "pending", createdAt: now, changedAt: now, note: a.note ?? null });
+          return secretDetail(s);
+        }
+        case "promote_secret": {
+          const s = secret(a.id);
+          promote(s, Date.now());
+          return secretDetail(s);
+        }
+        case "cancel_staged_secret": {
+          const s = secret(a.id);
+          for (const v of s.versions) if (v.state === "pending") Object.assign(v, { state: "retired", value: null, changedAt: Date.now() });
+          return secretDetail(s);
+        }
+        case "roll_back_secret": {
+          const s = secret(a.id);
+          const previous = s.versions.find((v) => v.state === "previous") ?? fail("other", "there's no previous value to go back to");
+          for (const v of s.versions) if (v.state === "current") Object.assign(v, { state: "retired", changedAt: Date.now() });
+          Object.assign(previous, { state: "current", changedAt: Date.now() });
+          return secretDetail(s);
+        }
+        case "retire_previous_secret": {
+          const s = secret(a.id);
+          for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: Date.now() });
+          return secretDetail(s);
+        }
+        case "rotate_leaked_secret": {
+          const s = secret(a.id);
+          const now = Date.now();
+          for (const v of s.versions) if (v.state === "pending") Object.assign(v, { state: "retired", value: null, changedAt: now });
+          s.versions.push({ id: id(), value: newValue(a.value), state: "pending", createdAt: now, changedAt: now, note: "Leaked" });
+          promote(s, now);
+          for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: now });
+          return secretDetail(s);
+        }
+        case "restore_secret_version": {
+          const s = secret(a.id);
+          const old = s.versions.find((v) => v.id === a.versionId) ?? fail("other", "that version doesn't exist");
+          const now = Date.now();
+          s.versions.push({ id: id(), value: old.value, state: "pending", createdAt: now, changedAt: now, note: "Restored an earlier value" });
+          promote(s, now);
+          return secretDetail(s);
+        }
+        case "update_secret_settings": {
+          const s = secret(a.id);
+          s.name = a.name.trim() || fail("other", "Give the secret a name.");
+          s.rotateEveryDays = (raw as { rotateEveryDays: number | null }).rotateEveryDays;
+          return secretDetail(s);
+        }
+        case "delete_secret": {
+          const s = secret(a.id);
+          const value = currentOf(s)?.value ?? "";
+          for (const e of envs.values()) for (const [k, v] of e.vars) if (linkOf(v) === s.id) e.vars.set(k, value);
+          secrets.delete(s.id);
+          return null;
+        }
         case "copy_variable":
           return null;
         case "set_variable": {
@@ -177,6 +342,8 @@ export function installMockBackend() {
           if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(a.key))
             fail("other", "Use letters, numbers and underscores, not starting with a number.");
           if (a.previousKey !== a.key && e.vars.has(a.key)) fail("other", `${a.key} already exists.`);
+          if (a.previousKey === a.key && linkOf(e.vars.get(a.key)))
+            fail("other", `${a.key} is linked to a shared secret. Rotate the secret, or unlink ${a.key} first.`);
           if (a.previousKey && a.previousKey !== a.key) e.vars.delete(a.previousKey);
           e.vars.set(a.key, a.value);
           return null;
@@ -197,7 +364,13 @@ export function installMockBackend() {
           return {
             entries: c.vars.map(([k, v]) => ({
               key: k,
-              change: !e.vars.has(k) ? "new" : e.vars.get(k) === v ? "unchanged" : "update",
+              change: !e.vars.has(k)
+                ? "new"
+                : linkOf(e.vars.get(k))
+                  ? "linked"
+                  : e.vars.get(k) === v
+                    ? "unchanged"
+                    : "update",
               file: files?.get(k)?.[1] ?? null,
             })),
             errors: c.errors,
@@ -209,6 +382,7 @@ export function installMockBackend() {
           const r = { added: 0, updated: 0, unchanged: 0, skipped: 0 };
           for (const [k, v] of c.vars) {
             if (!e.vars.has(k)) r.added++;
+            else if (linkOf(e.vars.get(k))) { r.skipped++; continue; }
             else if (e.vars.get(k) === v) { r.unchanged++; continue; }
             else if ((raw as { overwrite?: boolean }).overwrite) r.updated++;
             else { r.skipped++; continue; }

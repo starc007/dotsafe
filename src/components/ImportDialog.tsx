@@ -17,7 +17,7 @@ import { SurfaceDialog } from "@/components/SurfaceDialog";
 
 type Mode = "files" | "paste";
 
-const CHANGE_LABEL = { new: "New", update: "Changes", unchanged: "Same" } as const;
+const CHANGE_LABEL = { new: "New", update: "Changes", unchanged: "Same", linked: "Shared, skipped" } as const;
 
 /** Imports many variables at once from .env files (picked or dropped) or pasted text. */
 export function ImportDialog({
@@ -140,7 +140,7 @@ export function ImportForm({
     }
   }
 
-  const counts = { new: 0, update: 0, unchanged: 0 };
+  const counts = { new: 0, update: 0, unchanged: 0, linked: 0 };
   preview?.entries.forEach((e) => counts[e.change]++);
   const toImport = counts.new + (overwrite ? counts.update : 0);
   const showFileNames = mode === "files" && files.length > 1;
@@ -229,6 +229,7 @@ export function ImportForm({
                         counts.new && `${counts.new} new`,
                         counts.update && `${counts.update} with a different value`,
                         counts.unchanged && `${counts.unchanged} already the same`,
+                        counts.linked && `${counts.linked} linked to shared secrets, left as they are`,
                       ]
                         .filter(Boolean)
                         .join(" · ")}
@@ -247,7 +248,7 @@ export function ImportForm({
                             "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
                             e.change === "new" && "bg-primary/10 text-primary",
                             e.change === "update" && "bg-foreground/10 text-foreground",
-                            e.change === "unchanged" && "text-muted-foreground",
+                            (e.change === "unchanged" || e.change === "linked") && "text-muted-foreground",
                           )}
                         >
                           {CHANGE_LABEL[e.change]}
