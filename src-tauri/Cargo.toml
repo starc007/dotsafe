@@ -18,6 +18,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 dotsafe-core.workspace = true
 tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
+sha2 = "0.11.1"
+uuid = { version = "1.29.0", features = ["serde"] }
+zeroize = "1.9.1"
