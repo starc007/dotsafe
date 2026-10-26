@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DragRegion } from "@/components/DragRegion";
 import { LicenseCard } from "@/components/LicenseCard";
+import { AgentSettings } from "@/components/settings/AgentSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { SecuritySettings } from "@/components/settings/SecuritySettings";
 import { ShortcutsSettings } from "@/components/settings/ShortcutsSettings";
@@ -101,6 +102,7 @@ export function SettingsPage({
                 {section === "license" && <LicenseCard license={settings.license} onChanged={load} />}
                 {section === "appearance" && <AppearanceSettings />}
                 {section === "security" && <SecuritySettings settings={settings} onLock={onLock} onChanged={load} />}
+                {section === "agents" && <AgentSettings />}
                 {section === "shortcuts" && <ShortcutsSettings />}
                 <p className="pt-2 text-center text-xs text-muted-foreground">dotsafe {settings.version}</p>
               </motion.div>

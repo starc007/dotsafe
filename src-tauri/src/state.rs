@@ -1,10 +1,12 @@
 //! Session state shared by all commands: the config, the unlocked vault (if
 //! any), and background housekeeping for auto-lock and clipboard clearing.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use dotsafe_agent::grants::Grants;
 use dotsafe_core::{Config, Environment, Project, Record, Stamp, Vault};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -36,6 +38,32 @@ pub struct Session {
     /// Set after unlocking with the recovery key: the user has forgotten the
     /// password, so they must choose a new one before using the vault.
     pub must_change_password: bool,
+    /// Commands agents may run without asking again. Ends with the unlock.
+    pub agent_grants: Grants,
+    /// Recent agent requests, newest last, for Settings. In memory only.
+    pub agent_log: VecDeque<AgentEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentEvent {
+    /// Unix milliseconds.
+    pub at: u64,
+    pub client: String,
+    pub command: String,
+    pub environment: String,
+    /// `ran`, `denied`, `refused` or `failed`, plus details for people.
+    pub outcome: String,
+    pub detail: Option<String>,
+}
+
+impl Session {
+    pub fn log_agent(&mut self, event: AgentEvent) {
+        self.agent_log.push_back(event);
+        while self.agent_log.len() > 50 {
+            self.agent_log.pop_front();
+        }
+    }
 }
 
 impl Default for Session {
@@ -48,6 +76,8 @@ impl Default for Session {
             clipboard: None,
             import_files: Vec::new(),
             must_change_password: false,
+            agent_grants: Grants::default(),
+            agent_log: VecDeque::new(),
         }
     }
 }
@@ -109,6 +139,7 @@ impl Session {
     pub fn lock(&mut self) {
         self.vault = None;
         self.import_files.clear();
+        self.agent_grants.clear();
         self.must_change_password = false;
     }
 

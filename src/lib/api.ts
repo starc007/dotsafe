@@ -74,6 +74,31 @@ export type BucketInput = {
 
 export type SyncView = { lastSyncedAt: number | null; error: string | null };
 
+/** An agent asking to run a command with secrets (from the broker). */
+export type ApprovalRequest = {
+  id: string;
+  client: string;
+  command: string[];
+  programPath: string;
+  cwd: string;
+  project: string;
+  environment: string;
+  variables: string[];
+};
+export type GrantLifetime = "once" | "15m" | "1h" | "lock";
+export type AgentEvent = {
+  at: number;
+  client: string;
+  command: string;
+  environment: string;
+  outcome: "ran" | "denied" | "refused" | "failed";
+  detail: string | null;
+};
+export type AgentActivity = {
+  grants: { command: string; cwd: string; variables: number; expiresIn: number | null }[];
+  recent: AgentEvent[];
+};
+
 export type Settings = {
   /** A folder path, or `s3://bucket/prefix` for a vault in a bucket. */
   vaultPath: string | null;
@@ -178,6 +203,11 @@ export const api = {
   connectBucketVault: (bucket: BucketInput, password: string) =>
     call<void>("connect_bucket_vault", { bucket, password }),
   syncNow: () => call<SyncView>("sync_now"),
+  /** `lifetime: null` denies. */
+  answerAgentRequest: (id: string, lifetime: GrantLifetime | null) =>
+    call<void>("answer_agent_request", { id, lifetime }),
+  agentActivity: () => call<AgentActivity>("agent_activity"),
+  revokeAgentGrants: () => call<void>("revoke_agent_grants"),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),

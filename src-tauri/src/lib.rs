@@ -1,3 +1,4 @@
+mod broker;
 mod commands;
 mod import;
 mod licensing;
@@ -15,11 +16,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::default())
+        .manage(broker::Approvals::default())
         .setup(|app| {
             let state = app.state::<AppState>();
             state.spawn_housekeeping(app.handle().clone());
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
+            let approvals = app.state::<broker::Approvals>().inner().clone();
+            broker::spawn(state.inner().clone(), approvals, app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -84,6 +88,9 @@ pub fn run() {
             secrets::restore_secret_version,
             secrets::update_secret_settings,
             secrets::delete_secret,
+            broker::answer_agent_request,
+            broker::agent_activity,
+            broker::revoke_agent_grants,
             commands::get_settings,
             commands::activate_license,
             commands::check_license,
