@@ -1,4 +1,5 @@
 mod link;
+mod secrets;
 mod session;
 
 use std::path::{Path, PathBuf};
@@ -9,7 +10,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use dotsafe_core::{
     CachedStore, Config, Environment, Error, FolderStore, KdfParams, Project, Record, S3Location, Stamp, Store, Vault,
-    config, dotenv, is_valid_var_name,
+    Entry, config, dotenv, is_valid_var_name,
 };
 use dotsafe_stores::{S3Credentials, S3Store};
 use zeroize::Zeroizing;
@@ -84,6 +85,9 @@ enum Cmd {
         #[command(flatten)]
         env: EnvArg,
     },
+    /// Shared secrets: link one value into many environments and rotate it in one place
+    #[command(subcommand, visible_alias = "secrets")]
+    Secret(secrets::SecretCmd),
     /// Run a command with the variables set in its environment
     Run {
         #[command(flatten)]
@@ -197,6 +201,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 if !is_valid_var_name(&key) {
                     bail!("invalid variable name {key:?}");
                 }
+                if let Some(Entry::Secret(_)) = target.env.entry(&key) {
+                    bail!(
+                        "{key} is linked to a shared secret; rotate it with `dotsafe secret rotate`, or `dotsafe secret unlink {key}` first"
+                    );
+                }
                 target.env.set(&key, value, ctx.stamp());
                 eprintln!("Set {key} in {}.", target.label());
             }
@@ -205,7 +214,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Get { key, env } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            match target.env.get(&key) {
+            let secrets = ctx.vault.secrets()?;
+            match target.env.entry(&key).and_then(|entry| secrets.value(entry)) {
                 Some(value) => println!("{value}"),
                 None => bail!("{key} is not set in {}", target.label()),
             }
@@ -214,7 +224,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let ctx = Ctx::open()?;
             let mut target = ctx.target(env.env, false)?;
             for key in keys {
-                if target.env.get(&key).is_none() {
+                if target.env.entry(&key).is_none() {
                     eprintln!("{key} wasn't set.");
                     continue;
                 }
@@ -226,7 +236,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::List { env } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            for (key, _) in target.env.vars() {
+            for key in target.env.keys() {
                 println!("{key}");
             }
         }
@@ -236,19 +246,27 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let ctx = Ctx::open()?;
             let mut target = ctx.target(env.env, true)?;
             let stamp = ctx.stamp();
+            let mut imported = 0;
             for (key, value) in &vars {
+                if let Some(Entry::Secret(_)) = target.env.entry(key) {
+                    eprintln!("Skipped {key}: it's linked to a shared secret.");
+                    continue;
+                }
                 target.env.set(key, value, stamp);
+                imported += 1;
             }
             let label = target.label();
             ctx.vault.put(Record::Environment(target.env))?;
-            eprintln!("Imported {} variables from {} into {label}.", vars.len(), file.display());
+            eprintln!("Imported {imported} variables from {} into {label}.", file.display());
             eprintln!("You can delete {} and use `dotsafe run -- <command>` instead.", file.display());
         }
+        Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Run { env, command } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
+            let secrets = ctx.vault.secrets()?;
             let mut cmd = Command::new(&command[0]);
-            cmd.args(&command[1..]).envs(target.env.vars());
+            cmd.args(&command[1..]).envs(secrets.resolve(&target.env));
             drop(ctx);
             return exec(cmd, &command[0]);
         }
@@ -406,6 +424,19 @@ impl Ctx {
             .into_iter()
             .filter_map(|r| match r {
                 Record::Project(p) if !p.deleted => Some(p),
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// Every live environment in the vault.
+    fn environments(&self) -> Result<Vec<Environment>> {
+        Ok(self
+            .vault
+            .list()?
+            .into_iter()
+            .filter_map(|r| match r {
+                Record::Environment(e) if !e.deleted => Some(e),
                 _ => None,
             })
             .collect())

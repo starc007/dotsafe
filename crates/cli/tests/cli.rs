@@ -217,3 +217,57 @@ fn invalid_variable_names_are_rejected() {
     assert!(!out.status.success());
     assert!(stderr(&out).contains("invalid variable name"));
 }
+
+#[test]
+fn shared_secrets_link_rotate_and_unlink() {
+    let (root, m, api) = setup();
+    m.init();
+    let web = root.path().join("web");
+    fs::create_dir(&web).unwrap();
+    m.ok(&api, &["set", "STRIPE_KEY=sk_old", "PLAIN=1"]);
+    m.ok(&web, &["set", "STRIPE_KEY=sk_old"]);
+
+    let out = m.run(&api, &["secret", "share", "STRIPE_KEY", "--all"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("Linked 1 other environment"), "{}", stderr(&out));
+    assert!(m.ok(&api, &["secrets", "list"]).contains("STRIPE_KEY\trotated today\t2 environments"));
+
+    // Rotating changes every linked environment, and `run` sees it.
+    m.ok(&api, &["secret", "rotate", "STRIPE_KEY", "--generate", "--note", "quarterly"]);
+    let rotated = m.ok(&web, &["get", "STRIPE_KEY"]);
+    assert_ne!(rotated.trim(), "sk_old");
+    assert_eq!(m.ok(&api, &["get", "STRIPE_KEY"]), rotated);
+    let injected = m.ok(&api, &["run", "--", "sh", "-c", "printf '%s\\n' \"$STRIPE_KEY\""]);
+    assert_eq!(injected, rotated);
+
+    // Linked variables can't be overwritten by accident.
+    let out = m.run(&web, &["set", "STRIPE_KEY=oops"]);
+    assert!(!out.status.success() && stderr(&out).contains("linked to a shared secret"));
+
+    let history = m.ok(&api, &["secret", "history", "STRIPE_KEY"]);
+    assert!(history.starts_with("1\tcurrent\ttoday\tquarterly\n2\tprevious\ttoday"), "{history}");
+    assert!(!history.contains("sk_old"), "history never shows values");
+
+    m.ok(&api, &["secret", "rollback", "STRIPE_KEY"]);
+    assert_eq!(m.ok(&web, &["get", "STRIPE_KEY"]).trim(), "sk_old");
+
+    // An unlinked copy keeps its value when the secret changes.
+    m.ok(&web, &["secret", "unlink", "STRIPE_KEY"]);
+    m.ok(&api, &["secret", "rotate", "STRIPE_KEY", "--generate", "--leaked"]);
+    assert_eq!(m.ok(&web, &["get", "STRIPE_KEY"]).trim(), "sk_old");
+    assert_ne!(m.ok(&api, &["get", "STRIPE_KEY"]).trim(), "sk_old");
+    assert!(m.ok(&api, &["secret", "history", "STRIPE_KEY"]).contains("current\ttoday\tLeaked"));
+}
+
+#[test]
+fn rotation_policies_flag_due_secrets() {
+    let (_root, m, api) = setup();
+    m.init();
+    m.ok(&api, &["set", "TOKEN=t"]);
+    m.ok(&api, &["secret", "share", "TOKEN"]);
+    let out = m.run(&api, &["secret", "due"]);
+    assert!(stderr(&out).contains("Nothing is due"));
+    m.ok(&api, &["secret", "policy", "TOKEN", "--every", "3"]);
+    // Rotated today with a 3-day policy: due within a week.
+    assert!(m.ok(&api, &["secret", "due"]).starts_with("TOKEN\tdue soon"));
+}
