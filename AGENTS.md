@@ -65,6 +65,7 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 - **Modals use `SurfaceDialog`** (forms, imports) or `ConfirmDialog` (destructive confirmations). No inline editing in lists.
 - **Imports keep paths in Rust.** Files come from `pick_env_files` or a window drop, and the paths stay in Rust. Previews return names and changes only. Keep it that way.
 - **Animations use `motion`** (`import { motion } from "motion/react"`) with the shared timings in `src/lib/motion.ts`. Keep them short and eased-out, with no bouncy springs on content. The app is wrapped in `MotionConfig reducedMotion="user"`. Any imperative animation (`useAnimate`) must also check `useReducedMotion()`.
+- **Keyboard first.** Every action needs a keyboard path. Shortcuts live only in `SHORTCUTS` (`src/lib/shortcuts.ts`): register handlers with `useShortcut`, show hints with `ShortcutKeys`, and set `aria-keyshortcuts`. The Settings page lists them automatically. Shortcuts stand aside while a dialog or menu is open.
 - **Call the backend through the typed wrappers in `src/lib/api.ts`.** Errors arrive as `ApiError` with a `kind`. A `locked` error sends the UI back to the unlock screen automatically.
 - **Write copy in short, active voice:** "No variables yet", "Wrong password." Every list needs loading (Skeleton), empty and error states.
 

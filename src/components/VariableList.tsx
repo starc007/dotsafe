@@ -6,12 +6,15 @@ import { toast } from "sonner";
 import { Check, Copy, Eye, EyeOff, FileUp, KeyRound, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, message, type EnvironmentView, type ImportResult } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
+import { SHORTCUTS, ariaShortcut, useShortcut, type Shortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
 import { ImportDialog } from "@/components/ImportDialog";
+import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 import { VariableDialog } from "@/components/VariableDialog";
@@ -56,6 +59,9 @@ export function VariableList({
   const [dragging, setDragging] = useState(false);
   // True while the list changes because of the filter, so rows don't animate.
   const [instant, setInstant] = useState(false);
+  // ⌘F shows the filter even on short lists, where it's normally hidden.
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterInput = useRef<HTMLInputElement>(null);
   const timers = useRef(new Map<string, number>());
   const lastVarDialog = useRef<Extract<Dialog, { type: "add" | "edit" }> | null>(null);
   const lastImportDialog = useRef<Extract<Dialog, { type: "import" }> | null>(null);
@@ -97,6 +103,17 @@ export function VariableList({
       unlistenHover?.then((f) => f());
     };
   }, []);
+
+  const openAdd = () => setDialog({ type: "add" });
+  const openImport = () => setDialog({ type: "import" });
+  useShortcut(SHORTCUTS.addVariable, openAdd);
+  useShortcut(SHORTCUTS.importVariables, openImport);
+  useShortcut(SHORTCUTS.filterVariables, () => {
+    if (!keys?.length) return;
+    setFilterOpen(true);
+    // Focus once the input exists (it may only now be rendered).
+    requestAnimationFrame(() => filterInput.current?.focus());
+  });
 
   function hide(key: string) {
     window.clearTimeout(timers.current.get(key));
@@ -191,8 +208,7 @@ export function VariableList({
   const shownVar = lastVarDialog.current;
 
   const visible = keys?.filter((k) => k.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
-  const openAdd = () => setDialog({ type: "add" });
-  const openImport = () => setDialog({ type: "import" });
+
 
   return (
     <div className="relative min-h-0 flex-1 overflow-y-auto p-4">
@@ -201,11 +217,13 @@ export function VariableList({
           icon={<KeyRound aria-hidden />}
           action={
             <div className="flex items-center gap-2">
-              {keys && keys.length > 6 && (
+              {keys && keys.length > 0 && (keys.length > 6 || filterOpen) && (
                 <div className="relative w-40">
                   <Search aria-hidden className="pointer-events-none absolute top-2 left-2.5 size-4 text-muted-foreground" />
                   <Input
+                    ref={filterInput}
                     aria-label="Filter variables"
+                    aria-keyshortcuts={ariaShortcut(SHORTCUTS.filterVariables)}
                     placeholder="Filter"
                     value={filter}
                     onChange={(e) => {
@@ -213,10 +231,14 @@ export function VariableList({
                       setFilter(e.target.value);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === "Escape" && filter) {
-                        e.stopPropagation();
+                      if (e.key !== "Escape") return;
+                      e.stopPropagation();
+                      if (filter) {
                         setInstant(true);
                         setFilter("");
+                      } else {
+                        setFilterOpen(false);
+                        e.currentTarget.blur();
                       }
                     }}
                     className="bg-card pl-8"
@@ -226,14 +248,18 @@ export function VariableList({
               {/* An empty environment shows these in its own empty state instead. */}
               {keys && keys.length > 0 && (
                 <>
-                  <Button variant="outline" onClick={openImport} className="bg-card">
-                    <Upload aria-hidden />
-                    Import
-                  </Button>
-                  <Button onClick={openAdd}>
-                    <Plus aria-hidden />
-                    Add variable
-                  </Button>
+                  <WithShortcut shortcut={SHORTCUTS.importVariables}>
+                    <Button variant="outline" onClick={openImport} className="bg-card">
+                      <Upload aria-hidden />
+                      Import
+                    </Button>
+                  </WithShortcut>
+                  <WithShortcut shortcut={SHORTCUTS.addVariable}>
+                    <Button onClick={openAdd}>
+                      <Plus aria-hidden />
+                      Add variable
+                    </Button>
+                  </WithShortcut>
                 </>
               )}
             </div>
@@ -357,6 +383,21 @@ export function VariableList({
         onCancel={() => setDeleting(null)}
       />
     </div>
+  );
+}
+
+/** Wraps a button with a tooltip showing its shortcut, and announces it. */
+function WithShortcut({ shortcut, children }: { shortcut: Shortcut; children: React.ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild aria-keyshortcuts={ariaShortcut(shortcut)}>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent className="flex items-center gap-2">
+        {shortcut.label}
+        <ShortcutKeys shortcut={shortcut} />
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

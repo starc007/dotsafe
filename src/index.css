@@ -123,6 +123,12 @@
     height: 100%;
   }
 
+  /* A desktop window never scrolls as a whole; panes scroll inside it. */
+  html,
+  body {
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background font-sans text-foreground antialiased;
     font-size: 13px;

@@ -19,6 +19,14 @@ export type ImportPreview = {
 };
 export type ImportResult = { added: number; updated: number; unchanged: number; skipped: number };
 
+export type Settings = {
+  vaultPath: string | null;
+  licenseKey: string | null;
+  version: string;
+  autoLockMinutes: number;
+  clipboardClearSeconds: number;
+};
+
 export type ErrorKind = "locked" | "invalid_password" | "other";
 
 export class ApiError extends Error {
@@ -74,6 +82,10 @@ export const api = {
     call<ImportPreview>("preview_import", { environmentId, source }),
   importVariables: (environmentId: string, source: ImportSource, overwrite: boolean) =>
     call<ImportResult>("import_variables", { environmentId, source, overwrite }),
+
+  getSettings: () => call<Settings>("get_settings"),
+  activateLicense: (key: string) => call<string>("activate_license", { key }),
+  removeLicense: () => call<void>("remove_license"),
 };
 
 export function message(e: unknown): string {

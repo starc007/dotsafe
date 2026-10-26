@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, Lock, Plus } from "lucide-react";
+import { FolderLock, Lock, Plus, Settings as SettingsIcon } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
+import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,13 +11,15 @@ import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
-import { ThemeMenu } from "@/components/ThemeMenu";
+import { SidebarAction } from "@/components/SidebarAction";
+import { SettingsPage } from "@/screens/Settings";
 
 export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [projects, setProjects] = useState<ProjectView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +48,28 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     onLocked();
   }
 
+  function selectProject(id: string) {
+    setSelectedId(id);
+    setSettingsOpen(false);
+  }
+
+  function startCreating() {
+    setSettingsOpen(false);
+    setCreating(true);
+  }
+
+  function stepProject(delta: number) {
+    if (!projects?.length) return;
+    const at = projects.findIndex((p) => p.id === selectedId);
+    selectProject(projects[(at + delta + projects.length) % projects.length].id);
+  }
+
+  useShortcut(SHORTCUTS.lock, lock);
+  useShortcut(SHORTCUTS.settings, () => setSettingsOpen((open) => !open));
+  useShortcut(SHORTCUTS.newProject, startCreating);
+  useShortcut(SHORTCUTS.previousProject, () => stepProject(-1));
+  useShortcut(SHORTCUTS.nextProject, () => stepProject(1));
+
   const selected = projects?.find((p) => p.id === selectedId) ?? null;
 
   return (
@@ -54,7 +79,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
         <DragRegion className="h-12 shrink-0" />
         <div className="flex items-center justify-between px-3 pb-1">
           <h2 className="px-1 text-xs font-medium text-muted-foreground">Projects</h2>
-          <IconButton label="New project" onClick={() => setCreating(true)}>
+          <IconButton label="New project" aria-keyshortcuts={ariaShortcut(SHORTCUTS.newProject)} onClick={startCreating}>
             <Plus aria-hidden />
           </IconButton>
         </div>
@@ -70,47 +95,55 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           )}
           {projects === null && !error && <SidebarSkeleton />}
           <AnimatePresence initial={false}>
-            {projects?.map((p) => (
-              <motion.button
-                key={p.id}
-                layout="position"
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                transition={base}
-                aria-current={p.id === selectedId ? "page" : undefined}
-                onClick={() => setSelectedId(p.id)}
-                className={cn(
-                  "relative flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
-                  "hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                  "aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
-                )}
-              >
-                {/* One highlight that slides between projects as the selection moves. */}
-                {p.id === selectedId && (
-                  <motion.span
-                    layoutId="project-highlight"
-                    aria-hidden
-                    className="absolute inset-0 rounded-md bg-sidebar-accent"
-                    transition={snappy}
-                  />
-                )}
-                <span className="relative truncate">{p.name}</span>
-              </motion.button>
-            ))}
+            {projects?.map((p) => {
+              const current = p.id === selectedId && !settingsOpen;
+              return (
+                <motion.button
+                  key={p.id}
+                  layout="position"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                  transition={base}
+                  aria-current={current ? "page" : undefined}
+                  onClick={() => selectProject(p.id)}
+                  className={cn(
+                    "relative flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
+                    "hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                    "aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
+                  )}
+                >
+                  {/* One highlight that slides between projects as the selection moves. */}
+                  {current && (
+                    <motion.span
+                      layoutId="project-highlight"
+                      aria-hidden
+                      className="absolute inset-0 rounded-md bg-sidebar-accent"
+                      transition={snappy}
+                    />
+                  )}
+                  <span className="relative truncate">{p.name}</span>
+                </motion.button>
+              );
+            })}
           </AnimatePresence>
         </nav>
-        <div className="flex items-center gap-1 border-t border-sidebar-border p-2">
-          <Button variant="ghost" className="flex-1 justify-start text-muted-foreground hover:bg-sidebar-accent" onClick={lock}>
-            <Lock aria-hidden />
-            Lock
-          </Button>
-          <ThemeMenu />
+        <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
+          <SidebarAction
+            icon={<SettingsIcon aria-hidden />}
+            label="Settings"
+            shortcut={SHORTCUTS.settings}
+            active={settingsOpen}
+            onClick={() => setSettingsOpen((open) => !open)}
+          />
+          <SidebarAction icon={<Lock aria-hidden />} label="Lock" shortcut={SHORTCUTS.lock} onClick={lock} />
         </div>
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        {error ? (
+        {settingsOpen ? (
+          <SettingsPage onClose={() => setSettingsOpen(false)} onLock={lock} />
+        ) : error ? (
           <Message title="Couldn't load your projects" body={error}>
             <Button variant="outline" onClick={load}>
               Try again
@@ -126,7 +159,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             title="No projects yet"
             body="A project holds the variables for one app, split into environments like development and production."
           >
-            <Button onClick={() => setCreating(true)}>
+            <Button onClick={startCreating}>
               <Plus aria-hidden />
               New project
             </Button>
