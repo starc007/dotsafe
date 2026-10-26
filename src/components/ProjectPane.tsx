@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
@@ -53,20 +53,22 @@ export function ProjectPane({ project, onChanged }: { project: ProjectView; onCh
   }
 
   return (
-    <Tabs value={env?.id ?? ""} onValueChange={setEnvId} className="flex min-h-0 flex-1 flex-col gap-0">
+    <div className="flex min-h-0 flex-1 flex-col">
       <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <h1 data-tauri-drag-region className="truncate text-sm font-semibold">
           {project.name}
         </h1>
         <div className="flex min-w-0 items-center gap-1">
           {project.environments.length > 0 && (
-            <TabsList aria-label="Environments" className="overflow-x-auto">
-              {project.environments.map((e) => (
-                <TabsTrigger key={e.id} value={e.id} className="px-2.5">
-                  {e.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+            <Tabs value={env?.id ?? ""} onValueChange={setEnvId} className="min-w-0">
+              <TabsList aria-label="Environments" className="bg-muted p-0.5">
+                {project.environments.map((e) => (
+                  <TabsTrigger key={e.id} value={e.id} className="px-3 py-1 text-[13px]">
+                    {e.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           )}
           {creating ? (
             <InlineCreate
@@ -105,9 +107,7 @@ export function ProjectPane({ project, onChanged }: { project: ProjectView; onCh
       </header>
 
       {env ? (
-        <TabsContent value={env.id} className="flex min-h-0 flex-col">
-          <VariableList key={env.id} environment={env} projectName={project.name} onChanged={onChanged} />
-        </TabsContent>
+        <VariableList key={env.id} environment={env} projectName={project.name} onChanged={onChanged} />
       ) : (
         <div className="relative flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <DragRegion className="absolute inset-x-0 top-0 h-12" />
@@ -129,6 +129,6 @@ export function ProjectPane({ project, onChanged }: { project: ProjectView; onCh
         onConfirm={deleteConfirmed}
         onCancel={() => setConfirm(null)}
       />
-    </Tabs>
+    </div>
   );
 }
