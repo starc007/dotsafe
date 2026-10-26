@@ -185,9 +185,9 @@ mod tests {
 
     #[test]
     fn plan_marks_new_updated_and_unchanged() {
-        let mut env = Environment::new(Uuid::new_v4(), "development", Stamp::now(Uuid::nil()));
-        env.set("SAME", "x", Stamp::now(Uuid::nil()));
-        env.set("CHANGED", "old", Stamp::now(Uuid::nil()));
+        let mut env = Environment::new(Uuid::new_v4(), "development", Stamp::new(1, Uuid::nil()));
+        env.set("SAME", "x", Stamp::new(1, Uuid::nil()));
+        env.set("CHANGED", "old", Stamp::new(1, Uuid::nil()));
         let (found, _) = collect(&text("SAME=x\nCHANGED=new\nFRESH=1\n"), &[]);
         let changes: Vec<_> = plan(&env, &found).into_iter().map(|(c, p)| (p.key, c)).collect();
         assert_eq!(

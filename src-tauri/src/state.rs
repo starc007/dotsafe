@@ -77,10 +77,9 @@ impl From<dotsafe_core::Error> for CmdError {
             dotsafe_core::Error::InvalidCredentials => {
                 CmdError { kind: ErrorKind::InvalidPassword, message: "Wrong password.".into() }
             }
-            dotsafe_core::Error::NotFound(path) => CmdError::other(format!(
-                "No vault found at {}. Is the synced folder available?",
-                path.display()
-            )),
+            dotsafe_core::Error::NotFound(location) => {
+                CmdError::other(format!("No vault found at {location}. Is the synced folder available?"))
+            }
             e => CmdError::other(e.to_string()),
         }
     }
@@ -107,7 +106,7 @@ impl Session {
     }
 
     pub fn stamp(&self) -> CmdResult<Stamp> {
-        Ok(Stamp::now(self.config()?.device_id))
+        Ok(self.vault()?.stamp(self.config()?.device_id))
     }
 
     pub fn project(&self, id: Uuid) -> CmdResult<Project> {

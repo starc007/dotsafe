@@ -10,6 +10,7 @@ pub mod error;
 pub mod header;
 pub mod license;
 pub mod model;
+pub mod store;
 pub mod vault;
 
 pub use config::Config;
@@ -18,6 +19,7 @@ pub use error::{Error, Result};
 pub use header::RecoveryKey;
 pub use license::{License, LicenseStatus};
 pub use model::{Environment, Project, Record, Stamp, is_valid_var_name};
+pub use store::{Cond, FolderStore, Put, Store};
 pub use vault::Vault;
 
 /// Version of the core library, reported by the app and CLI.

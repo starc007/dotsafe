@@ -9,8 +9,10 @@ use crate::crypto::{self, KEY_LEN, Kdf, KdfParams, Sealed, SecretKey};
 use crate::error::{Error, Result};
 
 pub const HEADER_FORMAT: &str = "dotsafe-vault";
-pub const HEADER_VERSION: u32 = 1;
+pub const HEADER_VERSION: u32 = 2;
 
+// These labels only separate domains; they're unchanged from v1 so existing
+// slots and MACs stay valid.
 const SLOT_AAD: &[u8] = b"dotsafe/v1/slot";
 const HEADER_MAC_INFO: &[u8] = b"dotsafe/v1/header-mac";
 const RECOVERY_KEK_INFO: &[u8] = b"dotsafe/v1/recovery-kek";
@@ -20,11 +22,29 @@ pub struct VaultHeader {
     pub format: String,
     pub version: u32,
     pub vault_id: Uuid,
+    /// Which vault key seals records. It goes up when the vault is re-keyed.
+    /// Absent (0) in v1 headers.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub epoch: u32,
     pub key_slots: Vec<KeySlot>,
+    /// Vault keys of earlier epochs, sealed under the current one, kept until
+    /// every record is re-sealed. Empty until re-keying exists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub previous_keys: Vec<PreviousKey>,
     /// HMAC over the header serialized with this field empty, keyed from the
     /// vault key. Detects edits to the header by anyone without the vault key.
     #[serde(with = "crypto::b64")]
     pub mac: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PreviousKey {
+    pub epoch: u32,
+    pub wrapped_key: Sealed,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,7 +71,9 @@ impl VaultHeader {
             format: HEADER_FORMAT.into(),
             version: HEADER_VERSION,
             vault_id: Uuid::new_v4(),
+            epoch: 1,
             key_slots: Vec::new(),
+            previous_keys: Vec::new(),
             mac: Vec::new(),
         };
         header.set_password(vault_key, password, params)?;
@@ -62,10 +84,18 @@ impl VaultHeader {
         if self.format != HEADER_FORMAT {
             return Err(Error::Format(format!("not a dotsafe vault (format {:?})", self.format)));
         }
-        if self.version != HEADER_VERSION {
+        // v1 headers are read so they can be upgraded.
+        if !(1..=HEADER_VERSION).contains(&self.version) {
             return Err(Error::UnsupportedVersion { kind: "vault", version: self.version });
         }
         Ok(())
+    }
+
+    /// Turns a v1 header into v2 (records sealed in epoch 1), then re-signs.
+    pub(crate) fn upgrade(&mut self, vault_key: &SecretKey) -> Result<()> {
+        self.version = HEADER_VERSION;
+        self.epoch = self.epoch.max(1);
+        self.sign(vault_key)
     }
 
     /// Replaces any password slot with one for `password`, then re-signs.

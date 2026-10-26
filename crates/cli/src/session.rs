@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
-use dotsafe_core::{Error, Vault};
+use dotsafe_core::{Error, FolderStore, Vault};
 use zeroize::Zeroizing;
 
 const KEYCHAIN_SERVICE: &str = "app.dotsafe.session";
@@ -15,7 +15,7 @@ pub fn open(vault_path: &Path) -> Result<Vault> {
         return Ok(vault);
     }
     let password = password("Master password: ")?;
-    let vault = Vault::unlock(vault_path, &password).map_err(friendly)?;
+    let vault = Vault::unlock(FolderStore::new(vault_path), &password).map_err(friendly)?;
     if std::env::var_os("DOTSAFE_PASSWORD").is_none() {
         eprintln!("tip: run `dotsafe unlock` to skip the password for a while");
     }
@@ -23,12 +23,12 @@ pub fn open(vault_path: &Path) -> Result<Vault> {
 }
 
 /// Caches the vault key in the OS keychain until `ttl` passes.
-pub fn cache(vault: &Vault, ttl: Duration) -> Result<()> {
+pub fn cache(vault: &Vault, vault_path: &Path, ttl: Duration) -> Result<()> {
     let expires = now_secs() + ttl.as_secs();
     let mut blob = Zeroizing::new(Vec::with_capacity(40));
     blob.extend_from_slice(&expires.to_be_bytes());
     blob.extend_from_slice(vault.session_key().as_ref());
-    entry(vault.root())?
+    entry(vault_path)?
         .set_secret(&blob)
         .context("couldn't save to the OS keychain")
 }
@@ -54,7 +54,7 @@ fn from_cache(vault_path: &Path) -> Option<Vault> {
     }
     // A stale key (vault replaced, or the folder changed) just falls through
     // to the password prompt.
-    Vault::unlock_with_session_key(vault_path, &key).ok()
+    Vault::unlock_with_session_key(FolderStore::new(vault_path), &key).ok()
 }
 
 fn entry(vault_path: &Path) -> Result<keyring::Entry> {
@@ -79,10 +79,9 @@ pub fn password(prompt: &str) -> Result<Zeroizing<String>> {
 
 pub fn friendly(e: Error) -> anyhow::Error {
     match e {
-        Error::NotFound(path) => anyhow!(
-            "no vault at {}; is the synced folder available? (run `dotsafe init` to set one up)",
-            path.display()
-        ),
+        Error::NotFound(location) => {
+            anyhow!("no vault at {location}; is the synced folder available? (run `dotsafe init` to set one up)")
+        }
         e => anyhow!(e),
     }
 }

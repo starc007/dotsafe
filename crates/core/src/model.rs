@@ -5,27 +5,63 @@
 //! older edits from another device instead of being undone by them.
 
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
 
-/// When and where a change was made. Ordered by time, then device id as a
-/// deterministic tiebreak, so every device picks the same winner.
+/// When and where a change was made: a hybrid logical clock reading. Ordered
+/// by time, then counter, then device id as a deterministic tiebreak, so every
+/// device picks the same winner. Get new stamps from [`crate::Vault::stamp`],
+/// which keeps them ahead of every change the vault has seen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Stamp {
     pub at_ms: u64,
+    /// Orders changes within one millisecond, or after seeing a stamp from a
+    /// device whose clock runs ahead. Absent in v1 records.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub counter: u32,
     pub device: Uuid,
 }
 
 impl Stamp {
-    pub fn now(device: Uuid) -> Self {
-        let at_ms = std::time::SystemTime::now()
+    pub const fn new(at_ms: u64, device: Uuid) -> Self {
+        Stamp { at_ms, counter: 0, device }
+    }
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// A hybrid logical clock. A new stamp is never older than any stamp the
+/// clock has observed, so an edit made after seeing another device's change
+/// always orders after it, even if this device's clock is behind.
+#[derive(Debug, Default)]
+pub(crate) struct Clock {
+    last: Mutex<(u64, u32)>,
+}
+
+impl Clock {
+    pub(crate) fn observe(&self, stamp: Stamp) {
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        *last = (*last).max((stamp.at_ms, stamp.counter));
+    }
+
+    pub(crate) fn stamp(&self, device: Uuid) -> Stamp {
+        let wall = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        Stamp { at_ms, device }
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+        *last = match *last {
+            (at, _) if wall > at => (wall, 0),
+            (at, u32::MAX) => (at + 1, 0),
+            (at, counter) => (at, counter + 1),
+        };
+        Stamp { at_ms: last.0, counter: last.1, device }
     }
 }
 
@@ -49,6 +85,15 @@ impl Record {
         match self {
             Record::Project(p) => p.id,
             Record::Environment(e) => e.id,
+        }
+    }
+
+    /// The newest change in the record. A copy with an older newest change
+    /// than one already seen is out of date.
+    pub fn max_stamp(&self) -> Stamp {
+        match self {
+            Record::Project(p) => p.updated,
+            Record::Environment(e) => e.vars.values().map(|v| v.stamp).fold(e.updated, Stamp::max),
         }
     }
 

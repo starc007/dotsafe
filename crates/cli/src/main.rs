@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use dotsafe_core::{Config, Environment, KdfParams, Project, Record, Stamp, Vault, config, dotenv, is_valid_var_name};
+use dotsafe_core::{Config, Environment, FolderStore, KdfParams, Project, Record, Stamp, Vault, config, dotenv, is_valid_var_name};
 use uuid::Uuid;
 
 use link::{DEFAULT_ENV, LINK_FILE, Link};
@@ -107,8 +107,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Unlock { ttl } => {
             let config = load_config()?;
             let password = session::password("Master password: ")?;
-            let vault = Vault::unlock(&config.vault_path, &password).map_err(session::friendly)?;
-            session::cache(&vault, ttl)?;
+            let vault = Vault::unlock(FolderStore::new(&config.vault_path), &password).map_err(session::friendly)?;
+            session::cache(&vault, &config.vault_path, ttl)?;
             eprintln!("Unlocked for {}.", human(ttl));
         }
         Cmd::Lock => {
@@ -217,7 +217,7 @@ fn init(path: Option<PathBuf>) -> Result<()> {
     if path.join("vault.json").exists() {
         eprintln!("Found an existing vault at {}.", path.display());
         let password = session::password("Master password: ")?;
-        Vault::unlock(&path, &password).map_err(session::friendly)?;
+        Vault::unlock(FolderStore::new(&path), &password).map_err(session::friendly)?;
         Config::for_vault(path).save()?;
         eprintln!("This machine is now connected to it.");
         return Ok(());
@@ -233,7 +233,7 @@ fn init(path: Option<PathBuf>) -> Result<()> {
             bail!("passwords didn't match");
         }
     }
-    let mut vault = Vault::create(&path, &password, KdfParams::default())?;
+    let mut vault = Vault::create(FolderStore::new(&path), &password, KdfParams::default())?;
     let recovery = vault.reset_recovery_key()?;
     Config::for_vault(path.clone()).save()?;
 
@@ -288,7 +288,7 @@ impl Ctx {
     }
 
     fn stamp(&self) -> Stamp {
-        Stamp::now(self.device_id)
+        self.vault.stamp(self.device_id)
     }
 
     fn projects(&self) -> Result<Vec<Project>> {
