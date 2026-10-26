@@ -8,14 +8,16 @@ use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
 use anyhow::Result;
-use dotsafe_agent::protocol::{ErrorCode, Request, Response, RunOutput, RunRequest, Target};
+use dotsafe_agent::protocol::{ErrorCode, GenerateRequest, Request, Response, RunOutput, RunRequest, Target};
 use serde_json::{Value, json};
 
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS: &str = "Secrets for this project are managed by dotsafe. Use list_variables to see which exist, \
 and run_with_secrets to run a command that needs them: the user approves it, and its output comes back with secret \
-values replaced by [dotsafe:NAME]. You never see the values. Don't read, create or edit .env files.";
+values replaced by [dotsafe:NAME]. OpenAI and Anthropic keys go through a local proxy, so the command never holds them. \
+To add a new random secret (JWT_SECRET, SESSION_KEY…), use generate_secret: the value is created in dotsafe and never \
+shown to you. You never see values. Don't read, create or edit .env files.";
 
 pub fn serve() -> Result<()> {
     let stdin = std::io::stdin();
@@ -98,6 +100,24 @@ fn tools() -> Value {
         "cwd".into(),
         json!({"type": "string", "description": "Working directory for the command. Defaults to the server's."}),
     );
+    run.insert(
+        "proxy".into(),
+        json!({"type": "boolean", "description": "Send OpenAI and Anthropic keys through dotsafe's local proxy instead of injecting them. Defaults to true; turn off only if the code can't use a custom base URL."}),
+    );
+    let mut generate_props = target.clone();
+    let generate = generate_props.as_object_mut().expect("object");
+    generate.insert(
+        "name".into(),
+        json!({"type": "string", "description": "Variable name, for example JWT_SECRET. Must not exist yet."}),
+    );
+    generate.insert(
+        "kind".into(),
+        json!({"type": "string", "enum": ["random", "hex", "base64", "uuid"], "description": "Defaults to random (letters and digits)."}),
+    );
+    generate.insert(
+        "length".into(),
+        json!({"type": "integer", "minimum": 8, "maximum": 256, "description": "Characters for random (default 48), bytes for hex and base64 (default 32)."}),
+    );
     json!([
         {
             "name": "list_projects",
@@ -116,6 +136,12 @@ fn tools() -> Value {
             "description": "Run a command with the environment's variables set, after the user approves it in dotsafe. Returns the exit code and output, with secret values replaced by [dotsafe:NAME]. Shells with -c, inline code (node -e, python -c) and commands that print the environment are refused.",
             "inputSchema": {"type": "object", "properties": run_props, "required": ["command"]},
             "annotations": {"destructiveHint": true, "openWorldHint": true},
+        },
+        {
+            "name": "generate_secret",
+            "description": "Add a variable with a random value, after the user approves it in dotsafe. The value is generated inside dotsafe and never returned. Use it for JWT secrets, session keys and the like.",
+            "inputSchema": {"type": "object", "properties": generate_props, "required": ["name"]},
+            "annotations": {"destructiveHint": false, "idempotentHint": false},
         },
     ])
 }
@@ -148,6 +174,19 @@ fn call_tool(client: &str, params: &Value) -> Value {
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect()),
                 timeout_secs: args["timeout_seconds"].as_u64(),
                 path: std::env::var("PATH").ok(),
+                proxy: args["proxy"].as_bool().unwrap_or(true),
+            })
+        }
+        "generate_secret" => {
+            let Some(name) = args["name"].as_str().filter(|n| !n.is_empty()) else {
+                return tool_error("Give the variable a name, for example JWT_SECRET.");
+            };
+            Request::Generate(GenerateRequest {
+                client: client.to_string(),
+                name: name.to_string(),
+                target: target(args),
+                kind: args["kind"].as_str().map(String::from),
+                length: args["length"].as_u64().and_then(|n| u32::try_from(n).ok()),
             })
         }
         other => return tool_error(&format!("Unknown tool {other}.")),
@@ -175,6 +214,10 @@ fn call_tool(client: &str, params: &Value) -> Value {
             text(out.trim_end())
         }
         Response::Ran(output) => text(&describe_run(&output)),
+        Response::Generated(g) => text(&format!(
+            "Added {} to {}/{} ({}). The value was generated in dotsafe and isn't shown to you; commands run with run_with_secrets get it.",
+            g.name, g.project, g.environment, g.description
+        )),
         Response::Error(error) => tool_error(&error.message),
     }
 }
@@ -196,6 +239,9 @@ fn describe_run(output: &RunOutput) -> String {
     };
     if output.redactions > 0 {
         out += &format!(" {} secret value(s) were replaced with [dotsafe:NAME].", output.redactions);
+    }
+    if !output.proxied.is_empty() {
+        out += &format!(" {} went through dotsafe's proxy; the process never had the key.", output.proxied.join(", "));
     }
     if output.truncated {
         out += " Output was long; only the end is shown.";

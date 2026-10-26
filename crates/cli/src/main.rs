@@ -98,8 +98,17 @@ enum Cmd {
     Run {
         #[command(flatten)]
         env: EnvArg,
+        /// Keep OpenAI and Anthropic keys out of the process: it gets a local proxy URL that adds the key
+        #[arg(long)]
+        proxy: bool,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true, value_name = "COMMAND")]
         command: Vec<String>,
+    },
+    /// Show what AI agents asked dotsafe for, from every device
+    Audit {
+        /// How many events to show
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
     },
 }
 
@@ -275,14 +284,44 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
-        Cmd::Run { env, command } => {
+        Cmd::Run { env, proxy, command } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
             let secrets = ctx.vault.secrets()?;
-            let mut cmd = Command::new(&command[0]);
-            cmd.args(&command[1..]).envs(secrets.resolve(&target.env));
+            let vars: Vec<(String, String)> =
+                secrets.resolve(&target.env).map(|(k, v)| (k.to_string(), v.to_string())).collect();
             drop(ctx);
-            return exec(cmd, &command[0]);
+            let mut cmd = Command::new(&command[0]);
+            cmd.args(&command[1..]);
+            if !proxy {
+                cmd.envs(vars);
+                return exec(cmd, &command[0]);
+            }
+            // The proxy lives in this process, so wait for the command instead
+            // of replacing ourselves with it.
+            let server = dotsafe_agent::proxy::ProxyServer::start().context("couldn't start the secret proxy")?;
+            let proxied = dotsafe_agent::proxy::apply(&server, vars);
+            if proxied.names.is_empty() {
+                eprintln!("dotsafe: no OPENAI_API_KEY or ANTHROPIC_API_KEY to proxy; running normally.");
+            } else {
+                eprintln!("dotsafe: {} go through a local proxy; the process never has the key.", proxied.names.join(", "));
+            }
+            cmd.envs(proxied.env.iter().cloned());
+            let status = cmd.status().with_context(|| format!("couldn't run {}", command[0]))?;
+            drop(proxied);
+            return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8));
+        }
+        Cmd::Audit { limit } => {
+            let ctx = Ctx::open()?;
+            let events = dotsafe_core::audit::recent(&ctx.vault, limit)?;
+            if events.is_empty() {
+                eprintln!("No agent activity yet.");
+            }
+            for e in events {
+                let outcome = format!("{:?}", e.outcome).to_lowercase();
+                let detail = e.detail.map(|d| format!("\t{d}")).unwrap_or_default();
+                println!("{}\t{}\t{outcome}\t{}\t{}{detail}", utc(e.at), e.actor, e.summary, e.environment);
+            }
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -518,6 +557,23 @@ fn dir_name(dir: &Path) -> Result<String> {
         .context("can't name a project after this directory; pass a name to `dotsafe link`")
 }
 
+/// Unix milliseconds as `YYYY-MM-DD HH:MM` UTC.
+fn utc(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
+}
+
 fn human(d: Duration) -> String {
     let s = d.as_secs();
     match s {
@@ -525,5 +581,17 @@ fn human(d: Duration) -> String {
         _ if s.is_multiple_of(3600) => format!("{}h", s / 3600),
         _ if s.is_multiple_of(60) => format!("{}m", s / 60),
         _ => format!("{s}s"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::utc;
+
+    #[test]
+    fn utc_dates() {
+        assert_eq!(utc(0), "1970-01-01 00:00");
+        assert_eq!(utc(951_782_400_000), "2000-02-29 00:00");
+        assert_eq!(utc(1_793_015_254_719), "2026-10-26 11:47");
     }
 }

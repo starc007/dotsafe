@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use dotsafe_agent::ipc::{self, Handler};
-use dotsafe_agent::protocol::{ProjectInfo, Request, Response, RunOutput};
+use dotsafe_agent::protocol::{Generated, ProjectInfo, Request, Response, RunOutput};
 use serde_json::{Value, json};
 
 #[derive(Default)]
@@ -30,6 +30,13 @@ impl Handler for FakeBroker {
                 stderr: String::new(),
                 redactions: 1,
                 truncated: false,
+                proxied: vec!["OPENAI_API_KEY".into()],
+            }),
+            Request::Generate(g) => Response::Generated(Generated {
+                project: "my-api".into(),
+                environment: "development".into(),
+                name: g.name,
+                description: "48 random characters".into(),
             }),
             Request::ListVariables(_) => {
                 Response::error(dotsafe_agent::protocol::ErrorCode::Locked, "dotsafe is locked.")
@@ -84,7 +91,7 @@ fn handshake_and_tools() {
     assert_eq!(replies[0]["result"]["serverInfo"]["name"], "dotsafe");
     let names: Vec<&str> =
         replies[1]["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["list_projects", "list_variables", "run_with_secrets"]);
+    assert_eq!(names, ["list_projects", "list_variables", "run_with_secrets", "generate_secret"]);
     assert!(!names.iter().any(|n| n.contains("reveal") || n.contains("get")), "no tool returns values");
     assert_eq!(replies[2]["error"]["code"], -32601);
 }
@@ -118,12 +125,15 @@ fn tools_are_forwarded_to_the_broker() {
             ),
             call(4, "list_variables", json!({"project": "my-api"})),
             call(5, "run_with_secrets", json!({"command": []})),
+            call(6, "generate_secret", json!({"name": "JWT_SECRET", "kind": "hex", "length": 32})),
         ],
     );
     let text = |i: usize| replies[i]["result"]["content"][0]["text"].as_str().unwrap().to_string();
     assert_eq!(text(1), "my-api: development");
     assert!(text(2).starts_with("Exit code 0. 1 secret value(s) were replaced"), "{}", text(2));
     assert!(text(2).contains("connected to [dotsafe:DATABASE_URL]"));
+    assert!(text(2).contains("OPENAI_API_KEY went through dotsafe's proxy"), "{}", text(2));
+    assert!(text(5).starts_with("Added JWT_SECRET to my-api/development (48 random characters)."), "{}", text(5));
     assert_eq!(replies[3]["result"]["isError"], true, "broker errors become tool errors");
     assert_eq!(replies[4]["result"]["isError"], true, "empty commands never reach the broker");
 
@@ -134,5 +144,12 @@ fn tools_are_forwarded_to_the_broker() {
     assert_eq!(run.cwd, work.path());
     assert_eq!(run.variables.as_deref(), Some(&["DATABASE_URL".to_string()][..]));
     assert!(run.path.is_some(), "the agent's PATH is passed along");
-    assert_eq!(seen.len(), 3);
+    assert!(run.proxy, "the proxy is on unless the agent turns it off");
+    let Request::Generate(generate) = &seen[3] else { panic!("expected a generate, got {:?}", seen[3]) };
+    assert_eq!(
+        (generate.name.as_str(), generate.kind.as_deref(), generate.length),
+        ("JWT_SECRET", Some("hex"), Some(32))
+    );
+    assert_eq!(generate.client, "Claude Code");
+    assert_eq!(seen.len(), 4);
 }
