@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use dotsafe_core::{Config, Environment, KdfParams, Project, Record, Vault, config, is_valid_var_name};
+use dotsafe_core::{Config, Environment, KdfParams, Project, Record, RecoveryKey, Vault, config, is_valid_var_name};
 use serde::Serialize;
 use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
-use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, IDLE_LOCK, hash_text};
+use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind, IDLE_LOCK, hash_text};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const DEFAULT_ENV: &str = "development";
@@ -27,6 +27,7 @@ pub struct Status {
     unlocked: bool,
     vault_path: Option<String>,
     default_vault_path: Option<String>,
+    must_change_password: bool,
 }
 
 #[derive(Serialize)]
@@ -60,6 +61,7 @@ pub async fn status(state: State<'_, AppState>) -> CmdResult<Status> {
                 unlocked: s.vault.is_some(),
                 vault_path: s.config.as_ref().map(|c| c.vault_path.display().to_string()),
                 default_vault_path: config::default_vault_path().ok().map(|p| p.display().to_string()),
+                must_change_password: s.must_change_password,
             })
         })
         .await
@@ -75,9 +77,7 @@ pub async fn folder_has_vault(path: String) -> bool {
 pub async fn create_vault(state: State<'_, AppState>, path: String, password: String) -> CmdResult<String> {
     let password = Zeroizing::new(password);
     let path = absolute(path)?;
-    if password.chars().count() < MIN_PASSWORD_LEN {
-        return Err(CmdError::other(format!("Use at least {MIN_PASSWORD_LEN} characters.")));
-    }
+    check_new_password(&password).map_err(CmdError::other)?;
     state
         .run(move |s| {
             let mut vault = Vault::create(&path, &password, KdfParams::default())?;
@@ -115,17 +115,93 @@ pub async fn unlock(state: State<'_, AppState>, password: String) -> CmdResult<(
         .run(move |s| {
             let vault = Vault::unlock(&s.config()?.vault_path, &password)?;
             s.vault = Some(vault);
+            s.must_change_password = false;
             Ok(())
         })
         .await
+}
+
+/// Unlocks with the recovery key when the password is forgotten. The user
+/// must then choose a new password (`must_change_password`).
+#[tauri::command]
+pub async fn unlock_with_recovery(state: State<'_, AppState>, recovery_key: String) -> CmdResult<()> {
+    let recovery_key = Zeroizing::new(recovery_key);
+    let key = RecoveryKey::parse(&recovery_key).map_err(|_| {
+        CmdError::other("That isn't a recovery key. It's 13 groups of 4 letters and numbers.")
+    })?;
+    state
+        .run(move |s| {
+            let vault = Vault::unlock_with_recovery(&s.config()?.vault_path, &key).map_err(|e| match e {
+                dotsafe_core::Error::InvalidCredentials => CmdError {
+                    kind: ErrorKind::InvalidPassword,
+                    message: "That recovery key doesn't match this vault.".into(),
+                },
+                e => e.into(),
+            })?;
+            s.vault = Some(vault);
+            s.must_change_password = true;
+            Ok(())
+        })
+        .await
+}
+
+/// Sets a new master password. Needs the current one, unless the vault was
+/// just unlocked with the recovery key (the password is forgotten).
+#[tauri::command]
+pub async fn change_password(
+    state: State<'_, AppState>,
+    current_password: Option<String>,
+    new_password: String,
+) -> CmdResult<()> {
+    let current = current_password.map(Zeroizing::new);
+    let new_password = Zeroizing::new(new_password);
+    check_new_password(&new_password).map_err(CmdError::other)?;
+    state
+        .run(move |s| {
+            if !s.must_change_password {
+                verify_password(s, current.as_deref().map(String::as_str))?;
+            }
+            let vault = s.vault.as_mut().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })?;
+            vault.change_password(&new_password, KdfParams::default())?;
+            s.must_change_password = false;
+            Ok(())
+        })
+        .await
+}
+
+/// Replaces the recovery key after confirming the password, and returns the
+/// new key to show once. The old key stops working.
+#[tauri::command]
+pub async fn reset_recovery_key(state: State<'_, AppState>, password: String) -> CmdResult<String> {
+    let password = Zeroizing::new(password);
+    state
+        .run(move |s| {
+            verify_password(s, Some(&password))?;
+            let vault = s.vault.as_mut().ok_or(CmdError { kind: ErrorKind::Locked, message: "The vault is locked.".into() })?;
+            Ok(vault.reset_recovery_key()?.to_display_string())
+        })
+        .await
+}
+
+/// Re-checks the master password before a sensitive change, so an unlocked
+/// Mac left unattended can't be used to take over the vault.
+fn verify_password(s: &crate::state::Session, password: Option<&str>) -> CmdResult<()> {
+    let password = password.filter(|p| !p.is_empty()).ok_or_else(|| CmdError::other("Enter your current password."))?;
+    match Vault::unlock(&s.config()?.vault_path, password) {
+        Ok(_) => Ok(()),
+        Err(dotsafe_core::Error::InvalidCredentials) => Err(CmdError {
+            kind: ErrorKind::InvalidPassword,
+            message: "Your current password is wrong.".into(),
+        }),
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[tauri::command]
 pub async fn lock(state: State<'_, AppState>) -> CmdResult<()> {
     state
         .run(|s| {
-            s.vault = None;
-            s.import_files.clear();
+            s.lock();
             Ok(())
         })
         .await
@@ -496,6 +572,13 @@ pub async fn remove_license(state: State<'_, AppState>) -> CmdResult<()> {
         .await
 }
 
+fn check_new_password(password: &str) -> Result<(), String> {
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(format!("Use at least {MIN_PASSWORD_LEN} characters."));
+    }
+    Ok(())
+}
+
 /// Trims a pasted key and rejects anything that can't be a license key.
 fn normalize_license(input: &str) -> Result<String, &'static str> {
     let key = input.trim();
@@ -537,6 +620,14 @@ fn env_rank(name: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_passwords_need_eight_characters() {
+        assert!(check_new_password("1234567").is_err());
+        assert!(check_new_password("12345678").is_ok());
+        // Counted in characters, not bytes.
+        assert!(check_new_password("pässwörd").is_ok());
+    }
 
     #[test]
     fn license_keys_are_trimmed_and_shape_checked() {
