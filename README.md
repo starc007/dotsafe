@@ -36,3 +36,14 @@ bun install
 bun run tauri dev          # desktop app
 cargo run -p dotsafe-cli   # CLI
 ```
+
+`bun run dev` on its own serves the UI at http://localhost:1420 with an in-memory mock backend (`src/dev/mockBackend.ts`, unlock with `password123`, add `?setup` to start at setup). It is only loaded in dev outside Tauri and never ships.
+
+Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testing never touches your real vault.
+
+### Desktop security model
+
+- Decrypted values reach the webview only when you reveal or edit one. Lists carry names only.
+- Copying happens in Rust. The clipboard is cleared after 30 seconds unless you copied something else since.
+- The vault locks after 15 minutes without activity.
+- The webview has no clipboard or filesystem permissions, only the folder picker. The CSP blocks remote content.
