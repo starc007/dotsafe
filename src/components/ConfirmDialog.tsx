@@ -39,7 +39,7 @@ export function ConfirmDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={(next) => !next && onCancel()}>
-      <AlertDialogContent className="block max-w-sm gap-0 rounded-3xl bg-shell p-1.5 shadow-2xl ring-foreground/10 data-[size=default]:sm:max-w-sm">
+      <AlertDialogContent className="block max-w-sm gap-0 rounded-3xl bg-shell p-1.5 shadow-2xl ring-0 data-[size=default]:sm:max-w-sm">
         <SurfaceHeader
           icon={<Trash2 aria-hidden className="text-destructive" />}
           action={

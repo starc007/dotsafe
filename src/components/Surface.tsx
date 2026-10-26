@@ -9,7 +9,7 @@ export function Surface({ className, ...props }: ComponentProps<"section">) {
   return (
     <section
       data-slot="surface"
-      className={cn("rounded-3xl bg-shell p-1.5 shadow-sm ring-1 ring-foreground/5", className)}
+      className={cn("rounded-3xl bg-shell p-1.5", className)}
       {...props}
     />
   );
