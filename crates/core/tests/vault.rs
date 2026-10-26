@@ -266,6 +266,24 @@ fn temp_and_foreign_files_are_ignored() {
 }
 
 #[test]
+fn session_key_unlocks_until_vault_is_replaced() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::create(dir.path(), "pw", FAST).unwrap();
+    let key = vault.session_key();
+    assert_eq!(Vault::unlock_with_session_key(dir.path(), &key).unwrap().id(), vault.id());
+
+    assert!(matches!(
+        Vault::unlock_with_session_key(dir.path(), &[7u8; 32]),
+        Err(Error::InvalidCredentials)
+    ));
+
+    // A different vault at the same path must not accept the old cached key.
+    fs::remove_dir_all(dir.path()).unwrap();
+    Vault::create(dir.path(), "pw", FAST).unwrap();
+    assert!(matches!(Vault::unlock_with_session_key(dir.path(), &key), Err(Error::InvalidCredentials)));
+}
+
+#[test]
 fn default_kdf_params_are_strong() {
     let p = KdfParams::default();
     assert!(p.m_cost_kib >= 64 * 1024 && p.t_cost >= 3);

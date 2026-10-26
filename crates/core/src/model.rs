@@ -93,14 +93,22 @@ struct Var {
 
 impl Environment {
     pub fn new(project_id: Uuid, name: impl Into<String>, stamp: Stamp) -> Self {
+        let name = name.into();
         Environment {
-            id: Uuid::new_v4(),
+            id: Environment::id_for(project_id, &name),
             project_id,
-            name: name.into(),
+            name,
             deleted: false,
             updated: stamp,
             vars: BTreeMap::new(),
         }
+    }
+
+    /// The id a new environment named `name` should get. It's derived from the
+    /// project and name, so two devices that each create "development" before
+    /// syncing end up with one record that merges, not two.
+    pub fn id_for(project_id: Uuid, name: &str) -> Uuid {
+        Uuid::new_v5(&project_id, name.as_bytes())
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {

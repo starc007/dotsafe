@@ -76,6 +76,8 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
 
 ## Sync and merging
 
+- **Environment ids:** a new environment's id is UUIDv5(project id, name). If two devices both create "development" for a project before syncing, they produce the same record, and the two versions merge. If that id is already taken by an environment that was renamed, the client falls back to a random id.
+
 - **Stamps:** every change carries a `Stamp { at_ms, device }`. Stamps are ordered by time first, then by device id, so every device picks the same winner.
 - **Merge rules:**
   - Environments merge per variable, last writer wins.

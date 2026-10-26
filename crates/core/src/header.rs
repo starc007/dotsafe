@@ -122,6 +122,12 @@ impl VaultHeader {
         Err(Error::InvalidCredentials)
     }
 
+    /// Accepts a vault key cached from an earlier unlock, if it still matches
+    /// this header.
+    pub(crate) fn unlock_with_key(&self, vault_key: SecretKey) -> Result<SecretKey> {
+        self.verified(vault_key).map_err(|_| Error::InvalidCredentials)
+    }
+
     fn unwrap(&self, slot: &KeySlot, kek: &SecretKey) -> Option<SecretKey> {
         let bytes = crypto::open(kek, &slot.wrapped_key, &self.slot_aad(slot.id))?;
         let bytes: [u8; KEY_LEN] = bytes.as_slice().try_into().ok()?;
