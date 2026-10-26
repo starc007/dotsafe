@@ -6,14 +6,13 @@ import { toast } from "sonner";
 import { Check, Copy, Eye, EyeOff, FileUp, KeyRound, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { api, message, type EnvironmentView, type ImportResult } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
-import { IconSwap } from "@/components/IconSwap";
 import { ImportDialog } from "@/components/ImportDialog";
+import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 import { VariableDialog } from "@/components/VariableDialog";
 
@@ -267,33 +266,33 @@ export function VariableList({
                     <span className="selectable w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] font-medium" title={key}>
                       {key}
                     </span>
-                    {/* Revealing "decrypts": the value sharpens in from a blur. */}
+                    {/* Revealing rolls the mask away and the value up into place. */}
                     <span className="min-w-0 flex-1">
-                      <AnimatePresence initial={false} mode="wait">
-                        <motion.span
-                          key={key in revealed ? "value" : "mask"}
-                          initial={{ opacity: 0, filter: "blur(3px)" }}
-                          animate={{ opacity: 1, filter: "blur(0px)" }}
-                          exit={{ opacity: 0, filter: "blur(3px)" }}
-                          transition={fast}
-                          className={cn(
-                            "block truncate font-mono text-[12.5px]",
-                            key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
-                          )}
+                      <ActionSwapText
+                        value={key in revealed ? "value" : "mask"}
+                        animation="roll"
+                        className="font-mono text-[12.5px]"
+                      >
+                        <span
+                          className={key in revealed ? "selectable" : "tracking-widest text-muted-foreground"}
                           title={key in revealed ? revealed[key] : undefined}
                         >
                           {key in revealed
                             ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
                             : MASK}
-                        </motion.span>
-                      </AnimatePresence>
+                        </span>
+                      </ActionSwapText>
                     </span>
                     <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                       <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
-                        <IconSwap active={key in revealed} on={<EyeOff aria-hidden />} off={<Eye aria-hidden />} />
+                        <ActionSwapIcon value={key in revealed ? "hide" : "reveal"} animation="blur" className="size-4">
+                          {key in revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                        </ActionSwapIcon>
                       </IconButton>
                       <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
-                        <IconSwap active={copiedKey === key} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
+                        <ActionSwapIcon value={copiedKey === key ? "copied" : "copy"} animation="blur" className="size-4">
+                          {copiedKey === key ? <Check aria-hidden /> : <Copy aria-hidden />}
+                        </ActionSwapIcon>
                       </IconButton>
                       <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
                         <Pencil aria-hidden />
