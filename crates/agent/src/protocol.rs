@@ -14,6 +14,23 @@ pub enum Request {
     ListProjects,
     ListVariables(Target),
     Run(RunRequest),
+    Generate(GenerateRequest),
+}
+
+/// Adds a variable with a random value the agent never sees.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenerateRequest {
+    pub client: String,
+    /// The variable to create. Must not exist yet.
+    pub name: String,
+    #[serde(default)]
+    pub target: Target,
+    /// `random` (default), `hex`, `base64` or `uuid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Characters for `random`, bytes for `hex` and `base64`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u32>,
 }
 
 /// Which environment a request is about: named outright, or found from the
@@ -48,6 +65,14 @@ pub struct RunRequest {
     /// GUI apps on macOS start with a minimal `PATH`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Send known API keys through the secret proxy instead of injecting
+    /// them. On by default.
+    #[serde(default = "yes")]
+    pub proxy: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,7 +81,17 @@ pub enum Response {
     Projects(Vec<ProjectInfo>),
     Variables(VariablesInfo),
     Ran(RunOutput),
+    Generated(Generated),
     Error(ErrorInfo),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Generated {
+    pub project: String,
+    pub environment: String,
+    pub name: String,
+    /// What was generated, for example "48 random characters".
+    pub description: String,
 }
 
 impl Response {
@@ -97,6 +132,9 @@ pub struct RunOutput {
     pub redactions: usize,
     /// Output was longer than the limit; only the end is included.
     pub truncated: bool,
+    /// Variables that went through the secret proxy: the process never had them.
+    #[serde(default)]
+    pub proxied: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
