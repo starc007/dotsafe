@@ -12,6 +12,7 @@ dotsafe-core = { path = "crates/core" }
 
 # Optimize the crypto crates even in debug builds, so unlocking with real
 # Argon2 settings stays fast during development and tests.
+# Note: `cargo remove` deletes overrides for indirect dependencies like blake2.
 [profile.dev.package.argon2]
 opt-level = 3
 [profile.dev.package.blake2]

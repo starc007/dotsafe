@@ -1,4 +1,3 @@
-mod config;
 mod dotenv;
 mod link;
 mod session;
@@ -9,10 +8,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
-use dotsafe_core::{Environment, KdfParams, Project, Record, Stamp, Vault};
+use dotsafe_core::{Config, Environment, KdfParams, Project, Record, Stamp, Vault, config};
 use uuid::Uuid;
 
-use config::Config;
 use link::{DEFAULT_ENV, LINK_FILE, Link};
 
 #[derive(Parser)]
@@ -108,14 +106,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
         Cmd::Init { path } => init(path)?,
         Cmd::Unlock { ttl } => {
-            let config = Config::load()?;
+            let config = load_config()?;
             let password = session::password("Master password: ")?;
             let vault = Vault::unlock(&config.vault_path, &password).map_err(session::friendly)?;
             session::cache(&vault, ttl)?;
             eprintln!("Unlocked for {}.", human(ttl));
         }
         Cmd::Lock => {
-            let config = Config::load()?;
+            let config = load_config()?;
             let was_cached = session::clear(&config.vault_path)?;
             eprintln!("{}", if was_cached { "Locked." } else { "Already locked." });
         }
@@ -286,7 +284,7 @@ impl Target {
 
 impl Ctx {
     fn open() -> Result<Ctx> {
-        let config = Config::load()?;
+        let config = load_config()?;
         let vault = session::open(&config.vault_path)?;
         Ok(Ctx { vault, device_id: config.device_id, cwd: std::env::current_dir()? })
     }
@@ -357,6 +355,10 @@ impl Ctx {
         };
         Ok(Target { project, env })
     }
+}
+
+fn load_config() -> Result<Config> {
+    Config::load()?.context("no vault set up yet; run `dotsafe init` first")
 }
 
 fn dir_name(dir: &Path) -> Result<String> {

@@ -29,6 +29,14 @@ impl Stamp {
     }
 }
 
+/// Whether `key` is a usable environment variable name: letters, digits and
+/// underscores, not starting with a digit.
+pub fn is_valid_var_name(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Record {
