@@ -1,6 +1,7 @@
 //! Session state shared by all commands: the config, the unlocked vault (if
 //! any), and background housekeeping for auto-lock and clipboard clearing.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -26,6 +27,9 @@ pub struct Session {
     /// Hash of a secret we put on the clipboard, so we only clear it if the
     /// user hasn't copied something else since.
     pub clipboard: Option<([u8; 32], Instant)>,
+    /// Files chosen in the picker or dropped on the window, waiting to be
+    /// previewed and imported. Paths never come from the webview.
+    pub import_files: Vec<PathBuf>,
 }
 
 impl Default for Session {
@@ -35,6 +39,7 @@ impl Default for Session {
             vault: None,
             last_activity: Instant::now(),
             clipboard: None,
+            import_files: Vec::new(),
         }
     }
 }
@@ -136,6 +141,7 @@ impl AppState {
 
                 if session.vault.is_some() && session.last_activity.elapsed() >= IDLE_LOCK {
                     session.vault = None;
+                    session.import_files.clear();
                     let _ = app.emit("vault-locked", ());
                 }
 
