@@ -9,7 +9,7 @@ dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets 
 ## Layout
 
 ```
-crates/core   Vault format, crypto, merge/sync, config. Shared by app and CLI.
+crates/core   Vault format, crypto, merge/sync, config, storage (store.rs). Shared by app and CLI.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
 src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client).
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
@@ -44,7 +44,8 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 ### Security (this is a secrets app; treat these as hard rules)
 
 - **Crypto stays in `crates/core/src/crypto.rs`.** Use the existing primitives (XChaCha20-Poly1305, Argon2id, HKDF-SHA256, HMAC-SHA256 from RustCrypto). Never add new algorithms, hand-rolled crypto, or `rand`-based nonces.
-- **Format changes need a version bump.** Any change to `vault.json` or record files needs a `HEADER_VERSION`/`RECORD_VERSION` bump and a matching update to `docs/vault-format.md`.
+- **Format changes need a version bump.** Any change to `vault.json`, `head.json` or record files needs a `HEADER_VERSION`/`RECORD_VERSION`/`HEAD_VERSION` bump, an upgrade path from the previous version, and a matching update to `docs/vault-format.md`.
+- **Vaults go through `Store`.** `crates/core/src/vault.rs` never touches the filesystem directly; backends implement `Store` (`store.rs`). Writes use conditional puts and merge-and-retry.
 - **Keep AAD bindings.** Wrapped keys and records are bound to the vault id and their own id via AAD. Keep it that way.
 - **Decrypted values only reach the webview through `reveal_variable`.** Listing commands return names only. Copying happens in Rust (`copy_variable`), never via the JS clipboard API.
 - **Webview permissions stay minimal.** `src-tauri/capabilities/default.json` grants core, window dragging and the folder picker only. Don't grant clipboard, filesystem or shell access to the webview. Keep the strict CSP in `tauri.conf.json`.
@@ -54,7 +55,7 @@ CI (`.github/workflows/ci.yml`) runs clippy with `-D warnings` and the tests on 
 ### Rust
 
 - Match the existing style: small modules, doc comments that explain why, `thiserror` errors in core, `anyhow` in the CLI.
-- **Core tests:** live in `crates/core/tests/vault.rs` and use cheap Argon2 params (`FAST`). Add a test for every format, crypto or merge change, including the tamper cases.
+- **Core tests:** live in `crates/core/tests/` (`vault.rs`, `format_v2.rs`) and use cheap Argon2 params (`FAST`). Add a test for every format, crypto or merge change, including the tamper cases. `tests/fixtures/v1-vault` is a real v1 vault (password `fixture-password`) for upgrade tests; never regenerate it with current code.
 - **CLI tests:** run the real binary with `DOTSAFE_CONFIG_DIR`, `DOTSAFE_NO_KEYCHAIN=1` and `DOTSAFE_PASSWORD`, so they never touch the user's real config or keychain.
 - **Don't run `cargo remove` blindly.** It silently deletes the `[profile.dev.package.blake2]` override in the root `Cargo.toml`. That override keeps Argon2 fast in debug builds; without it, tests get about 10× slower. Re-add it if it disappears.
 

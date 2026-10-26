@@ -33,16 +33,18 @@ Defined in `crates/core`, synchronous like the rest of core. Network backends do
 
 ```rust
 pub trait Store: Send + Sync {
-    /// Objects under `prefix`, with their version tags.
-    fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>>;
-    fn get(&self, key: &str) -> Result<Option<Object>>;          // bytes + etag
+    fn location(&self) -> String;                                   // for messages
+    fn list(&self, dir: &str) -> Result<Vec<String>>;               // keys directly inside `dir`
+    fn get(&self, key: &str) -> Result<Option<Object>>;             // bytes + etag
     fn put(&self, key: &str, bytes: &[u8], cond: Cond) -> Result<Put>;
-    fn delete(&self, key: &str, cond: Cond) -> Result<()>;
+    fn delete(&self, key: &str) -> Result<()>;
 }
 
 pub enum Cond { Any, IfAbsent, IfMatch(ETag) }
 pub enum Put { Written(ETag), Conflict }   // Conflict: someone else wrote first
 ```
+
+Implemented in M1 (`crates/core/src/store.rs`). `list` returns keys only, so pulls that diff ETags will add a listing with versions when the cache lands.
 
 `Vault` takes a `Box<dyn Store>` instead of a root path. Its write path becomes a compare-and-swap loop:
 
@@ -126,15 +128,16 @@ v1 can't tell when storage serves an older, validly encrypted record. v2 adds `h
 { "format": "dotsafe-head", "version": 2, "sealed": { "nonce": "b64", "ct": "b64" } }
 ```
 
-- **Plaintext:** `{ records: { <uuid>: { stamp, ct_hash } } }`: for every record, the stamp of its latest version and the SHA-256 of its sealed bytes.
+- **Plaintext:** `{ records: { <uuid>: stamp } }`: for every record, the stamp of its newest change. (No ciphertext hash is needed: the only undetectable substitution is an older valid copy, which has an older stamp.)
 - Sealed with the records key, with AAD `"dotsafe/v2/head" ‖ vault_id`.
 - **Updated with every record write,** using the same CAS loop. Heads merge per entry by taking the higher stamp, so concurrent devices converge, and conflict copies on synced folders merge like records do.
 - **Checks:**
   - Each client keeps the last head it saw.
   - A head where any entry goes backwards is a rolled-back head.
-  - A record whose hash doesn't match its head entry, with an older stamp, is a rolled-back record.
+  - A record whose newest stamp is older than its head entry is a rolled-back record.
   - On a mismatch the client keeps its newer cached copy, re-pushes it, and warns the user.
 - **Limit:** a device that has never seen the vault before has nothing to compare against. It trusts the first head it reads, the same as any trust-on-first-use system.
+- **M1 status:** heads are written and checked, and stale records are reported by `Vault::stale_records()` within a session. Keeping the last-seen head across sessions, and telling a rollback apart from a sync client that delivered `head.json` before the record, need the local cache (M2).
 
 ## Clock skew: hybrid logical clocks
 
