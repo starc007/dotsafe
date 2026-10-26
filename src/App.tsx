@@ -1,51 +1,71 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { api, message, type Status } from "./lib/api";
+import { Setup } from "./screens/Setup";
+import { Recovery } from "./screens/Recovery";
+import { Unlock } from "./screens/Unlock";
+import { VaultScreen } from "./screens/Vault";
+import { Button, DragRegion } from "./components/ui";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type Screen =
+  | { name: "loading" }
+  | { name: "error"; message: string }
+  | { name: "setup"; status: Status }
+  | { name: "recovery"; recoveryKey: string }
+  | { name: "locked"; status: Status }
+  | { name: "vault" };
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+export default function App() {
+  const [screen, setScreen] = useState<Screen>({ name: "loading" });
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+  const refresh = useCallback(async () => {
+    try {
+      const status = await api.status();
+      if (!status.configured) setScreen({ name: "setup", status });
+      else if (!status.unlocked) setScreen({ name: "locked", status });
+      else setScreen({ name: "vault" });
+    } catch (e) {
+      setScreen({ name: "error", message: message(e) });
+    }
+  }, []);
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+  useEffect(() => {
+    refresh();
+    // Locked by idle timeout in Rust, or a command found the vault locked.
+    const onLocked = () => refresh();
+    window.addEventListener("dotsafe:locked", onLocked);
+    const unlisten = listen("vault-locked", onLocked);
+    return () => {
+      window.removeEventListener("dotsafe:locked", onLocked);
+      unlisten.then((f) => f());
+    };
+  }, [refresh]);
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+  switch (screen.name) {
+    case "loading":
+      return <DragRegion className="h-full" />;
+    case "error":
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+          <DragRegion className="fixed inset-x-0 top-0 h-12" />
+          <p className="text-sm font-medium">dotsafe couldn't start</p>
+          <p className="selectable max-w-sm text-muted-foreground">{screen.message}</p>
+          <Button onClick={refresh}>Try again</Button>
+        </div>
+      );
+    case "setup":
+      return (
+        <Setup
+          defaultPath={screen.status.defaultVaultPath ?? ""}
+          onCreated={(recoveryKey) => setScreen({ name: "recovery", recoveryKey })}
+          onConnected={() => setScreen({ name: "vault" })}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+      );
+    case "recovery":
+      return <Recovery recoveryKey={screen.recoveryKey} onDone={() => setScreen({ name: "vault" })} />;
+    case "locked":
+      return <Unlock vaultPath={screen.status.vaultPath} onUnlocked={() => setScreen({ name: "vault" })} />;
+    case "vault":
+      return <VaultScreen onLocked={refresh} />;
+  }
 }
-
-export default App;
