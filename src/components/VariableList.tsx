@@ -22,13 +22,13 @@ const REVEAL_MS = 30_000;
 const MASK = "••••••••••••";
 /** How long the copy button shows a check after copying. */
 const COPIED_MS = 1500;
-/** Rows grow in and collapse out instead of popping. */
-const rowMotion = {
-  initial: { opacity: 0, height: 0 },
-  animate: { opacity: 1, height: "auto" },
-  exit: { opacity: 0, height: 0 },
-  transition: base,
-} as const;
+/** Rows grow in and collapse out when a variable is added or deleted. While
+ * filtering (`instant`), rows appear and disappear immediately: animating many
+ * heights at once on every keystroke feels laggy. */
+const rowVariants = {
+  hidden: (instant: boolean) => ({ opacity: 0, height: 0, transition: instant ? { duration: 0 } : base }),
+  shown: { opacity: 1, height: "auto", transition: base },
+};
 
 type Dialog =
   | { type: "add" }
@@ -55,11 +55,14 @@ export function VariableList({
   const [filter, setFilter] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // True while the list changes because of the filter, so rows don't animate.
+  const [instant, setInstant] = useState(false);
   const timers = useRef(new Map<string, number>());
   const lastVarDialog = useRef<Extract<Dialog, { type: "add" | "edit" }> | null>(null);
   const lastImportDialog = useRef<Extract<Dialog, { type: "import" }> | null>(null);
 
   const load = useCallback(async () => {
+    setInstant(false);
     try {
       setKeys(await api.listVariables(envId));
       setError(null);
@@ -206,7 +209,17 @@ export function VariableList({
                     aria-label="Filter variables"
                     placeholder="Filter"
                     value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
+                    onChange={(e) => {
+                      setInstant(true);
+                      setFilter(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape" && filter) {
+                        e.stopPropagation();
+                        setInstant(true);
+                        setFilter("");
+                      }
+                    }}
                     className="bg-card pl-8"
                   />
                 </div>
@@ -240,12 +253,15 @@ export function VariableList({
             <EmptyState label={label} onImport={openImport} onAdd={openAdd} />
           ) : (
             <ul aria-label="Variables" className="divide-y">
-              <AnimatePresence initial={false}>
+              <AnimatePresence initial={false} custom={instant}>
                 {visible.map((key) => (
                   <motion.li
                     key={key}
-                    layout="position"
-                    {...rowMotion}
+                    custom={instant}
+                    variants={rowVariants}
+                    initial={instant ? false : "hidden"}
+                    animate="shown"
+                    exit="hidden"
                     className="group flex min-h-11 items-center gap-3 overflow-hidden px-4 py-1.5"
                   >
                     <span className="selectable w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] font-medium" title={key}>
