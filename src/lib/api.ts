@@ -11,6 +11,14 @@ export type Status = {
 export type EnvironmentView = { id: string; name: string; varCount: number };
 export type ProjectView = { id: string; name: string; environments: EnvironmentView[] };
 
+export type ImportSource = { kind: "text"; text: string } | { kind: "files" };
+export type ImportChange = "new" | "update" | "unchanged";
+export type ImportPreview = {
+  entries: { key: string; change: ImportChange; file: string | null }[];
+  errors: string[];
+};
+export type ImportResult = { added: number; updated: number; unchanged: number; skipped: number };
+
 export type ErrorKind = "locked" | "invalid_password" | "other";
 
 export class ApiError extends Error {
@@ -58,6 +66,14 @@ export const api = {
     call<void>("set_variable", { environmentId, key, value, previousKey: previousKey ?? null }),
   deleteVariable: (environmentId: string, key: string) =>
     call<void>("delete_variable", { environmentId, key }),
+
+  /** Opens the native file picker; Rust keeps the paths, we get file names. */
+  pickEnvFiles: () => call<string[]>("pick_env_files"),
+  clearImportFiles: () => call<void>("clear_import_files"),
+  previewImport: (environmentId: string, source: ImportSource) =>
+    call<ImportPreview>("preview_import", { environmentId, source }),
+  importVariables: (environmentId: string, source: ImportSource, overwrite: boolean) =>
+    call<ImportResult>("import_variables", { environmentId, source, overwrite }),
 };
 
 export function message(e: unknown): string {

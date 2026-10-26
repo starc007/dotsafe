@@ -8,6 +8,12 @@ type Env = { id: string; projectId: string; name: string; vars: Map<string, stri
 const PASSWORD = "password123";
 let configured = new URLSearchParams(location.search).get("setup") === null;
 let unlocked = false;
+// Stand-in for files picked or dropped: name -> contents.
+const SAMPLE_FILES: Record<string, string> = {
+  ".env": "DATABASE_URL=postgres://localhost:5432/app\nREDIS_URL=redis://localhost:6379\nSENTRY_DSN=https://abc@sentry.io/1\n",
+  ".env.local": "DATABASE_URL=postgres://localhost:5432/app_local\nFEATURE_FLAGS=beta\n",
+};
+let importFiles: string[] = [];
 const projects = new Map<string, string>();
 const envs = new Map<string, Env>();
 
@@ -37,6 +43,27 @@ const fail = (kind: string, message: string) => {
   throw { kind, message };
 };
 const env = (eid: string) => envs.get(eid) ?? fail("other", "That environment no longer exists.");
+function parseEnv(text: string): { vars: [string, string][]; errors: string[] } {
+  const vars: [string, string][] = [];
+  const errors: string[] = [];
+  text.split("\n").forEach((raw, i) => {
+    const line = raw.trim().replace(/^export\s+/, "");
+    if (!line || line.startsWith("#")) return;
+    const eq = line.indexOf("=");
+    const key = line.slice(0, eq).trim();
+    if (eq < 0 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) errors.push(`Line ${i + 1}: expected KEY=value`);
+    else vars.push([key, line.slice(eq + 1).trim().replace(/^["']|["']$/g, "")]);
+  });
+  // Like the Rust parser: one bad line rejects the whole input.
+  return { vars: errors.length ? [] : vars, errors: errors.slice(0, 1) };
+}
+function collect(source: { kind: string; text?: string }) {
+  if (source.kind === "text") return parseEnv(source.text ?? "");
+  const all = importFiles.map((f) => ({ f, ...parseEnv(SAMPLE_FILES[f] ?? "") }));
+  const merged = new Map<string, [string, string]>();
+  all.forEach(({ f, vars }) => vars.forEach(([k, v]) => merged.set(k, [v, f])));
+  return { vars: [...merged].map(([k, [v]]) => [k, v] as [string, string]), errors: [], files: merged };
+}
 const rank = (n: string) => ({ development: 0, staging: 1, production: 2 })[n] ?? 3;
 
 export function installMockBackend() {
@@ -111,6 +138,39 @@ export function installMockBackend() {
         case "delete_variable":
           env(a.environmentId).vars.delete(a.key);
           return null;
+        case "pick_env_files":
+          importFiles = Object.keys(SAMPLE_FILES);
+          return importFiles;
+        case "clear_import_files":
+          importFiles = [];
+          return null;
+        case "preview_import": {
+          const e = env(a.environmentId);
+          const c = collect(a.source as unknown as { kind: string; text?: string });
+          const files = (c as { files?: Map<string, [string, string]> }).files;
+          return {
+            entries: c.vars.map(([k, v]) => ({
+              key: k,
+              change: !e.vars.has(k) ? "new" : e.vars.get(k) === v ? "unchanged" : "update",
+              file: files?.get(k)?.[1] ?? null,
+            })),
+            errors: c.errors,
+          };
+        }
+        case "import_variables": {
+          const e = env(a.environmentId);
+          const c = collect(a.source as unknown as { kind: string; text?: string });
+          const r = { added: 0, updated: 0, unchanged: 0, skipped: 0 };
+          for (const [k, v] of c.vars) {
+            if (!e.vars.has(k)) r.added++;
+            else if (e.vars.get(k) === v) { r.unchanged++; continue; }
+            else if ((raw as { overwrite?: boolean }).overwrite) r.updated++;
+            else { r.skipped++; continue; }
+            e.vars.set(k, v);
+          }
+          importFiles = [];
+          return r;
+        }
         case "plugin:dialog|open":
           return null;
         default:
