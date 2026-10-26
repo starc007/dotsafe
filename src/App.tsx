@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { MotionConfig } from "motion/react";
 import { api, message, type Status } from "@/lib/api";
 import { Setup } from "@/screens/Setup";
 import { Recovery } from "@/screens/Recovery";
@@ -45,10 +46,12 @@ export default function App() {
   }, [refresh]);
 
   return (
-    <TooltipProvider delayDuration={500}>
-      <CurrentScreen screen={screen} setScreen={setScreen} refresh={refresh} />
-      <Toaster position="bottom-center" />
-    </TooltipProvider>
+    <MotionConfig reducedMotion="user">
+      <TooltipProvider delayDuration={500}>
+        <CurrentScreen screen={screen} setScreen={setScreen} refresh={refresh} />
+        <Toaster position="bottom-center" />
+      </TooltipProvider>
+    </MotionConfig>
   );
 }
 

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { FolderLock, Lock, Plus } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
+import { base, snappy } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,20 +68,36 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             />
           )}
           {projects === null && !error && <SidebarSkeleton />}
-          {projects?.map((p) => (
-            <button
-              key={p.id}
-              aria-current={p.id === selectedId ? "page" : undefined}
-              onClick={() => setSelectedId(p.id)}
-              className={cn(
-                "flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
-                "hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                "aria-[current=page]:bg-sidebar-accent aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
-              )}
-            >
-              <span className="truncate">{p.name}</span>
-            </button>
-          ))}
+          <AnimatePresence initial={false}>
+            {projects?.map((p) => (
+              <motion.button
+                key={p.id}
+                layout="position"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, transition: { duration: 0.12 } }}
+                transition={base}
+                aria-current={p.id === selectedId ? "page" : undefined}
+                onClick={() => setSelectedId(p.id)}
+                className={cn(
+                  "relative flex h-8 w-full items-center rounded-md px-2 text-left outline-none transition-colors",
+                  "hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                  "aria-[current=page]:font-medium aria-[current=page]:text-sidebar-accent-foreground",
+                )}
+              >
+                {/* One highlight that slides between projects as the selection moves. */}
+                {p.id === selectedId && (
+                  <motion.span
+                    layoutId="project-highlight"
+                    aria-hidden
+                    className="absolute inset-0 rounded-md bg-sidebar-accent"
+                    transition={snappy}
+                  />
+                )}
+                <span className="relative truncate">{p.name}</span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
         </nav>
         <div className="border-t border-sidebar-border p-2">
           <Button variant="ghost" className="w-full justify-start text-muted-foreground hover:bg-sidebar-accent" onClick={lock}>

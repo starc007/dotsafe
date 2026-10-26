@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { api, message, type EnvironmentView } from "@/lib/api";
+import { base, fast } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,10 +13,20 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
+import { IconSwap } from "@/components/IconSwap";
 
 /** Revealed values hide again after this long. */
 const REVEAL_MS = 30_000;
 const MASK = "••••••••••••";
+/** How long the copy button shows a check after copying. */
+const COPIED_MS = 1500;
+/** Rows grow in and collapse out instead of popping. */
+const rowMotion = {
+  initial: { opacity: 0, height: 0 },
+  animate: { opacity: 1, height: "auto" },
+  exit: { opacity: 0, height: 0 },
+  transition: base,
+} as const;
 /** Shared by the list rows and the edit row so the columns line up. */
 const NAME_COLUMN = "w-2/5 max-w-56 shrink-0";
 
@@ -36,6 +48,7 @@ export function VariableList({
   const [editing, setEditing] = useState<Editing>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const timers = useRef(new Map<string, number>());
 
   const load = useCallback(async () => {
@@ -73,6 +86,8 @@ export function VariableList({
   async function copy(key: string) {
     try {
       await api.copyVariable(envId, key);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), COPIED_MS);
       toast(`Copied ${key}`, { description: "The clipboard clears in 30 seconds." });
     } catch (e) {
       toast.error(message(e));
@@ -152,9 +167,13 @@ export function VariableList({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        {editing?.mode === "new" && (
-          <EditRow envId={envId} onSaved={(k) => saved(k)} onCancel={() => setEditing(null)} />
-        )}
+        <AnimatePresence initial={false}>
+          {editing?.mode === "new" && (
+            <motion.div key="new" {...rowMotion} className="overflow-hidden">
+              <EditRow envId={envId} onSaved={(k) => saved(k)} onCancel={() => setEditing(null)} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {keys === null ? (
           <RowsSkeleton />
@@ -173,49 +192,68 @@ export function VariableList({
           </div>
         ) : (
           <ul aria-label="Variables" className="divide-y rounded-lg border">
-            {visible.map((key) =>
-              editing?.mode === "edit" && editing.key === key ? (
-                <li key={key}>
-                  <EditRow
-                    envId={envId}
-                    initialKey={key}
-                    initialValue={editing.value}
-                    onSaved={(k) => saved(k, key)}
-                    onCancel={() => setEditing(null)}
-                    bare
-                  />
-                </li>
-              ) : (
-                <li key={key} className="group flex min-h-10 items-center gap-3 px-3 py-1.5">
-                  <span className={cn(NAME_COLUMN, "selectable truncate font-mono text-[12.5px] font-medium")} title={key}>
-                    {key}
-                  </span>
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate font-mono text-[12.5px]",
-                      key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
-                    )}
-                    title={key in revealed ? revealed[key] : undefined}
+            <AnimatePresence initial={false}>
+              {visible.map((key) =>
+                editing?.mode === "edit" && editing.key === key ? (
+                  <motion.li key={key} layout="position" {...rowMotion} className="overflow-hidden">
+                    <EditRow
+                      envId={envId}
+                      initialKey={key}
+                      initialValue={editing.value}
+                      onSaved={(k) => saved(k, key)}
+                      onCancel={() => setEditing(null)}
+                      bare
+                    />
+                  </motion.li>
+                ) : (
+                  <motion.li
+                    key={key}
+                    layout="position"
+                    {...rowMotion}
+                    className="group flex min-h-10 items-center gap-3 overflow-hidden px-3 py-1.5"
                   >
-                    {key in revealed ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em> : MASK}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                    <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
-                      {key in revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-                    </IconButton>
-                    <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
-                      <Copy aria-hidden />
-                    </IconButton>
-                    <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
-                      <Pencil aria-hidden />
-                    </IconButton>
-                    <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
-                      <Trash2 aria-hidden />
-                    </IconButton>
-                  </div>
-                </li>
-              ),
-            )}
+                    <span className={cn(NAME_COLUMN, "selectable truncate font-mono text-[12.5px] font-medium")} title={key}>
+                      {key}
+                    </span>
+                    {/* Revealing "decrypts": the value sharpens in from a blur. */}
+                    <span className="min-w-0 flex-1">
+                      <AnimatePresence initial={false} mode="wait">
+                        <motion.span
+                          key={key in revealed ? "value" : "mask"}
+                          initial={{ opacity: 0, filter: "blur(3px)" }}
+                          animate={{ opacity: 1, filter: "blur(0px)" }}
+                          exit={{ opacity: 0, filter: "blur(3px)" }}
+                          transition={fast}
+                          className={cn(
+                            "block truncate font-mono text-[12.5px]",
+                            key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
+                          )}
+                          title={key in revealed ? revealed[key] : undefined}
+                        >
+                          {key in revealed
+                            ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
+                            : MASK}
+                        </motion.span>
+                      </AnimatePresence>
+                    </span>
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                      <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
+                        <IconSwap active={key in revealed} on={<EyeOff aria-hidden />} off={<Eye aria-hidden />} />
+                      </IconButton>
+                      <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
+                        <IconSwap active={copiedKey === key} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
+                      </IconButton>
+                      <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
+                        <Pencil aria-hidden />
+                      </IconButton>
+                      <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
+                        <Trash2 aria-hidden />
+                      </IconButton>
+                    </div>
+                  </motion.li>
+                ),
+              )}
+            </AnimatePresence>
             {visible.length === 0 && keys.length > 0 && (
               <li className="px-3 py-6 text-center text-muted-foreground">No variables match “{filter}”.</li>
             )}

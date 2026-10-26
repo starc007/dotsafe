@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Centered, Panel } from "@/components/Centered";
+import { IconSwap } from "@/components/IconSwap";
 
 export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone: () => void }) {
   const [saved, setSaved] = useState(false);
@@ -30,7 +31,7 @@ export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone:
           ))}
         </div>
         <Button type="button" variant="outline" onClick={copy} className="self-start">
-          {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+          <IconSwap active={copied} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
           {copied ? "Copied" : "Copy key"}
         </Button>
         <p className="text-xs text-muted-foreground">
