@@ -13,7 +13,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 
 /// Lock the vault after this long without any command from the UI.
-const IDLE_LOCK: Duration = Duration::from_secs(15 * 60);
+pub const IDLE_LOCK: Duration = Duration::from_secs(15 * 60);
 /// Clear a copied secret from the clipboard after this long.
 pub const CLIPBOARD_CLEAR: Duration = Duration::from_secs(30);
 

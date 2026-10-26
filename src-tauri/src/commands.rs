@@ -15,7 +15,7 @@ use zeroize::Zeroizing;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
-use crate::state::{AppState, CmdError, CmdResult, hash_text};
+use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, IDLE_LOCK, hash_text};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const DEFAULT_ENV: &str = "development";
@@ -82,7 +82,7 @@ pub async fn create_vault(state: State<'_, AppState>, path: String, password: St
         .run(move |s| {
             let mut vault = Vault::create(&path, &password, KdfParams::default())?;
             let recovery = vault.reset_recovery_key()?.to_display_string();
-            let config = Config { vault_path: path, device_id: Config::device_id() };
+            let config = Config::for_vault(path);
             config.save()?;
             s.config = Some(config);
             s.vault = Some(vault);
@@ -99,7 +99,7 @@ pub async fn connect_vault(state: State<'_, AppState>, path: String, password: S
     state
         .run(move |s| {
             let vault = Vault::unlock(&path, &password)?;
-            let config = Config { vault_path: path, device_id: Config::device_id() };
+            let config = Config::for_vault(path);
             config.save()?;
             s.config = Some(config);
             s.vault = Some(vault);
@@ -442,6 +442,72 @@ pub async fn import_variables(
         .await
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    vault_path: Option<String>,
+    license_key: Option<String>,
+    version: &'static str,
+    auto_lock_minutes: u64,
+    clipboard_clear_seconds: u64,
+}
+
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
+    state
+        .run(|s| {
+            Ok(Settings {
+                vault_path: s.config.as_ref().map(|c| c.vault_path.display().to_string()),
+                license_key: s.config.as_ref().and_then(|c| c.license_key.clone()),
+                version: env!("CARGO_PKG_VERSION"),
+                auto_lock_minutes: IDLE_LOCK.as_secs() / 60,
+                clipboard_clear_seconds: CLIPBOARD_CLEAR.as_secs(),
+            })
+        })
+        .await
+}
+
+/// Saves a license key on this machine. Keys are only checked for shape here;
+/// verifying them with the store happens once licensing is wired up.
+#[tauri::command]
+pub async fn activate_license(state: State<'_, AppState>, key: String) -> CmdResult<String> {
+    let key = normalize_license(&key).map_err(CmdError::other)?;
+    state
+        .run(move |s| {
+            let mut config = s.config()?.clone();
+            config.license_key = Some(key.clone());
+            config.save()?;
+            s.config = Some(config);
+            Ok(key)
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn remove_license(state: State<'_, AppState>) -> CmdResult<()> {
+    state
+        .run(|s| {
+            let mut config = s.config()?.clone();
+            config.license_key = None;
+            config.save()?;
+            s.config = Some(config);
+            Ok(())
+        })
+        .await
+}
+
+/// Trims a pasted key and rejects anything that can't be a license key.
+fn normalize_license(input: &str) -> Result<String, &'static str> {
+    let key = input.trim();
+    if key.is_empty() {
+        return Err("Enter your license key.");
+    }
+    if key.chars().any(char::is_whitespace) || key.len() < 8 || key.len() > 128 {
+        return Err("That doesn't look like a license key. Copy it again from your purchase email.");
+    }
+    Ok(key.to_string())
+}
+
 fn absolute(path: String) -> CmdResult<PathBuf> {
     let path = PathBuf::from(path.trim());
     if !path.is_absolute() {
@@ -465,5 +531,19 @@ fn env_rank(name: &str) -> u8 {
         "staging" | "preview" | "test" => 1,
         "production" | "prod" => 2,
         _ => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn license_keys_are_trimmed_and_shape_checked() {
+        assert_eq!(normalize_license("  DOTSAFE-ABCD-1234-EFGH \n"), Ok("DOTSAFE-ABCD-1234-EFGH".into()));
+        assert!(normalize_license("").is_err());
+        assert!(normalize_license("short").is_err());
+        assert!(normalize_license("has a space in it").is_err());
+        assert!(normalize_license(&"x".repeat(129)).is_err());
     }
 }

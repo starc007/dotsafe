@@ -54,6 +54,9 @@ pub fn run() {
             commands::clear_import_files,
             commands::preview_import,
             commands::import_variables,
+            commands::get_settings,
+            commands::activate_license,
+            commands::remove_license,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
