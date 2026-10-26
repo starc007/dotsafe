@@ -1,6 +1,6 @@
 # dotsafe architecture
 
-**Status:** proposed, October 2026. M1 (format v2 and the `Store` interface) M2 (S3/R2 with an offline cache) and M3 (shared secrets and rotation) are implemented; see the notes below. Describes where dotsafe is going. [`../vault-format.md`](../vault-format.md) describes what ships today (format v1).
+**Status:** proposed, October 2026. M1 (format v2 and the `Store` interface) M2 (S3/R2 with an offline cache), M3 (shared secrets and rotation) and the first part of M6 (agent access through MCP with approvals) are implemented; see the notes below. Describes where dotsafe is going. [`../vault-format.md`](../vault-format.md) describes what ships today (format v1).
 
 ## The promise
 
