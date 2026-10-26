@@ -91,7 +91,7 @@ export function SettingsPage({ onClose, onLock }: { onClose: () => void; onLock:
                 </SurfaceHeader>
                 <SurfaceBody>
                   <SettingsRow label="Theme" detail="Applies right away and is remembered on this Mac.">
-                    <Tabs variant="segment" value={preference} onValueChange={(v) => setPreference(v as ThemePreference)}>
+                    <Tabs variant="pill" value={preference} onValueChange={(v) => setPreference(v as ThemePreference)}>
                       <TabsList aria-label="Theme" className="bg-muted p-0.5">
                         <TabsTrigger value="system" icon={<Laptop className="size-3.5" />} className="px-2.5 py-1 text-[13px]">
                           System
