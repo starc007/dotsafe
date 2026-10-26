@@ -283,7 +283,10 @@ export function VariableList({
                         </span>
                       </ActionSwapText>
                     </span>
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    {/* Kept on its own compositing layer (will-change): WebKit otherwise
+                        fails to repaint plain icons when the fade ends next to the
+                        animated swap icons, leaving stale buttons visible. */}
+                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity will-change-[opacity] group-focus-within:opacity-100 group-hover:opacity-100">
                       <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
                         <ActionSwapIcon value={key in revealed ? "hide" : "reveal"} animation="blur" className="size-4">
                           {key in revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
