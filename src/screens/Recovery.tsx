@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Centered } from "@/components/Centered";
 import { SurfaceFooter } from "@/components/Surface";
-import { IconSwap } from "@/components/IconSwap";
+import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
 
 export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone: () => void }) {
   const [saved, setSaved] = useState(false);
@@ -33,8 +33,12 @@ export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone:
           ))}
         </div>
         <Button type="button" variant="outline" onClick={copy} className="self-start">
-          <IconSwap active={copied} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
-          {copied ? "Copied" : "Copy key"}
+          <ActionSwapIcon value={copied ? "copied" : "copy"} animation="blur" className="size-4">
+            {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+          </ActionSwapIcon>
+          <ActionSwapText value={copied ? "copied" : "copy"} animation="blur">
+            {copied ? "Copied" : "Copy key"}
+          </ActionSwapText>
         </Button>
         <p className="text-xs text-muted-foreground">
           It won't be shown again. Store it offline, such as printed or in a password manager on another device, not
