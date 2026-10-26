@@ -117,8 +117,8 @@ export function AgentSettings() {
 
       <Surface aria-labelledby="agents-recent-title">
         <SurfaceHeader icon={<History aria-hidden />}>
-          <SurfaceTitle id="agents-recent-title">Recent requests</SurfaceTitle>
-          <SurfaceDescription>Since dotsafe opened. Not saved anywhere.</SurfaceDescription>
+          <SurfaceTitle id="agents-recent-title">Activity</SurfaceTitle>
+          <SurfaceDescription>From every device, kept encrypted in your vault for 90 days.</SurfaceDescription>
         </SurfaceHeader>
         <SurfaceBody className={cn(activity?.recent.length ? "p-0" : undefined)}>
           {activity === null ? (
@@ -130,9 +130,11 @@ export function AgentSettings() {
               {activity.recent.map((e, i) => (
                 <li key={i} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono text-[12.5px]">{e.command}</span>
+                    <span className="block truncate font-mono text-[12.5px]">
+                      {e.action === "generate" ? `Added ${e.summary}` : e.summary}
+                    </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {e.client}
+                      {e.actor}
                       {e.environment && ` · ${e.environment}`} · {daysAgo(e.at)}
                       {e.detail && ` · ${e.detail}`}
                     </span>
@@ -140,8 +142,9 @@ export function AgentSettings() {
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
-                      e.outcome === "ran" && "bg-primary/10 text-primary",
-                      e.outcome !== "ran" && "bg-muted text-muted-foreground",
+                      e.outcome === "allowed" && "bg-primary/10 text-primary",
+                      e.outcome === "refused" && "bg-destructive/10 text-destructive",
+                      (e.outcome === "denied" || e.outcome === "failed") && "bg-muted text-muted-foreground",
                     )}
                   >
                     {e.outcome}

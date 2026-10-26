@@ -79,21 +79,38 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
 // Agents. `?agent` sends an approval request a moment after unlocking.
 type MockGrant = { command: string; cwd: string; variables: number; expiresIn: number | null };
 const agentGrants: MockGrant[] = [];
-const agentLog: { at: number; client: string; command: string; environment: string; outcome: string; detail: string | null }[] = [];
+const agentLog: { at: number; actor: string; action: string; outcome: string; summary: string; environment: string; variables: string[]; detail: string | null }[] = [];
 const pendingAgent = new Map<string, { command: string[]; cwd: string; variables: number }>();
 function fakeAgentRequest() {
   const req = {
     id: id(),
+    kind: "run",
     client: "Claude Code",
     command: ["bun", "test"],
     programPath: "/opt/homebrew/bin/bun",
     cwd: "/Users/you/code/my-api",
     project: "my-api",
     environment: "development",
-    variables: ["DATABASE_URL", "JWT_SECRET", "REDIS_URL", "STRIPE_SECRET_KEY"],
+    variables: ["DATABASE_URL", "JWT_SECRET", "OPENAI_API_KEY", "STRIPE_SECRET_KEY"],
+    proxied: ["OPENAI_API_KEY"],
+    generated: null,
   };
   pendingAgent.set(req.id, { command: req.command, cwd: req.cwd, variables: req.variables.length });
   emit("agent-request", req);
+  // Then one asking to add a generated secret.
+  const gen = {
+    ...req,
+    id: id(),
+    kind: "generate",
+    command: [],
+    programPath: "",
+    cwd: "",
+    variables: ["SESSION_SECRET"],
+    proxied: [],
+    generated: "48 random characters",
+  };
+  pendingAgent.set(gen.id, { command: ["SESSION_SECRET"], cwd: "", variables: 1 });
+  setTimeout(() => emit("agent-request", gen), 300);
 }
 
 const linkOf = (v: string | undefined) => (v?.startsWith(LINK) ? v.slice(LINK.length) : null);
@@ -210,7 +227,17 @@ export function installMockBackend() {
           const command = req.command.join(" ");
           if (lifetime && lifetime !== "once")
             agentGrants.push({ command, cwd: req.cwd, variables: req.variables, expiresIn: lifetime === "lock" ? null : lifetime === "1h" ? 3600 : 900 });
-          agentLog.unshift({ at: Date.now(), client: "Claude Code", command, environment: "my-api/development", outcome: lifetime ? "ran" : "denied", detail: lifetime ? "exit 0" : null });
+          const generate = req.cwd === "";
+          agentLog.unshift({
+            at: Date.now(),
+            actor: "Claude Code",
+            action: generate ? "generate" : "run",
+            outcome: lifetime ? "allowed" : "denied",
+            summary: command,
+            environment: "my-api/development",
+            variables: [],
+            detail: lifetime ? (generate ? "48 random characters" : "exit 0") : null,
+          });
           emit("agent-activity", null);
           return null;
         }

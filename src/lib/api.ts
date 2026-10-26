@@ -74,25 +74,36 @@ export type BucketInput = {
 
 export type SyncView = { lastSyncedAt: number | null; error: string | null };
 
-/** An agent asking to run a command with secrets (from the broker). */
+/** An agent asking to run a command with secrets, or to add a generated
+ * secret (from the broker). */
 export type ApprovalRequest = {
   id: string;
+  kind: "run" | "generate";
   client: string;
+  project: string;
+  environment: string;
+  /** Run: program and arguments. */
   command: string[];
   programPath: string;
   cwd: string;
-  project: string;
-  environment: string;
+  /** Run: variables it gets. Generate: the one to create. */
   variables: string[];
+  /** Run: keys that go through the secret proxy instead. */
+  proxied: string[];
+  /** Generate: what kind of value. */
+  generated: string | null;
 };
 export type GrantLifetime = "once" | "15m" | "1h" | "lock";
+/** An entry in the vault's audit log. */
 export type AgentEvent = {
   at: number;
-  client: string;
-  command: string;
+  actor: string;
+  action: "run" | "generate";
+  outcome: "allowed" | "denied" | "refused" | "failed";
+  summary: string;
   environment: string;
-  outcome: "ran" | "denied" | "refused" | "failed";
-  detail: string | null;
+  variables: string[];
+  detail?: string | null;
 };
 export type AgentActivity = {
   grants: { command: string; cwd: string; variables: number; expiresIn: number | null }[];

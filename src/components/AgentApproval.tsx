@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { Bot } from "lucide-react";
+import { ArrowLeftRight, Bot, Sparkles } from "lucide-react";
 import { api, message, type ApprovalRequest, type GrantLifetime } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
@@ -56,12 +56,41 @@ export function AgentApproval() {
     <SurfaceDialog
       open={current !== null}
       onOpenChange={(open) => !open && answer(false)}
-      icon={<Bot aria-hidden />}
-      title={request ? `Allow ${request.client} to run this?` : "Allow this command?"}
-      description={request ? `With ${request.variables.length} variables from ${request.project}/${request.environment}` : undefined}
+      icon={request?.kind === "generate" ? <Sparkles aria-hidden /> : <Bot aria-hidden />}
+      title={
+        !request
+          ? "Allow this?"
+          : request.kind === "generate"
+            ? `Let ${request.client} add ${request.variables[0]}?`
+            : `Allow ${request.client} to run this?`
+      }
+      description={
+        !request
+          ? undefined
+          : request.kind === "generate"
+            ? `To ${request.project}/${request.environment}`
+            : `With ${request.variables.length} variables from ${request.project}/${request.environment}`
+      }
       className="sm:max-w-lg"
     >
-      {request && (
+      {request?.kind === "generate" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-muted-foreground">
+            dotsafe will create <span className="font-mono text-foreground">{request.variables[0]}</span> with{" "}
+            {request.generated}. The value is made here and never shown to {request.client}; commands you allow later
+            can use it.
+          </p>
+          <SurfaceFooter className="pt-1">
+            <Button variant="ghost" onClick={() => answer(false)} disabled={busy}>
+              Deny
+            </Button>
+            <Button onClick={() => answer(true)} disabled={busy}>
+              Add it
+            </Button>
+          </SurfaceFooter>
+        </div>
+      )}
+      {request?.kind === "run" && (
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <pre className="selectable overflow-x-auto rounded-2xl bg-muted/60 px-3.5 py-2.5 font-mono text-[12.5px] whitespace-pre-wrap">
@@ -82,16 +111,29 @@ export function AgentApproval() {
           <div className="flex flex-col gap-1.5">
             <p className="text-xs font-medium text-muted-foreground">It will get these variables</p>
             <ul className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-              {request.variables.map((v) => (
-                <li key={v} className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11.5px]">
-                  {v}
-                </li>
-              ))}
+              {request.variables.map((v) =>
+                request.proxied.includes(v) ? (
+                  <li
+                    key={v}
+                    title="Goes through dotsafe's proxy: the process gets a placeholder, never the key."
+                    className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11.5px] text-primary"
+                  >
+                    <ArrowLeftRight aria-hidden className="size-3" />
+                    {v}
+                  </li>
+                ) : (
+                  <li key={v} className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11.5px]">
+                    {v}
+                  </li>
+                ),
+              )}
               {request.variables.length === 0 && <li className="text-muted-foreground">None</li>}
             </ul>
             <p className="text-xs text-muted-foreground">
-              The agent never sees the values, and they're scrubbed from what it reads back. The command itself can use
-              them however it's written, so only allow commands you'd run yourself.
+              The agent never sees the values, and they're scrubbed from what it reads back.
+              {request.proxied.length > 0 &&
+                ` ${request.proxied.join(" and ")} ${request.proxied.length === 1 ? "goes" : "go"} through dotsafe's proxy, so the command never holds ${request.proxied.length === 1 ? "that key" : "those keys"}.`}{" "}
+              The command can use the rest however it's written, so only allow commands you'd run yourself.
             </p>
           </div>
 

@@ -12,21 +12,24 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dotsafe_agent::grants::{Lifetime, Scope};
 use dotsafe_agent::policy;
 use dotsafe_agent::protocol::{
-    ErrorCode, ProjectInfo, Request, Response, RunRequest, Target, VariableInfo, VariablesInfo,
+    ErrorCode, GenerateRequest, Generated, ProjectInfo, Request, Response, RunRequest, Target, VariableInfo,
+    VariablesInfo,
 };
+use dotsafe_agent::proxy::{self, ProxyServer};
 use dotsafe_agent::run::{self, DEFAULT_TIMEOUT, MAX_TIMEOUT, RunPlan};
-use dotsafe_core::{Entry, Environment, Project, Record};
+use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
+use dotsafe_core::{Charset, Entry, Environment, Generator, Project, Record, is_valid_var_name};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 use uuid::Uuid;
 
-use crate::state::{AgentEvent, AppState, Session};
+use crate::state::{AppState, Session};
 
 /// How long an approval prompt waits before counting as a no.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -40,26 +43,39 @@ pub struct Approvals(pub Arc<Mutex<HashMap<Uuid, Sender<Option<Lifetime>>>>>);
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalRequest {
     id: Uuid,
+    /// `run` or `generate`.
+    kind: &'static str,
     client: String,
-    /// The command as typed: program and arguments.
-    command: Vec<String>,
-    /// Where the program was found, so a lookalike on another path is visible.
-    program_path: String,
-    cwd: String,
     project: String,
     environment: String,
+    /// Run: the command as typed, program and arguments.
+    command: Vec<String>,
+    /// Run: where the program was found, so a lookalike on another path is visible.
+    program_path: String,
+    cwd: String,
+    /// Run: the variables it gets. Generate: the one to create.
     variables: Vec<String>,
+    /// Run: variables that go through the secret proxy instead.
+    proxied: Vec<String>,
+    /// Generate: what kind of value, for example "48 random characters".
+    generated: Option<String>,
 }
 
 pub struct Broker {
     state: AppState,
     approvals: Approvals,
     app: AppHandle,
+    /// Started on first use and kept for the app's lifetime.
+    proxy: OnceLock<Option<ProxyServer>>,
 }
 
 impl Broker {
     pub fn new(state: AppState, approvals: Approvals, app: AppHandle) -> Broker {
-        Broker { state, approvals, app }
+        Broker { state, approvals, app, proxy: OnceLock::new() }
+    }
+
+    fn proxy(&self) -> Option<&ProxyServer> {
+        self.proxy.get_or_init(|| ProxyServer::start().ok()).as_ref()
     }
 
     fn session(&self) -> std::sync::MutexGuard<'_, Session> {
@@ -115,7 +131,7 @@ impl Broker {
     fn run(&self, request: RunRequest) -> Response {
         let label = request.command.join(" ");
         if let Some(reason) = policy::refusal(&request.command) {
-            self.log(&request.client, &label, "", "refused", Some(reason.clone()));
+            self.audit(&request.client, AuditAction::Run, AuditOutcome::Refused, &label, "", &[], Some(reason.clone()));
             return Response::error(ErrorCode::Refused, reason);
         }
         let cwd = match request.cwd.canonicalize() {
@@ -164,11 +180,37 @@ impl Broker {
         };
         let env_label = format!("{project}/{environment}");
 
+        let proxied_names: Vec<String> = if request.proxy && self.proxy().is_some() {
+            proxy::proxied_names(scope.variables.iter().map(String::as_str))
+        } else {
+            Vec::new()
+        };
         if !approved {
-            match self.ask(&request, &scope, &project, &environment) {
+            let prompt = ApprovalRequest {
+                id: Uuid::new_v4(),
+                kind: "run",
+                client: request.client.clone(),
+                project: project.clone(),
+                environment: environment.clone(),
+                command: request.command.clone(),
+                program_path: scope.program.display().to_string(),
+                cwd: scope.cwd.display().to_string(),
+                variables: scope.variables.clone(),
+                proxied: proxied_names.clone(),
+                generated: None,
+            };
+            match self.ask(prompt) {
                 Some(lifetime) => self.session().agent_grants.add(scope.clone(), lifetime, Instant::now()),
                 None => {
-                    self.log(&request.client, &label, &env_label, "denied", None);
+                    self.audit(
+                        &request.client,
+                        AuditAction::Run,
+                        AuditOutcome::Denied,
+                        &label,
+                        &env_label,
+                        &scope.variables,
+                        None,
+                    );
                     return Response::error(ErrorCode::Denied, "The user didn't allow this command.");
                 }
             }
@@ -200,39 +242,132 @@ impl Broker {
             .map(Duration::from_secs)
             .unwrap_or(DEFAULT_TIMEOUT)
             .clamp(Duration::from_secs(1), MAX_TIMEOUT);
-        let plan = RunPlan { program, args: scope.args.clone(), cwd, path: request.path.clone(), secrets, timeout };
-        match run::run(plan) {
+        // Known API keys go through the proxy: the process gets a placeholder
+        // and a local URL. The routes live until the run ends.
+        let proxied = match (request.proxy, self.proxy()) {
+            (true, Some(server)) => Some(proxy::apply(server, secrets.clone())),
+            _ => None,
+        };
+        let (env, proxied_names) = match &proxied {
+            Some(p) => (p.env.clone(), p.names.clone()),
+            None => (secrets.clone(), Vec::new()),
+        };
+        let plan = RunPlan {
+            program,
+            args: scope.args.clone(),
+            cwd,
+            path: request.path.clone(),
+            env,
+            redact: secrets,
+            proxied: proxied_names,
+            timeout,
+        };
+        let result = run::run(plan);
+        drop(proxied);
+        let (vars, client) = (&scope.variables, &request.client);
+        match result {
             Ok(output) => {
                 let outcome = match (output.timed_out, output.exit_code) {
                     (true, _) => "timed out".to_string(),
                     (false, Some(code)) => format!("exit {code}"),
                     (false, None) => "ended by a signal".to_string(),
                 };
-                self.log(&request.client, &label, &env_label, "ran", Some(outcome));
+                self.audit(client, AuditAction::Run, AuditOutcome::Allowed, &label, &env_label, vars, Some(outcome));
                 Response::Ran(output)
             }
             Err(e) => {
-                self.log(&request.client, &label, &env_label, "failed", Some(e.to_string()));
+                let detail = Some(e.to_string());
+                self.audit(client, AuditAction::Run, AuditOutcome::Failed, &label, &env_label, vars, detail);
                 Response::error(ErrorCode::Internal, format!("Couldn't start {}: {e}", request.command[0]))
             }
         }
     }
 
+    fn generate(&self, request: GenerateRequest) -> Response {
+        let name = request.name.trim().to_string();
+        if !is_valid_var_name(&name) {
+            return Response::error(
+                ErrorCode::Invalid,
+                "Use letters, numbers and underscores, not starting with a number.",
+            );
+        }
+        let (generator, description) = match generator(request.kind.as_deref(), request.length) {
+            Ok(found) => found,
+            Err(message) => return Response::error(ErrorCode::Invalid, message),
+        };
+        let (project, environment, env_id) = {
+            let session = self.session();
+            let Ok(vault) = session.vault() else { return locked() };
+            let records = match vault.list() {
+                Ok(records) => records,
+                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+            };
+            let (project, env) = match resolve(&records, &request.target) {
+                Ok(found) => found,
+                Err(response) => return response,
+            };
+            if env.entry(&name).is_some() {
+                return Response::error(
+                    ErrorCode::Invalid,
+                    format!("{}/{} already has {name}.", project.name, env.name),
+                );
+            }
+            (project.name, env.name, env.id)
+        };
+        let env_label = format!("{project}/{environment}");
+        let client = request.client.clone();
+        let prompt = ApprovalRequest {
+            id: Uuid::new_v4(),
+            kind: "generate",
+            client: client.clone(),
+            project: project.clone(),
+            environment: environment.clone(),
+            command: Vec::new(),
+            program_path: String::new(),
+            cwd: String::new(),
+            variables: vec![name.clone()],
+            proxied: Vec::new(),
+            generated: Some(description.clone()),
+        };
+        if self.ask(prompt).is_none() {
+            self.audit(&client, AuditAction::Generate, AuditOutcome::Denied, &name, &env_label, &[], None);
+            return Response::error(ErrorCode::Denied, "The user didn't allow it.");
+        }
+
+        let saved = (|| -> Result<(), String> {
+            let value = generator.generate().map_err(|e| e.to_string())?;
+            let session = self.session();
+            let vault = session.vault().map_err(|_| "dotsafe locked before it could save.".to_string())?;
+            let stamp = session.stamp().map_err(|e| e.message)?;
+            let mut env = session.environment(env_id).map_err(|e| e.message)?;
+            if env.entry(&name).is_some() {
+                return Err(format!("{env_label} already has {name}."));
+            }
+            env.set(&name, value.as_str(), stamp);
+            vault.put(Record::Environment(env)).map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        match saved {
+            Ok(()) => {
+                let created = std::slice::from_ref(&name);
+                let detail = Some(description.clone());
+                self.audit(&client, AuditAction::Generate, AuditOutcome::Allowed, &name, &env_label, created, detail);
+                let _ = self.app.emit("vault-synced", ());
+                Response::Generated(Generated { project, environment, name, description })
+            }
+            Err(message) => {
+                let detail = Some(message.clone());
+                self.audit(&client, AuditAction::Generate, AuditOutcome::Failed, &name, &env_label, &[], detail);
+                Response::error(ErrorCode::Internal, message)
+            }
+        }
+    }
+
     /// Shows the approval dialog and waits for the answer.
-    fn ask(&self, request: &RunRequest, scope: &Scope, project: &str, environment: &str) -> Option<Lifetime> {
-        let id = Uuid::new_v4();
+    fn ask(&self, prompt: ApprovalRequest) -> Option<Lifetime> {
+        let id = prompt.id;
         let (tx, rx) = mpsc::channel();
         self.approvals.0.lock().ok()?.insert(id, tx);
-        let prompt = ApprovalRequest {
-            id,
-            client: request.client.clone(),
-            command: request.command.clone(),
-            program_path: scope.program.display().to_string(),
-            cwd: scope.cwd.display().to_string(),
-            project: project.to_string(),
-            environment: environment.to_string(),
-            variables: scope.variables.clone(),
-        };
         if let Some(window) = self.app.get_webview_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
@@ -248,16 +383,35 @@ impl Broker {
         answer
     }
 
-    fn log(&self, client: &str, command: &str, environment: &str, outcome: &str, detail: Option<String>) {
+    /// Records an event in the vault's audit log (encrypted, synced). A
+    /// locked vault means nothing to record it in; that's not an error.
+    #[allow(clippy::too_many_arguments)]
+    fn audit(
+        &self,
+        client: &str,
+        action: AuditAction,
+        outcome: AuditOutcome,
+        summary: &str,
+        environment: &str,
+        variables: &[String],
+        detail: Option<String>,
+    ) {
         let at = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        self.session().log_agent(AgentEvent {
+        let event = AuditEvent {
             at,
-            client: client.to_string(),
-            command: command.to_string(),
+            actor: client.to_string(),
+            action,
+            outcome,
+            summary: summary.to_string(),
             environment: environment.to_string(),
-            outcome: outcome.to_string(),
+            variables: variables.to_vec(),
             detail,
-        });
+        };
+        let session = self.session();
+        if let (Ok(vault), Some(config)) = (session.vault(), session.config.as_ref()) {
+            let _ = audit::record(vault, config.device_id, event);
+        }
+        drop(session);
         let _ = self.app.emit("agent-activity", ());
     }
 }
@@ -269,6 +423,7 @@ impl dotsafe_agent::ipc::Handler for Broker {
             Request::ListProjects => self.list_projects(),
             Request::ListVariables(target) => self.list_variables(&target),
             Request::Run(run) => self.run(run),
+            Request::Generate(generate) => self.generate(generate),
         }
     }
 }
@@ -289,6 +444,26 @@ pub fn spawn(state: AppState, approvals: Approvals, app: AppHandle) {
     }
     #[cfg(not(unix))]
     let _ = (state, approvals, app);
+}
+
+/// The generator for an agent's `kind` and `length`, and how to describe it.
+fn generator(kind: Option<&str>, length: Option<u32>) -> Result<(Generator, String), String> {
+    match kind.unwrap_or("random") {
+        "random" => {
+            let length = length.unwrap_or(48);
+            Ok((Generator::Random { length, charset: Charset::Alphanumeric }, format!("{length} random characters")))
+        }
+        "hex" => {
+            let bytes = length.unwrap_or(32);
+            Ok((Generator::Hex { bytes }, format!("{bytes} random bytes, hex")))
+        }
+        "base64" => {
+            let bytes = length.unwrap_or(32);
+            Ok((Generator::Base64 { bytes }, format!("{bytes} random bytes, base64")))
+        }
+        "uuid" => Ok((Generator::Uuid, "a random UUID".into())),
+        other => Err(format!("Unknown kind {other}; use random, hex, base64 or uuid.")),
+    }
 }
 
 fn locked() -> Response {
@@ -402,7 +577,8 @@ pub async fn answer_agent_request(
 #[serde(rename_all = "camelCase")]
 pub struct AgentActivity {
     grants: Vec<GrantView>,
-    recent: Vec<AgentEvent>,
+    /// From the vault's audit log, every device, newest first.
+    recent: Vec<AuditEvent>,
 }
 
 #[derive(Serialize)]
@@ -434,7 +610,8 @@ pub async fn agent_activity(state: tauri::State<'_, AppState>) -> crate::state::
                     expires_in: expires.map(|e| e.saturating_duration_since(now).as_secs()),
                 })
                 .collect();
-            Ok(AgentActivity { grants, recent: s.agent_log.iter().rev().cloned().collect() })
+            let recent = audit::recent(s.vault()?, 50)?;
+            Ok(AgentActivity { grants, recent })
         })
         .await
 }
