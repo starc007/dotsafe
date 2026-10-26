@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
+import { Lock } from "lucide-react";
 import { api, message } from "@/lib/api";
 import { fast } from "@/lib/motion";
 import { displayPath } from "@/lib/paths";
@@ -36,7 +37,7 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
   }
 
   return (
-    <Centered title="dotsafe is locked" subtitle="Enter your master password to unlock.">
+    <Centered icon={<Lock aria-hidden />} title="dotsafe is locked" subtitle="Enter your master password to unlock.">
       <form onSubmit={submit} className="flex flex-col gap-3">
         <div ref={scope}>
           <Label htmlFor="password" className="sr-only">
@@ -49,7 +50,7 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
             autoComplete="current-password"
             autoFocus
             placeholder="Master password"
-            className="h-9"
+            className="h-10"
             value={password}
             aria-invalid={!!error}
             aria-describedby={error ? "unlock-error" : undefined}
@@ -61,7 +62,7 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
             <motion.p
               id="unlock-error"
               role="alert"
-              className="text-center text-xs text-destructive"
+              className="text-xs text-destructive"
               initial={{ opacity: 0, y: -2 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
@@ -71,15 +72,15 @@ export function Unlock({ vaultPath, onUnlocked }: { vaultPath: string | null; on
             </motion.p>
           )}
         </AnimatePresence>
-        <Button type="submit" size="lg" className="w-full" disabled={busy || !password}>
-          {busy && <Spinner />}
-          Unlock
-        </Button>
-        {vaultPath && (
-          <p title={vaultPath} className="mt-2 truncate text-center text-xs text-muted-foreground">
-            {displayPath(vaultPath)}
+        <div className="flex items-center gap-3 pt-2">
+          <p title={vaultPath ?? undefined} className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {vaultPath && displayPath(vaultPath)}
           </p>
-        )}
+          <Button type="submit" size="lg" className="px-4" disabled={busy || !password}>
+            {busy && <Spinner />}
+            Unlock
+          </Button>
+        </div>
       </form>
     </Centered>
   );

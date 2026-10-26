@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
 import { IconSwap } from "@/components/IconSwap";
+import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Revealed values hide again after this long. */
 const REVEAL_MS = 30_000;
@@ -142,124 +143,128 @@ export function VariableList({
   const visible = keys?.filter((k) => k.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <p className="text-xs text-muted-foreground">
-          {keys === null ? " " : `${keys.length} ${keys.length === 1 ? "variable" : "variables"}`}
-        </p>
-        <div className="flex-1" />
-        {keys && keys.length > 6 && (
-          <div className="relative w-48">
-            <Search aria-hidden className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
-            <Input
-              aria-label="Filter variables"
-              placeholder="Filter"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="pl-7"
-            />
-          </div>
-        )}
-        <Button onClick={() => setEditing({ mode: "new" })} disabled={editing?.mode === "new"}>
-          <Plus aria-hidden />
-          Add variable
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
-        <AnimatePresence initial={false}>
-          {editing?.mode === "new" && (
-            <motion.div key="new" {...rowMotion} className="overflow-hidden">
-              <EditRow envId={envId} onSaved={(k) => saved(k)} onCancel={() => setEditing(null)} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {keys === null ? (
-          <RowsSkeleton />
-        ) : keys.length === 0 && editing?.mode !== "new" ? (
-          <div className="flex flex-col items-center gap-2 py-16 text-center">
-            <div className="mb-1 rounded-xl bg-muted p-3 text-muted-foreground">
-              <KeyRound aria-hidden className="size-5" />
-            </div>
-            <p className="text-sm font-semibold">
-              No variables in {projectName}/{environment.name}
-            </p>
-            <p className="max-w-sm text-muted-foreground">
-              Add one here, or import an existing file from the terminal with{" "}
-              <code className="selectable rounded bg-muted px-1 py-0.5 font-mono text-xs">dotsafe import</code>.
-            </p>
-          </div>
-        ) : (
-          <ul aria-label="Variables" className="divide-y rounded-lg border">
-            <AnimatePresence initial={false}>
-              {visible.map((key) =>
-                editing?.mode === "edit" && editing.key === key ? (
-                  <motion.li key={key} layout="position" {...rowMotion} className="overflow-hidden">
-                    <EditRow
-                      envId={envId}
-                      initialKey={key}
-                      initialValue={editing.value}
-                      onSaved={(k) => saved(k, key)}
-                      onCancel={() => setEditing(null)}
-                      bare
-                    />
-                  </motion.li>
-                ) : (
-                  <motion.li
-                    key={key}
-                    layout="position"
-                    {...rowMotion}
-                    className="group flex min-h-10 items-center gap-3 overflow-hidden px-3 py-1.5"
-                  >
-                    <span className={cn(NAME_COLUMN, "selectable truncate font-mono text-[12.5px] font-medium")} title={key}>
-                      {key}
-                    </span>
-                    {/* Revealing "decrypts": the value sharpens in from a blur. */}
-                    <span className="min-w-0 flex-1">
-                      <AnimatePresence initial={false} mode="wait">
-                        <motion.span
-                          key={key in revealed ? "value" : "mask"}
-                          initial={{ opacity: 0, filter: "blur(3px)" }}
-                          animate={{ opacity: 1, filter: "blur(0px)" }}
-                          exit={{ opacity: 0, filter: "blur(3px)" }}
-                          transition={fast}
-                          className={cn(
-                            "block truncate font-mono text-[12.5px]",
-                            key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
-                          )}
-                          title={key in revealed ? revealed[key] : undefined}
-                        >
-                          {key in revealed
-                            ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
-                            : MASK}
-                        </motion.span>
-                      </AnimatePresence>
-                    </span>
-                    <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                      <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
-                        <IconSwap active={key in revealed} on={<EyeOff aria-hidden />} off={<Eye aria-hidden />} />
-                      </IconButton>
-                      <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
-                        <IconSwap active={copiedKey === key} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
-                      </IconButton>
-                      <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
-                        <Pencil aria-hidden />
-                      </IconButton>
-                      <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
-                        <Trash2 aria-hidden />
-                      </IconButton>
-                    </div>
-                  </motion.li>
-                ),
+    <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <Surface>
+        <SurfaceHeader
+          icon={<KeyRound aria-hidden />}
+          action={
+            <div className="flex items-center gap-2">
+              {keys && keys.length > 6 && (
+                <div className="relative w-44">
+                  <Search aria-hidden className="pointer-events-none absolute top-2 left-2.5 size-4 text-muted-foreground" />
+                  <Input
+                    aria-label="Filter variables"
+                    placeholder="Filter"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    className="bg-card pl-8"
+                  />
+                </div>
               )}
-            </AnimatePresence>
-            {visible.length === 0 && keys.length > 0 && (
-              <li className="px-3 py-6 text-center text-muted-foreground">No variables match “{filter}”.</li>
+              <Button onClick={() => setEditing({ mode: "new" })} disabled={editing?.mode === "new"}>
+                <Plus aria-hidden />
+                Add variable
+              </Button>
+            </div>
+          }
+        >
+          <SurfaceTitle>{environment.name}</SurfaceTitle>
+          <SurfaceDescription>
+            {keys === null ? "\u00a0" : `${keys.length} ${keys.length === 1 ? "variable" : "variables"}`}
+          </SurfaceDescription>
+        </SurfaceHeader>
+
+        <SurfaceBody className="overflow-hidden p-0">
+          <AnimatePresence initial={false}>
+            {editing?.mode === "new" && (
+              <motion.div key="new" {...rowMotion} className="overflow-hidden border-b">
+                <EditRow envId={envId} onSaved={(k) => saved(k)} onCancel={() => setEditing(null)} />
+              </motion.div>
             )}
-          </ul>
-        )}
-      </div>
+          </AnimatePresence>
+
+          {keys === null ? (
+            <RowsSkeleton />
+          ) : keys.length === 0 && editing?.mode !== "new" ? (
+            <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
+              <p className="text-sm font-semibold">
+                No variables in {projectName}/{environment.name}
+              </p>
+              <p className="max-w-sm text-muted-foreground">
+                Add one here, or import an existing file from the terminal with{" "}
+                <code className="selectable rounded bg-muted px-1 py-0.5 font-mono text-xs">dotsafe import</code>.
+              </p>
+            </div>
+          ) : (
+            <ul aria-label="Variables" className="divide-y">
+              <AnimatePresence initial={false}>
+                {visible.map((key) =>
+                  editing?.mode === "edit" && editing.key === key ? (
+                    <motion.li key={key} layout="position" {...rowMotion} className="overflow-hidden">
+                      <EditRow
+                        envId={envId}
+                        initialKey={key}
+                        initialValue={editing.value}
+                        onSaved={(k) => saved(k, key)}
+                        onCancel={() => setEditing(null)}
+                      />
+                    </motion.li>
+                  ) : (
+                    <motion.li
+                      key={key}
+                      layout="position"
+                      {...rowMotion}
+                      className="group flex min-h-11 items-center gap-3 overflow-hidden px-4 py-1.5"
+                    >
+                      <span className={cn(NAME_COLUMN, "selectable truncate font-mono text-[12.5px] font-medium")} title={key}>
+                        {key}
+                      </span>
+                      {/* Revealing "decrypts": the value sharpens in from a blur. */}
+                      <span className="min-w-0 flex-1">
+                        <AnimatePresence initial={false} mode="wait">
+                          <motion.span
+                            key={key in revealed ? "value" : "mask"}
+                            initial={{ opacity: 0, filter: "blur(3px)" }}
+                            animate={{ opacity: 1, filter: "blur(0px)" }}
+                            exit={{ opacity: 0, filter: "blur(3px)" }}
+                            transition={fast}
+                            className={cn(
+                              "block truncate font-mono text-[12.5px]",
+                              key in revealed ? "selectable" : "tracking-widest text-muted-foreground",
+                            )}
+                            title={key in revealed ? revealed[key] : undefined}
+                          >
+                            {key in revealed
+                              ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
+                              : MASK}
+                          </motion.span>
+                        </AnimatePresence>
+                      </span>
+                      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                        <IconButton label={key in revealed ? `Hide ${key}` : `Reveal ${key}`} onClick={() => toggleReveal(key)}>
+                          <IconSwap active={key in revealed} on={<EyeOff aria-hidden />} off={<Eye aria-hidden />} />
+                        </IconButton>
+                        <IconButton label={`Copy ${key}`} onClick={() => copy(key)}>
+                          <IconSwap active={copiedKey === key} on={<Check aria-hidden />} off={<Copy aria-hidden />} />
+                        </IconButton>
+                        <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
+                          <Pencil aria-hidden />
+                        </IconButton>
+                        <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
+                          <Trash2 aria-hidden />
+                        </IconButton>
+                      </div>
+                    </motion.li>
+                  ),
+                )}
+              </AnimatePresence>
+              {visible.length === 0 && keys.length > 0 && (
+                <li className="px-3 py-6 text-center text-muted-foreground">No variables match “{filter}”.</li>
+              )}
+            </ul>
+          )}
+        </SurfaceBody>
+      </Surface>
 
       <ConfirmDialog
         open={deleting !== null}
@@ -279,15 +284,12 @@ function EditRow({
   initialValue = "",
   onSaved,
   onCancel,
-  bare,
 }: {
   envId: string;
   initialKey?: string;
   initialValue?: string;
   onSaved: (key: string) => void;
   onCancel: () => void;
-  /** Inside the list (no own border), when editing an existing row. */
-  bare?: boolean;
 }) {
   const [key, setKey] = useState(initialKey);
   const [value, setValue] = useState(initialValue);
@@ -319,7 +321,7 @@ function EditRow({
   return (
     <form
       onSubmit={submit}
-      className={cn("flex flex-col gap-2 bg-muted/40 p-3", !bare && "mb-3 rounded-lg border")}
+      className="flex flex-col gap-2 bg-muted/40 px-4 py-3"
     >
       <div className="flex items-start gap-3">
         <div className={NAME_COLUMN}>
@@ -376,9 +378,9 @@ function EditRow({
 
 function RowsSkeleton() {
   return (
-    <div aria-hidden className="divide-y rounded-lg border">
+    <div aria-hidden className="divide-y">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="flex h-10 items-center gap-3 px-3">
+        <div key={i} className="flex h-11 items-center gap-3 px-4">
           <Skeleton className="h-3.5 w-40" />
           <Skeleton className="h-3.5 w-28" />
         </div>
