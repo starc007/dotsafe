@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dotsafe_core::{Environment, dotenv};
+use dotsafe_core::{Entry, Environment, dotenv};
 use serde::{Deserialize, Serialize};
 
 /// Generous for any real `.env` file, small enough to refuse binaries and logs.
@@ -30,6 +30,8 @@ pub enum Change {
     New,
     Update,
     Unchanged,
+    /// Linked to a shared secret; imports never overwrite links.
+    Linked,
 }
 
 /// A parsed variable, and the file it came from when importing files.
@@ -135,10 +137,11 @@ pub fn plan(env: &Environment, parsed: &[Parsed]) -> Vec<(Change, Parsed)> {
     parsed
         .iter()
         .map(|p| {
-            let change = match env.get(&p.key) {
+            let change = match env.entry(&p.key) {
                 None => Change::New,
-                Some(current) if current == p.value => Change::Unchanged,
-                Some(_) => Change::Update,
+                Some(Entry::Secret(_)) => Change::Linked,
+                Some(Entry::Value(current)) if current == p.value => Change::Unchanged,
+                Some(Entry::Value(_)) => Change::Update,
             };
             (change, p.clone())
         })

@@ -19,8 +19,17 @@ import { VariableList } from "@/components/VariableList";
 
 type Pending = "environment" | "project" | null;
 
-export function ProjectPane({ project, onChanged }: { project: ProjectView; onChanged: () => Promise<void> }) {
-  const [envId, setEnvId] = useState<string | null>(project.environments[0]?.id ?? null);
+export function ProjectPane({
+  project,
+  initialEnvironmentId,
+  onChanged,
+}: {
+  project: ProjectView;
+  /** Opens on this environment instead of the first. */
+  initialEnvironmentId?: string | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [envId, setEnvId] = useState<string | null>(initialEnvironmentId ?? project.environments[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const [confirm, setConfirm] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);

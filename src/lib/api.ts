@@ -14,7 +14,37 @@ export type EnvironmentView = { id: string; name: string; varCount: number };
 export type ProjectView = { id: string; name: string; environments: EnvironmentView[] };
 
 export type ImportSource = { kind: "text"; text: string } | { kind: "files" };
-export type ImportChange = "new" | "update" | "unchanged";
+export type ImportChange = "new" | "update" | "unchanged" | "linked";
+
+export type SecretRef = { id: string; name: string };
+/** A variable's name, and the shared secret it links to, if any. */
+export type VariableView = { key: string; secret: SecretRef | null };
+
+export type Due = "no_policy" | "ok" | "soon" | "overdue";
+export type Usage = { projectId: string; project: string; environmentId: string; environment: string; key: string };
+export type SecretView = {
+  id: string;
+  name: string;
+  /** When the current value was created, in ms. */
+  rotatedAt: number | null;
+  due: Due;
+  rotateEveryDays: number | null;
+  /** A new value is staged but not live yet. */
+  staged: boolean;
+  /** An older value is still marked valid, waiting to be revoked. */
+  hasPrevious: boolean;
+  usedIn: Usage[];
+};
+export type VersionState = "pending" | "current" | "previous" | "retired";
+export type VersionView = {
+  id: string;
+  state: VersionState;
+  createdAt: number;
+  changedAt: number;
+  note: string | null;
+  wiped: boolean;
+};
+export type SecretDetail = SecretView & { versions: VersionView[] };
 export type ImportPreview = {
   entries: { key: string; change: ImportChange; file: string | null }[];
   errors: string[];
@@ -101,7 +131,31 @@ export const api = {
     call<EnvironmentView>("create_environment", { projectId, name }),
   deleteEnvironment: (environmentId: string) => call<void>("delete_environment", { environmentId }),
 
-  listVariables: (environmentId: string) => call<string[]>("list_variables", { environmentId }),
+  listVariables: (environmentId: string) => call<VariableView[]>("list_variables", { environmentId }),
+  listSecrets: () => call<SecretView[]>("list_secrets"),
+  getSecret: (id: string) => call<SecretDetail>("get_secret", { id }),
+  revealSecret: (id: string) => call<string>("reveal_secret", { id }),
+  copySecret: (id: string) => call<void>("copy_secret", { id }),
+  sharePreview: (environmentId: string, key: string) =>
+    call<{ copies: Usage[] }>("share_preview", { environmentId, key }),
+  shareVariable: (environmentId: string, key: string, name: string, linkCopies: boolean) =>
+    call<SecretView>("share_variable", { environmentId, key, name, linkCopies }),
+  linkVariable: (environmentId: string, key: string, secretId: string) =>
+    call<void>("link_variable", { environmentId, key, secretId }),
+  unlinkVariable: (environmentId: string, key: string) => call<void>("unlink_variable", { environmentId, key }),
+  /** `value: null` generates one. */
+  stageSecret: (id: string, value: string | null, note: string | null) =>
+    call<SecretDetail>("stage_secret", { id, value, note }),
+  promoteSecret: (id: string) => call<SecretDetail>("promote_secret", { id }),
+  cancelStagedSecret: (id: string) => call<SecretDetail>("cancel_staged_secret", { id }),
+  rollBackSecret: (id: string) => call<SecretDetail>("roll_back_secret", { id }),
+  retirePreviousSecret: (id: string) => call<SecretDetail>("retire_previous_secret", { id }),
+  rotateLeakedSecret: (id: string, value: string | null) => call<SecretDetail>("rotate_leaked_secret", { id, value }),
+  restoreSecretVersion: (id: string, versionId: string) =>
+    call<SecretDetail>("restore_secret_version", { id, versionId }),
+  updateSecretSettings: (id: string, name: string, rotateEveryDays: number | null) =>
+    call<SecretDetail>("update_secret_settings", { id, name, rotateEveryDays }),
+  deleteSecret: (id: string) => call<void>("delete_secret", { id }),
   revealVariable: (environmentId: string, key: string) =>
     call<string>("reveal_variable", { environmentId, key }),
   copyVariable: (environmentId: string, key: string) => call<void>("copy_variable", { environmentId, key }),
