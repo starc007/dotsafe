@@ -181,7 +181,7 @@ pub async fn list_secrets(state: State<'_, AppState>) -> CmdResult<Vec<SecretVie
         .run(|s| {
             let snapshot = Snapshot::take(s)?;
             let mut views: Vec<SecretView> = snapshot.secrets.iter().map(|secret| snapshot.view(secret)).collect();
-            views.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            views.sort_by_key(|v| v.name.to_lowercase());
             Ok(views)
         })
         .await
