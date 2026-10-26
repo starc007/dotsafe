@@ -1,6 +1,6 @@
 # dotsafe architecture
 
-**Status:** proposed, October 2026. M1 (format v2 and the `Store` interface) and M2 (S3/R2 with an offline cache) are implemented; see the notes below. Describes where dotsafe is going. [`../vault-format.md`](../vault-format.md) describes what ships today (format v1).
+**Status:** proposed, October 2026. M1 (format v2 and the `Store` interface) M2 (S3/R2 with an offline cache) and M3 (shared secrets and rotation) are implemented; see the notes below. Describes where dotsafe is going. [`../vault-format.md`](../vault-format.md) describes what ships today (format v1).
 
 ## The promise
 
@@ -95,7 +95,8 @@ M6 Agents: MCP (refs only) ──▶ broker + approvals ──▶ redaction ─�
 - **M1** blocks everything else that touches the format, so it comes first. Design it once.
   - **Done:** `Store` + `FolderStore`, conditional writes with merge-and-retry, header `epoch` and `previous_keys`, record epochs in the AAD, padding, hybrid logical clocks, `head.json` and rollback reporting, and in-place upgrade from v1.
   - **M2 done:** `S3Store` in `crates/stores`, `CachedStore` in core, `dotsafe init --bucket` and `dotsafe sync` in the CLI, and bucket setup plus background sync in the desktop app. Replicas, WebDAV and moving a vault between stores are still to do.
-  - **Left to the milestones that use them:** device and enrollment slots (M4), `secret` records (M3), `audit` records (M6). They add new slot kinds and record types inside v2, so every client must be updated before a vault uses them.
+  - **M3 done:** `secret` records with versions, linked variables, record version 3 for records that use them, generators, rotation policies, and the stage → promote → retire flow in the CLI and desktop app.
+  - **Left to the milestones that use them:** device and enrollment slots (M4), `audit` records (M6). They add new slot kinds and record types inside v2, so every client must be updated before a vault uses them.
 - **M6** can start in parallel: the MCP server with names and references only needs no format change.
 
 ## Decision log

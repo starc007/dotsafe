@@ -81,7 +81,18 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
 - **Padding:** the plaintext JSON is padded with trailing spaces to the next multiple of 1 KiB up to 16 KiB, then to the next power of two. Ciphertext sizes reveal only that bucket.
 - **Plaintext:** one of the following.
   - `project`: `{ id, name, deleted, updated }`
-  - `environment`: `{ id, project_id, name, deleted, updated, vars: { KEY: { value | null, stamp } } }`
+  - `environment`: `{ id, project_id, name, deleted, updated, vars: { KEY: { value, secret?, stamp } } }`. A variable holds its own `value`, or links to a shared secret by its id in `secret`. Neither set is a tombstone.
+  - `secret`: `{ id, name, deleted, updated, policy: { rotate_every_days?, generator? }, versions: { <uuid>: { value | null, state, created, changed, note? } } }`. `state` is `pending`, `current`, `previous` or `retired`. A `null` value has been wiped.
+
+### Record version 3 (shared secrets)
+
+Records that use shared secrets (`secret` records, and environments with at least one linked variable) are written with `"version": 3` and AAD `"dotsafe/v3/record" ‖ vault_id ‖ epoch ‖ id`. Everything else stays version 2.
+
+A client that predates shared secrets would read a linked variable as a tombstone and could rewrite the environment without its links. With v3, such a client refuses those records ("unsupported record version 3"), while vaults that don't use shared secrets stay readable. The version is bound into the AAD, so relabelling a v3 record as v2 fails authentication.
+
+**Merging secrets:** `name`, `deleted` and `policy` merge on `updated`. Versions merge by id, and each version's `value`, `state` and `note` merge on its own `changed` stamp, so two devices rotating at once keep both versions. The current value is the `current` version with the newest `changed`, which is how concurrent promotions resolve.
+
+**Retention:** a retired value is wiped 30 days after retirement, and values beyond the 10 newest versions are wiped unless still pending, current or previous. Wiping happens on the next change to the secret.
 
 ## `head.json`
 
