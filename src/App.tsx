@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { api, message, type Status } from "./lib/api";
-import { Setup } from "./screens/Setup";
-import { Recovery } from "./screens/Recovery";
-import { Unlock } from "./screens/Unlock";
-import { VaultScreen } from "./screens/Vault";
-import { Button, DragRegion } from "./components/ui";
+import { api, message, type Status } from "@/lib/api";
+import { Setup } from "@/screens/Setup";
+import { Recovery } from "@/screens/Recovery";
+import { Unlock } from "@/screens/Unlock";
+import { VaultScreen } from "@/screens/Vault";
+import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { DragRegion } from "@/components/DragRegion";
 
 type Screen =
   | { name: "loading" }
@@ -41,6 +44,23 @@ export default function App() {
     };
   }, [refresh]);
 
+  return (
+    <TooltipProvider delayDuration={500}>
+      <CurrentScreen screen={screen} setScreen={setScreen} refresh={refresh} />
+      <Toaster position="bottom-center" />
+    </TooltipProvider>
+  );
+}
+
+function CurrentScreen({
+  screen,
+  setScreen,
+  refresh,
+}: {
+  screen: Screen;
+  setScreen: (s: Screen) => void;
+  refresh: () => void;
+}) {
   switch (screen.name) {
     case "loading":
       return <DragRegion className="h-full" />;
@@ -50,7 +70,9 @@ export default function App() {
           <DragRegion className="fixed inset-x-0 top-0 h-12" />
           <p className="text-sm font-medium">dotsafe couldn't start</p>
           <p className="selectable max-w-sm text-muted-foreground">{screen.message}</p>
-          <Button onClick={refresh}>Try again</Button>
+          <Button variant="outline" onClick={refresh}>
+            Try again
+          </Button>
         </div>
       );
     case "setup":

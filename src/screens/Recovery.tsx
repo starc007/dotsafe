@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
-import { Button } from "../components/ui";
-import { Centered } from "../components/Centered";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Centered, Panel } from "@/components/Centered";
 
 export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone: () => void }) {
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
-  const groups = recoveryKey.split("-");
 
   async function copy() {
     await navigator.clipboard.writeText(recoveryKey);
@@ -19,35 +20,33 @@ export function Recovery({ recoveryKey, onDone }: { recoveryKey: string; onDone:
       title="Save your recovery key"
       subtitle="If you forget your master password, this key is the only way back into your vault. It won't be shown again."
     >
-      <div className="flex flex-col gap-4 rounded-xl border border-border bg-background p-5 shadow-sm">
+      <Panel>
         <div
           aria-label="Recovery key"
-          className="selectable grid grid-cols-4 gap-x-3 gap-y-2 rounded-lg bg-surface p-4 font-mono text-[13px] tracking-wider"
+          className="selectable grid grid-cols-4 gap-x-3 gap-y-2 rounded-lg bg-muted/60 p-4 font-mono text-[13px] tracking-wider"
         >
-          {groups.map((g, i) => (
-            <span key={i}>{g}</span>
+          {recoveryKey.split("-").map((group, i) => (
+            <span key={i}>{group}</span>
           ))}
         </div>
-        <Button type="button" onClick={copy} className="self-start">
-          {copied ? <Check aria-hidden className="size-3.5 text-success" /> : <Copy aria-hidden className="size-3.5" />}
+        <Button type="button" variant="outline" onClick={copy} className="self-start">
+          {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
           {copied ? "Copied" : "Copy key"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Store it offline, such as printed or in a password manager on another device. Not in the same folder as your vault.
+          Store it offline, such as printed or in a password manager on another device. Not in the same folder as
+          your vault.
         </p>
-        <label className="flex items-start gap-2 text-[13px]">
-          <input
-            type="checkbox"
-            className="mt-0.5 size-3.5 accent-primary"
-            checked={saved}
-            onChange={(e) => setSaved(e.target.checked)}
-          />
-          I've saved my recovery key somewhere safe
-        </label>
-        <Button variant="primary" className="w-full" disabled={!saved} onClick={onDone}>
+        <div className="flex items-start gap-2">
+          <Checkbox id="saved" checked={saved} onCheckedChange={(v) => setSaved(v === true)} className="mt-px" />
+          <Label htmlFor="saved" className="font-normal leading-snug">
+            I've saved my recovery key somewhere safe
+          </Label>
+        </div>
+        <Button className="w-full" disabled={!saved} onClick={onDone}>
           Continue
         </Button>
-      </div>
+      </Panel>
     </Centered>
   );
 }
