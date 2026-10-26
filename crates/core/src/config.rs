@@ -8,15 +8,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
+use crate::license::License;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub vault_path: PathBuf,
     /// Identifies this machine in change stamps.
     pub device_id: Uuid,
-    /// The purchase license entered on this machine, if any.
+    /// The license activated on this machine, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub license_key: Option<String>,
+    pub license: Option<License>,
 }
 
 impl Config {
@@ -34,7 +35,7 @@ impl Config {
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
             Ok(Some(existing)) => Config { vault_path, ..existing },
-            _ => Config { vault_path, device_id: Uuid::new_v4(), license_key: None },
+            _ => Config { vault_path, device_id: Uuid::new_v4(), license: None },
         }
     }
 

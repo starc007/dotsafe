@@ -1,5 +1,6 @@
 mod commands;
 mod import;
+mod licensing;
 mod state;
 
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
@@ -13,7 +14,9 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState::default())
         .setup(|app| {
-            app.state::<AppState>().spawn_housekeeping(app.handle().clone());
+            let state = app.state::<AppState>();
+            state.spawn_housekeeping(app.handle().clone());
+            licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -59,6 +62,7 @@ pub fn run() {
             commands::import_variables,
             commands::get_settings,
             commands::activate_license,
+            commands::check_license,
             commands::remove_license,
         ])
         .run(tauri::generate_context!())
