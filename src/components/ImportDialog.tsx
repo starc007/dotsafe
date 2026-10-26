@@ -10,7 +10,7 @@ import { DialogClose } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { SurfaceFooter } from "@/components/Surface";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
@@ -165,52 +165,49 @@ export function ImportForm({
       {pasteOnly ? (
         pasteBox
       ) : (
-        <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)} className="gap-3">
-          <TabsList className="w-full">
-            <TabsTrigger value="files">
-              <FileUp aria-hidden />
-              From files
-            </TabsTrigger>
-            <TabsTrigger value="paste">
-              <FileText aria-hidden />
-              Paste text
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="files">
-            {files.length === 0 ? (
-              <div className="flex flex-col items-center gap-3 rounded-2xl bg-muted/50 px-6 py-8 text-center">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-card text-muted-foreground">
-                  <FileUp aria-hidden className="size-5" />
-                </div>
-                <div>
-                  <p className="font-medium">Drop .env files anywhere in the window</p>
-                  <p className="mt-0.5 text-muted-foreground">or choose one or more from disk</p>
-                </div>
-                <Button variant="outline" onClick={chooseFiles} className="bg-card">
-                  Choose files…
-                </Button>
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                  Can't see .env? Press <Kbd>⌘</Kbd>
-                  <Kbd>⇧</Kbd>
-                  <Kbd>.</Kbd> in the picker to show hidden files.
-                </p>
+        <>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+            <TabsList aria-label="Import from" className="bg-muted p-0.5">
+              <TabsTrigger value="files" icon={<FileUp className="size-3.5" />} className="px-3 py-1 text-[13px]">
+                From files
+              </TabsTrigger>
+              <TabsTrigger value="paste" icon={<FileText className="size-3.5" />} className="px-3 py-1 text-[13px]">
+                Paste text
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {mode === "paste" ? (
+            pasteBox
+          ) : files.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-2xl bg-muted/50 px-6 py-8 text-center">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-card text-muted-foreground">
+                <FileUp aria-hidden className="size-5" />
               </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-2xl bg-muted/50 p-2 pl-3">
-                <FileText aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                <p className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={files.join(", ")}>
-                  {files.join(", ")}
-                </p>
-                <Button size="sm" variant="ghost" onClick={chooseFiles}>
-                  Change…
-                </Button>
+              <div>
+                <p className="font-medium">Drop .env files anywhere in the window</p>
+                <p className="mt-0.5 text-muted-foreground">or choose one or more from disk</p>
               </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="paste">{pasteBox}</TabsContent>
-        </Tabs>
+              <Button variant="outline" onClick={chooseFiles} className="bg-card">
+                Choose files…
+              </Button>
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                Can't see .env? Press <Kbd>⌘</Kbd>
+                <Kbd>⇧</Kbd>
+                <Kbd>.</Kbd> in the picker to show hidden files.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-2xl bg-muted/50 p-2 pl-3">
+              <FileText aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <p className="min-w-0 flex-1 truncate font-mono text-[12.5px]" title={files.join(", ")}>
+                {files.join(", ")}
+              </p>
+              <Button size="sm" variant="ghost" onClick={chooseFiles}>
+                Change…
+              </Button>
+            </div>
+          )}
+        </>
       )}
 
       <AnimatePresence initial={false}>
