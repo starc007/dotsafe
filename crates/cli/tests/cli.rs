@@ -271,3 +271,32 @@ fn rotation_policies_flag_due_secrets() {
     // Rotated today with a 3-day policy: due within a week.
     assert!(m.ok(&api, &["secret", "due"]).starts_with("TOKEN\tdue soon"));
 }
+
+#[test]
+fn run_with_proxy_keeps_known_keys_out_of_the_process() {
+    let (_root, m, api) = setup();
+    m.init();
+    m.ok(&api, &["set", "OPENAI_API_KEY=sk-real-key", "PLAIN=1"]);
+    let out = m.run(&api, &["run", "--proxy", "--", "sh", "-c", "printf '%s|%s|%s' \"$OPENAI_API_KEY\" \"$OPENAI_BASE_URL\" \"$PLAIN\""]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let seen = String::from_utf8(out.stdout.clone()).unwrap();
+    let parts: Vec<&str> = seen.split('|').collect();
+    assert_eq!(parts[0], "dotsafe-proxied");
+    assert!(parts[1].starts_with("http://127.0.0.1:") && parts[1].ends_with("/v1"), "{seen}");
+    assert_eq!(parts[2], "1", "other variables are injected as usual");
+    assert!(!seen.contains("sk-real-key"));
+    assert!(stderr(&out).contains("OPENAI_API_KEY go through a local proxy"));
+
+    // Exit codes come through.
+    let out = m.run(&api, &["run", "--proxy", "--", "sh", "-c", "exit 7"]);
+    assert_eq!(out.status.code(), Some(7));
+}
+
+#[test]
+fn audit_starts_empty() {
+    let (_root, m, api) = setup();
+    m.init();
+    let out = m.run(&api, &["audit"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stderr(&out).contains("No agent activity yet."));
+}
