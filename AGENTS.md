@@ -15,6 +15,7 @@ src-tauri     Desktop backend: commands.rs (UI-callable commands), state.rs (ses
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 api           Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See api/README.md.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
+docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
 ```
 
 ## Commands
