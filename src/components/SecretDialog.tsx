@@ -334,7 +334,11 @@ export function SecretDialog({
                 )}
               </TabsContent>
 
-              <TabsContent value="history">
+              <TabsContent value="history" className="flex flex-col gap-3">
+                <p className="text-[13px] text-muted-foreground">
+                  Every value this secret has had, newest first. Values aren't shown here; restore one to make it current
+                  again.
+                </p>
                 <ol className="flex flex-col divide-y rounded-2xl bg-muted/40">
                   {secret.versions.map((v) => (
                     <li key={v.id} className="flex items-center gap-3 px-3 py-2">
@@ -350,7 +354,7 @@ export function SecretDialog({
                         {STATE_LABEL[v.state]}
                       </span>
                       <span className="min-w-0 flex-1 truncate" title={formatDate(v.createdAt)}>
-                        {daysAgo(v.createdAt)}
+                        Set {daysAgo(v.createdAt)}
                         {v.note && <span className="text-muted-foreground"> · {v.note}</span>}
                         {v.wiped && <span className="text-muted-foreground"> · value wiped</span>}
                       </span>
@@ -370,6 +374,9 @@ export function SecretDialog({
                     </li>
                   ))}
                 </ol>
+                {secret.versions.length === 1 && (
+                  <p className="text-[13px] text-muted-foreground">Only one value so far. Each rotation adds an entry.</p>
+                )}
               </TabsContent>
 
               <TabsContent value="integrations">

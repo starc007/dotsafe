@@ -30,11 +30,14 @@ export function SidebarAction({
       )}
     >
       {icon}
-      <span className="flex-1 truncate">{label}</span>
-      <ShortcutKeys
-        shortcut={shortcut}
-        className="opacity-0 transition-opacity group-hover/action:opacity-100 group-focus-visible/action:opacity-100 group-aria-[current=page]/action:opacity-100"
-      />
+      {/* The label keeps its full width; the shortcut hint gives way if space is short. */}
+      <span className="whitespace-nowrap">{label}</span>
+      <span className="ml-auto flex min-w-0 justify-end overflow-hidden">
+        <ShortcutKeys
+          shortcut={shortcut}
+          className="opacity-0 transition-opacity group-hover/action:opacity-100 group-focus-visible/action:opacity-100 group-aria-[current=page]/action:opacity-100"
+        />
+      </span>
     </button>
   );
 }

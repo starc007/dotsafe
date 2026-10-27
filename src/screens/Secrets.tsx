@@ -80,7 +80,7 @@ export function SecretsPage({
           </p>
           <Surface aria-labelledby="secrets-title">
             <SurfaceHeader icon={<KeyRound aria-hidden />}>
-              <SurfaceTitle id="secrets-title">Secrets</SurfaceTitle>
+              <SurfaceTitle id="secrets-title">Shared secrets</SurfaceTitle>
               <SurfaceDescription>
                 {secrets === null ? " " : `${secrets.length} ${secrets.length === 1 ? "secret" : "secrets"}`}
               </SurfaceDescription>
