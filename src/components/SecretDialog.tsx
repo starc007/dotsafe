@@ -469,6 +469,7 @@ export function SecretDialog({
 
 function reminderLabel(days: number | null) {
   if (days === null) return "Off";
+  if (days === 1) return "Every day";
   return days === 365 ? "Every year" : `Every ${days} days`;
 }
 
@@ -840,7 +841,13 @@ function SettingsSection({
   onDelete: () => void;
 }) {
   const [name, setName] = useState(secret.name);
-  const policy = POLICIES.find((p) => p.days === secret.rotateEveryDays)?.value ?? "off";
+  const preset = POLICIES.find((p) => p.days === secret.rotateEveryDays);
+  // Any interval that isn't one of the presets is shown as custom.
+  const [customPicked, setCustomPicked] = useState(false);
+  const custom = customPicked || !preset;
+  const [days, setDays] = useState(String(secret.rotateEveryDays ?? 7));
+  const customDays = Number(days);
+  const validDays = Number.isInteger(customDays) && customDays >= 1 && customDays <= 3650;
 
   return (
     <section aria-label="Settings" className="flex flex-col gap-5">
@@ -871,8 +878,11 @@ function SettingsSection({
           <p className="mt-0.5 text-xs text-muted-foreground">A notification when it's time to rotate.</p>
         </div>
         <Select
-          value={policy}
-          onValueChange={(value) => onSave(secret.name, POLICIES.find((p) => p.value === value)?.days ?? null)}
+          value={custom ? "custom" : preset.value}
+          onValueChange={(value) => {
+            setCustomPicked(value === "custom");
+            if (value !== "custom") onSave(secret.name, POLICIES.find((p) => p.value === value)?.days ?? null);
+          }}
           disabled={busy !== null}
         >
           <SelectTrigger id="rotation-reminder" className="h-9 w-40 shrink-0">
@@ -884,9 +894,43 @@ function SettingsSection({
                 {reminderLabel(p.days)}
               </SelectItem>
             ))}
+            <SelectItem value="custom">Custom</SelectItem>
           </SelectContent>
         </Select>
       </div>
+      {custom && (
+        <form
+          className="-mt-2 flex items-center justify-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (validDays) onSave(secret.name, customDays);
+          }}
+        >
+          <Label htmlFor="reminder-days" className="font-normal text-muted-foreground">
+            Every
+          </Label>
+          <Input
+            id="reminder-days"
+            type="number"
+            min={1}
+            max={3650}
+            autoFocus={customPicked}
+            className="h-9 w-20 text-center"
+            value={days}
+            aria-invalid={days !== "" && !validDays}
+            onChange={(e) => setDays(e.target.value)}
+          />
+          <span className="text-muted-foreground">{customDays === 1 ? "day" : "days"}</span>
+          <Button
+            type="submit"
+            variant="outline"
+            className="h-9"
+            disabled={busy !== null || !validDays || customDays === secret.rotateEveryDays}
+          >
+            Save
+          </Button>
+        </form>
+      )}
       <div className="flex justify-end">
         <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={onDelete}>
           Delete secret

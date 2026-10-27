@@ -46,8 +46,8 @@ pub fn spawn_reminders(state: AppState, app: AppHandle) {
                 let count = due_count(&records, now);
                 if should_notify(count, now / DAY_MS, last) {
                     let body = match count {
-                        1 => "1 shared secret is due for rotation.".to_string(),
-                        n => format!("{n} shared secrets are due for rotation."),
+                        1 => "1 secret is due for rotation.".to_string(),
+                        n => format!("{n} secrets are due for rotation."),
                     };
                     let shown = app.notification().builder().title("dotsafe").body(body).show();
                     if shown.is_ok() {
