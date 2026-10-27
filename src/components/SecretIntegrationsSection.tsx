@@ -1,12 +1,13 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Plus, Send, X } from "lucide-react";
+import { Info, Plus, Send, X } from "lucide-react";
 import { api, message, type ConnectionView, type PushView, type SecretIntegrations, type ServiceView } from "@/lib/api";
 import { daysAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Field } from "@/components/Field";
 import { IconButton } from "@/components/IconButton";
 import { ServiceFields, fieldsComplete } from "@/components/ServiceFields";
@@ -80,30 +81,29 @@ export function SecretIntegrationsSection({
 
   const openSettings = () => window.dispatchEvent(new Event("dotsafe:open-integrations"));
 
+  const connect = (
+    <Button variant="ghost" size="sm" onClick={openSettings}>
+      Connect
+    </Button>
+  );
+
   return (
-    <div className="flex flex-col gap-5">
-      <section aria-labelledby="provider-title" className="flex flex-col gap-2">
-        <div>
-          <h3 id="provider-title" className="text-[13px] font-medium">
-            Provider
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            The service that issues this key. With one, Rotate gets a new key from it and revokes the old one for you.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-3 py-2">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col divide-y rounded-2xl bg-muted/40 text-[13px]">
+        <Row
+          label="Provider"
+          help="Issues new keys when you rotate, and revokes old ones. OpenAI, Anthropic, Stripe, Cloudflare or AWS."
+        >
           <span className="min-w-0 flex-1 truncate">
             {provider ? (
               <>
-                {provider.guided ? "Keys you make in " : "New keys from "}
                 <span className="font-medium">{provider.connectionName}</span>
-                <span className="text-muted-foreground">
-                  {provider.connectionName !== provider.serviceLabel && ` · ${provider.serviceLabel}`}
-                  {provider.guided && " · checked by dotsafe"}
-                </span>
+                {provider.connectionName !== provider.serviceLabel && (
+                  <span className="text-muted-foreground"> · {provider.serviceLabel}</span>
+                )}
               </>
             ) : (
-              <span className="text-muted-foreground">None. You paste or generate new values.</span>
+              <span className="text-muted-foreground">None</span>
             )}
           </span>
           {provider ? (
@@ -117,118 +117,99 @@ export function SecretIntegrationsSection({
             </Button>
           ) : providers.length ? (
             <Button variant="ghost" size="sm" disabled={form !== null} onClick={() => setForm("provider")}>
-              Set a provider
+              Set
             </Button>
           ) : (
-            connections && (
-              <Button variant="ghost" size="sm" onClick={openSettings}>
-                Connect one
-              </Button>
-            )
+            connections && connect
           )}
-        </div>
-        {!provider && connections && !providers.length && (
-          <p className="px-1 text-xs text-muted-foreground">
-            Works with OpenAI, Anthropic, Stripe, Cloudflare and AWS. Connect an account in Settings → Integrations.
-          </p>
-        )}
-        {form === "provider" && (
-          <ProviderForm
-            connections={providers}
-            services={services}
-            onCancel={() => setForm(null)}
-            onSave={(connectionId, settings) =>
-              act("provider", () => api.setSecretProvider(secretId, connectionId, settings), "Provider set").then(() =>
-                setForm(null),
-              )
-            }
-            busy={busy === "provider"}
-          />
-        )}
-      </section>
-
-      <section aria-labelledby="targets-title" className="flex flex-col gap-2">
-        <div>
-          <h3 id="targets-title" className="text-[13px] font-medium">
-            Deploy targets
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Where the value is used outside dotsafe. After each rotation, the new value is pushed there.
-          </p>
-        </div>
-        <div className="flex flex-col divide-y rounded-2xl bg-muted/40">
-          {integrations?.targets.length ? (
-            integrations.targets.map((t) => (
-              <div key={t.id} className="flex items-center gap-3 px-3 py-2">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-mono text-[12px]">{t.name}</span>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    on {t.connectionName} ·{" "}
-                    {t.pushedAt === null ? "never pushed" : t.upToDate ? `pushed ${daysAgo(t.pushedAt)}` : "out of date"}
-                  </span>
-                </span>
-                <IconButton
-                  label={`Stop pushing to ${t.connectionName}`}
-                  disabled={busy !== null}
-                  onClick={() => act("remove-target", () => api.removeSecretTarget(secretId, t.id), "Target removed")}
-                >
-                  <X aria-hidden />
-                </IconButton>
-              </div>
-            ))
-          ) : (
-            <div className="flex items-center gap-3 px-3 py-2">
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">None yet.</span>
-              {targets.length ? (
-                <Button variant="ghost" size="sm" disabled={form !== null} onClick={() => setForm("target")}>
-                  <Plus aria-hidden />
-                  Add a target
-                </Button>
-              ) : (
-                connections && (
-                  <Button variant="ghost" size="sm" onClick={openSettings}>
-                    Connect one
-                  </Button>
-                )
-              )}
-            </div>
-          )}
-        </div>
-        {!integrations?.targets.length && connections && !targets.length && (
-          <p className="px-1 text-xs text-muted-foreground">
-            Works with Vercel and Cloudflare Workers. Connect an account in Settings → Integrations.
-          </p>
-        )}
-        {form === "target" && (
-          <TargetForm
-            connections={targets}
-            services={services}
-            defaultName={secretName}
-            onCancel={() => setForm(null)}
-            onSave={(connectionId, name, settings) =>
-              act("target", () => api.addSecretTarget(secretId, connectionId, name, settings), "Target added").then(() =>
-                setForm(null),
-              )
-            }
-            busy={busy === "target"}
-          />
-        )}
-        {form === null && !!integrations?.targets.length && (
-          <div className="flex justify-end gap-2">
-            {targets.length > 0 && (
-              <Button variant="ghost" onClick={() => setForm("target")}>
-                <Plus aria-hidden />
-                Add a target
-              </Button>
-            )}
-            <Button variant="outline" onClick={pushNow} disabled={busy !== null}>
-              {busy === "push" ? <Spinner /> : <Send aria-hidden />}
-              Push now
+        </Row>
+        <Row label="Deploy targets" help="Gets the new value after every rotation. Vercel or Cloudflare Workers.">
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {integrations?.targets.length ? `${integrations.targets.length} connected` : "None"}
+          </span>
+          {targets.length ? (
+            <Button variant="ghost" size="sm" disabled={form !== null} onClick={() => setForm("target")}>
+              <Plus aria-hidden />
+              Add
             </Button>
+          ) : (
+            connections && connect
+          )}
+        </Row>
+        {integrations?.targets.map((t) => (
+          <div key={t.id} className="flex items-center gap-3 py-1.5 pr-1.5 pl-3">
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-mono text-[12px]">{t.name}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                on {t.connectionName} ·{" "}
+                {t.pushedAt === null ? "never pushed" : t.upToDate ? `pushed ${daysAgo(t.pushedAt)}` : "out of date"}
+              </span>
+            </span>
+            <IconButton
+              label={`Stop pushing to ${t.connectionName}`}
+              disabled={busy !== null}
+              onClick={() => act("remove-target", () => api.removeSecretTarget(secretId, t.id), "Target removed")}
+            >
+              <X aria-hidden />
+            </IconButton>
           </div>
-        )}
-      </section>
+        ))}
+      </div>
+
+      {form === "provider" && (
+        <ProviderForm
+          connections={providers}
+          services={services}
+          onCancel={() => setForm(null)}
+          onSave={(connectionId, settings) =>
+            act("provider", () => api.setSecretProvider(secretId, connectionId, settings), "Provider set").then(() =>
+              setForm(null),
+            )
+          }
+          busy={busy === "provider"}
+        />
+      )}
+      {form === "target" && (
+        <TargetForm
+          connections={targets}
+          services={services}
+          defaultName={secretName}
+          onCancel={() => setForm(null)}
+          onSave={(connectionId, name, settings) =>
+            act("target", () => api.addSecretTarget(secretId, connectionId, name, settings), "Target added").then(() =>
+              setForm(null),
+            )
+          }
+          busy={busy === "target"}
+        />
+      )}
+      {form === null && !!integrations?.targets.length && (
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={pushNow} disabled={busy !== null}>
+            {busy === "push" ? <Spinner /> : <Send aria-hidden />}
+            Push now
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A labelled row, with its explanation in a tooltip on the label. */
+function Row({ label, help, children }: { label: string; help: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-11 items-center gap-3 py-1.5 pr-1.5 pl-3">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="flex w-32 shrink-0 cursor-help items-center gap-1.5 text-muted-foreground outline-none focus-visible:text-foreground">
+            {label}
+            <Info aria-hidden className="size-3.5 opacity-60" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-64">{help}</TooltipContent>
+      </Tooltip>
+      {children}
     </div>
   );
 }
