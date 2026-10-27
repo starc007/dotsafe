@@ -57,12 +57,14 @@ pub struct VersionView {
     wiped: bool,
 }
 
-/// Environments elsewhere that hold the same value under the same name, which
-/// sharing can link too.
+/// Other environments with a variable of the same name: `copies` hold the same
+/// value, so sharing can link them too; `different` hold another value and are
+/// never linked. Names only.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharePreview {
     copies: Vec<Usage>,
+    different: Vec<Usage>,
 }
 
 fn now_ms() -> u64 {
@@ -240,25 +242,32 @@ pub async fn share_preview(state: State<'_, AppState>, environment_id: Uuid, key
                 Some(Entry::Secret(_)) => return Err(CmdError::other(format!("{key} is already shared."))),
                 None => return Err(CmdError::other(format!("{key} isn't set."))),
             };
-            let copies = snapshot
-                .environments()
-                .filter(|e| e.id != environment_id && e.value(&key) == Some(value.as_str()))
-                .map(|e| snapshot.usage(e, &key))
-                .collect();
-            Ok(SharePreview { copies })
+            let (mut copies, mut different) = (Vec::new(), Vec::new());
+            for e in snapshot.environments().filter(|e| e.id != environment_id) {
+                match e.value(&key) {
+                    Some(v) if v == value => copies.push(snapshot.usage(e, &key)),
+                    Some(_) => different.push(snapshot.usage(e, &key)),
+                    None => {}
+                }
+            }
+            let order = |a: &Usage, b: &Usage| (&a.project, &a.environment).cmp(&(&b.project, &b.environment));
+            copies.sort_by(order);
+            different.sort_by(order);
+            Ok(SharePreview { copies, different })
         })
         .await
 }
 
-/// Turns a variable into a shared secret, linking it here and, if asked, in
-/// the environments listed by `share_preview`.
+/// Turns a variable into a shared secret, linking it here and in the chosen
+/// environments from `share_preview`'s copies. An environment in `link` is
+/// only linked if it still holds the same value.
 #[tauri::command]
 pub async fn share_variable(
     state: State<'_, AppState>,
     environment_id: Uuid,
     key: String,
     name: String,
-    link_copies: bool,
+    link: Vec<Uuid>,
 ) -> CmdResult<SecretView> {
     let name = name.trim().to_string();
     if name.is_empty() {
@@ -275,15 +284,11 @@ pub async fn share_variable(
             let secret = Secret::new(name, value.clone(), s.stamp()?);
             let vault = s.vault()?;
             vault.put(Record::Secret(secret.clone()))?;
-            let copies: Vec<Environment> = if link_copies {
-                Snapshot::take(s)?
-                    .environments()
-                    .filter(|e| e.id != environment_id && e.value(&key) == Some(value.as_str()))
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let copies: Vec<Environment> = Snapshot::take(s)?
+                .environments()
+                .filter(|e| e.id != environment_id && link.contains(&e.id) && e.value(&key) == Some(value.as_str()))
+                .cloned()
+                .collect();
             env.link(&key, secret.id, s.stamp()?);
             vault.put(Record::Environment(env))?;
             for mut copy in copies {

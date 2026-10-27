@@ -322,9 +322,10 @@ export const api = {
   revealSecret: (id: string) => call<string>("reveal_secret", { id }),
   copySecret: (id: string) => call<void>("copy_secret", { id }),
   sharePreview: (environmentId: string, key: string) =>
-    call<{ copies: Usage[] }>("share_preview", { environmentId, key }),
-  shareVariable: (environmentId: string, key: string, name: string, linkCopies: boolean) =>
-    call<SecretView>("share_variable", { environmentId, key, name, linkCopies }),
+    call<{ copies: Usage[]; different: Usage[] }>("share_preview", { environmentId, key }),
+  /** `link`: environment ids from the preview's copies to link as well. */
+  shareVariable: (environmentId: string, key: string, name: string, link: string[]) =>
+    call<SecretView>("share_variable", { environmentId, key, name, link }),
   linkVariable: (environmentId: string, key: string, secretId: string) =>
     call<void>("link_variable", { environmentId, key, secretId }),
   unlinkVariable: (environmentId: string, key: string) => call<void>("unlink_variable", { environmentId, key }),

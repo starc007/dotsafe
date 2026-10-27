@@ -53,6 +53,7 @@ addProject("my-api", {
     STRIPE_SECRET_KEY: "sk_test_51Nx8abc",
     JWT_SECRET: "dev-secret-change-me",
   },
+  staging: { DATABASE_URL: "postgres://localhost:5432/app" },
   production: { DATABASE_URL: "postgres://prod.example.com/app" },
 });
 addProject("marketing-site", { development: {} });
@@ -756,18 +757,19 @@ export function installMockBackend() {
           return null;
         case "share_preview": {
           const value = env(a.environmentId).vars.get(a.key);
+          const usage = (e: Env) => ({ projectId: e.projectId, project: projects.get(e.projectId), environmentId: e.id, environment: e.name, key: a.key });
+          const others = [...envs.values()].filter((e) => e.id !== a.environmentId && e.vars.has(a.key) && !e.vars.get(a.key)!.startsWith(LINK));
           return {
-            copies: [...envs.values()]
-              .filter((e) => e.id !== a.environmentId && e.vars.get(a.key) === value)
-              .map((e) => ({ projectId: e.projectId, project: projects.get(e.projectId), environmentId: e.id, environment: e.name, key: a.key })),
+            copies: others.filter((e) => e.vars.get(a.key) === value).map(usage),
+            different: others.filter((e) => e.vars.get(a.key) !== value).map(usage),
           };
         }
         case "share_variable": {
           const e = env(a.environmentId);
           const value = e.vars.get(a.key) ?? fail("other", `${a.key} isn't set.`);
           const sid = addSecret((raw as { name: string }).name, value, 0);
-          if ((raw as { linkCopies: boolean }).linkCopies)
-            for (const other of envs.values()) if (other.vars.get(a.key) === value) other.vars.set(a.key, LINK + sid);
+          for (const other of envs.values())
+            if ((raw as { link: string[] }).link.includes(other.id) && other.vars.get(a.key) === value) other.vars.set(a.key, LINK + sid);
           e.vars.set(a.key, LINK + sid);
           return secretView(secret(sid));
         }
