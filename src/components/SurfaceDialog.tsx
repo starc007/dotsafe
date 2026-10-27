@@ -30,7 +30,13 @@ export function SurfaceDialog({
         showCloseButton={false}
         // Without a description, tell Radix there's nothing to describe it.
         {...(!description && { "aria-describedby": undefined })}
-        className={cn("block gap-0 rounded-3xl border-0 bg-shell p-1.5 shadow-2xl ring-0 sm:max-w-md", className)}
+        // Pinned near the top, not centred, and zooming in from its top edge:
+        // content that loads or changes height after opening grows downward,
+        // and the opening animation doesn't make the dialog rise into place.
+        className={cn(
+          "top-[12vh] block max-h-[80vh] origin-top translate-y-0 gap-0 overflow-y-auto rounded-3xl border-0 bg-shell p-1.5 shadow-2xl ring-0 sm:max-w-md",
+          className,
+        )}
       >
         <SurfaceHeader
           icon={icon}
