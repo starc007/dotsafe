@@ -76,6 +76,8 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
   const sid = addSecret("STRIPE_SECRET_KEY", "sk_test_51Nx8abc", 120, 90);
   for (const e of envs.values()) if (projects.get(e.projectId) === "my-api") e.vars.set("STRIPE_SECRET_KEY", LINK + sid);
 }
+// `?integrity` makes the integrity checks report problems.
+const integrity = new URLSearchParams(location.search).has("integrity");
 // Devices. `?touchid` starts as a Mac set up for Touch ID unlock.
 let touchIdUnlock = new URLSearchParams(location.search).has("touchid");
 const mockDevices = [
@@ -362,6 +364,21 @@ export function installMockBackend() {
               const sid = linkOf(v);
               return { key, secret: sid ? { id: sid, name: secrets.get(sid)?.name ?? "Deleted secret" } : null };
             });
+        case "all_variables":
+          return [...envs.values()]
+            .flatMap((e) =>
+              [...e.vars].map(([key, v]) => ({
+                projectId: e.projectId,
+                project: projects.get(e.projectId)!,
+                environmentId: e.id,
+                environment: e.name,
+                key,
+                linked: !!linkOf(v),
+              })),
+            )
+            .sort((x, y) => x.project.localeCompare(y.project) || x.environment.localeCompare(y.environment) || x.key.localeCompare(y.key));
+        case "vault_health":
+          return integrity ? { stale: 1, unreadable: 2 } : { stale: 0, unreadable: 0 };
         case "reveal_variable":
           return resolve(env(a.environmentId).vars.get(a.key)) ?? fail("other", `${a.key} isn't set.`);
         case "list_secrets":
