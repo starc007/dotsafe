@@ -2,6 +2,7 @@ mod broker;
 mod commands;
 mod devices;
 mod import;
+mod integrations;
 mod licensing;
 mod presence;
 mod secrets;
@@ -94,6 +95,17 @@ pub fn run() {
             secrets::restore_secret_version,
             secrets::update_secret_settings,
             secrets::delete_secret,
+            integrations::list_services,
+            integrations::list_connections,
+            integrations::add_connection,
+            integrations::remove_connection,
+            integrations::secret_integrations,
+            integrations::set_secret_provider,
+            integrations::add_secret_target,
+            integrations::remove_secret_target,
+            integrations::rotate_with_provider,
+            integrations::push_secret,
+            integrations::revoke_previous_with_provider,
             devices::unlock_with_touch_id,
             devices::set_touch_id_unlock,
             devices::list_devices,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Check, Copy, Eye, EyeOff, History, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
-import { api, message, type SecretDetail, type VersionState } from "@/lib/api";
+import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap"
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Field } from "@/components/Field";
 import { IconButton } from "@/components/IconButton";
+import { SecretIntegrationsSection, reportPushes } from "@/components/SecretIntegrationsSection";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
 
@@ -51,6 +52,7 @@ export function SecretDialog({
   onOpenEnvironment: (projectId: string, environmentId: string) => void;
 }) {
   const [secret, setSecret] = useState<SecretDetail | null>(null);
+  const [integrations, setIntegrations] = useState<SecretIntegrations | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -62,7 +64,9 @@ export function SecretDialog({
   const load = useCallback(async () => {
     if (!secretId) return;
     try {
-      setSecret(await api.getSecret(secretId));
+      const [detail, links] = await Promise.all([api.getSecret(secretId), api.secretIntegrations(secretId)]);
+      setSecret(detail);
+      setIntegrations(links);
       setError(null);
     } catch (e) {
       setError(message(e));
@@ -72,6 +76,7 @@ export function SecretDialog({
   useEffect(() => {
     if (!open) return;
     setSecret(null);
+    setIntegrations(null);
     setRevealed(null);
     setMode("idle");
     load();
@@ -87,6 +92,7 @@ export function SecretDialog({
       setRevealed(null);
       if (success) toast.success(success);
       onChanged();
+      load();
       return true;
     } catch (e) {
       toast.error(message(e));
@@ -121,6 +127,46 @@ export function SecretDialog({
   }
 
   const uses = secret?.usedIn.length ?? 0;
+  const provider = integrations?.provider ?? null;
+
+  /** After a value goes live by hand, push it to the targets too. */
+  async function pushIfTargets() {
+    if (!secret || !integrations?.targets.length) return;
+    try {
+      reportPushes(await api.pushSecret(secret.id));
+      load();
+    } catch (e) {
+      toast.error(message(e));
+    }
+  }
+
+  async function rotateWithProvider(leaked: boolean) {
+    if (!secret || !provider) return;
+    setBusy(leaked ? "leaked" : "provider");
+    try {
+      const out = await api.rotateWithProvider(secret.id, leaked);
+      if (!out.promoted) {
+        toast.error(`The new key from ${provider.connectionName} didn't pass its check`, {
+          description: `${out.checkFailed} It's saved as staged; nothing uses it yet.`,
+        });
+      } else {
+        toast.success(
+          out.revokedOld
+            ? `${secret.name} has a new key and the old one is revoked`
+            : `${secret.name} has a new key from ${provider.connectionName}`,
+          out.checkFailed ? { description: `The check failed (${out.checkFailed}), but the old key had already stopped working.` } : undefined,
+        );
+      }
+      reportPushes(out.pushes);
+      setMode("idle");
+      onChanged();
+      load();
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <>
@@ -170,9 +216,20 @@ export function SecretDialog({
 
             <RotationSection
               secret={secret}
+              provider={provider}
               mode={mode}
               busy={busy}
               onMode={setMode}
+              onProviderRotate={rotateWithProvider}
+              onRevoke={() =>
+                act(
+                  "retire",
+                  async () => {
+                    await api.revokePreviousWithProvider(secret.id);
+                  },
+                  `Revoked the old key at ${provider?.connectionName}`,
+                )
+              }
               onStage={(value, note) =>
                 act("stage", () => api.stageSecret(secret.id, value, note), "New value staged").then(
                   (ok) => ok && setMode("idle"),
@@ -183,12 +240,30 @@ export function SecretDialog({
                   "leaked",
                   () => api.rotateLeakedSecret(secret.id, value),
                   `${secret.name} replaced everywhere. Revoke the leaked value with its provider now.`,
-                ).then((ok) => ok && setMode("idle"))
+                ).then((ok) => {
+                  if (!ok) return;
+                  setMode("idle");
+                  pushIfTargets();
+                })
               }
-              onPromote={() => act("promote", () => api.promoteSecret(secret.id), `${secret.name} now uses the new value`)}
+              onPromote={() =>
+                act("promote", () => api.promoteSecret(secret.id), `${secret.name} now uses the new value`).then((ok) => {
+                  if (ok) pushIfTargets();
+                })
+              }
               onCancel={() => act("cancel", () => api.cancelStagedSecret(secret.id), "Staged value discarded")}
               onRollBack={() => act("rollback", () => api.rollBackSecret(secret.id), "Back to the previous value")}
               onRetire={() => act("retire", () => api.retirePreviousSecret(secret.id), "Previous value retired")}
+            />
+
+            <SecretIntegrationsSection
+              secretId={secret.id}
+              secretName={secret.name}
+              integrations={integrations}
+              onChanged={() => {
+                load();
+                onChanged();
+              }}
             />
 
             <section aria-labelledby="used-in-title" className="flex flex-col gap-2">
@@ -295,9 +370,12 @@ export function SecretDialog({
 
 function RotationSection({
   secret,
+  provider,
   mode,
   busy,
   onMode,
+  onProviderRotate,
+  onRevoke,
   onStage,
   onLeaked,
   onPromote,
@@ -306,9 +384,12 @@ function RotationSection({
   onRetire,
 }: {
   secret: SecretDetail;
+  provider: SecretIntegrations["provider"];
   mode: Mode;
   busy: string | null;
   onMode: (mode: Mode) => void;
+  onProviderRotate: (leaked: boolean) => void;
+  onRevoke: () => void;
   onStage: (value: string | null, note: string | null) => void;
   onLeaked: (value: string | null) => void;
   onPromote: () => void;
@@ -316,6 +397,22 @@ function RotationSection({
   onRollBack: () => void;
   onRetire: () => void;
 }) {
+  if (mode === "leaked" && provider) {
+    return (
+      <Banner
+        title="Replace a leaked key"
+        body={`dotsafe gets a new key from ${provider.connectionName}, makes it live everywhere, and revokes the leaked one straight away.`}
+      >
+        <Button variant="ghost" onClick={() => onMode("idle")} disabled={busy !== null}>
+          Cancel
+        </Button>
+        <Button variant="destructive" onClick={() => onProviderRotate(true)} disabled={busy !== null}>
+          {busy === "leaked" && <Spinner />}
+          Replace and revoke now
+        </Button>
+      </Banner>
+    );
+  }
   if (mode !== "idle") {
     return <RotateForm leaked={mode === "leaked"} busy={busy} onCancel={() => onMode("idle")} onStage={onStage} onLeaked={onLeaked} />;
   }
@@ -340,15 +437,19 @@ function RotationSection({
     return (
       <Banner
         title="The previous value is still valid"
-        body="Once nothing uses it, revoke it with its provider and mark it retired here."
+        body={
+          provider
+            ? `Once nothing uses it, revoke it at ${provider.connectionName}.`
+            : "Once nothing uses it, revoke it with its provider and mark it retired here."
+        }
       >
         <Button variant="ghost" onClick={onRollBack} disabled={busy !== null}>
           {busy === "rollback" && <Spinner />}
           Roll back
         </Button>
-        <Button variant="outline" onClick={onRetire} disabled={busy !== null}>
+        <Button variant="outline" onClick={provider ? onRevoke : onRetire} disabled={busy !== null}>
           {busy === "retire" && <Spinner />}
-          Mark retired
+          {provider ? "Revoke old key" : "Mark retired"}
         </Button>
       </Banner>
     );
@@ -359,10 +460,22 @@ function RotationSection({
         <ShieldAlert aria-hidden />
         It leaked…
       </Button>
-      <Button onClick={() => onMode("rotate")}>
-        <RotateCcw aria-hidden />
-        Rotate…
-      </Button>
+      {provider ? (
+        <>
+          <Button variant="ghost" onClick={() => onMode("rotate")} disabled={busy !== null}>
+            Type a value…
+          </Button>
+          <Button onClick={() => onProviderRotate(false)} disabled={busy !== null}>
+            {busy === "provider" ? <Spinner /> : <RotateCcw aria-hidden />}
+            New key from {provider.connectionName}
+          </Button>
+        </>
+      ) : (
+        <Button onClick={() => onMode("rotate")}>
+          <RotateCcw aria-hidden />
+          Rotate…
+        </Button>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { DragRegion } from "@/components/DragRegion";
 import { LicenseCard } from "@/components/LicenseCard";
 import { AgentSettings } from "@/components/settings/AgentSettings";
 import { DeviceSettings } from "@/components/settings/DeviceSettings";
+import { IntegrationSettings } from "@/components/settings/IntegrationSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { SecuritySettings } from "@/components/settings/SecuritySettings";
 import { ShortcutsSettings } from "@/components/settings/ShortcutsSettings";
@@ -104,6 +105,7 @@ export function SettingsPage({
                 {section === "appearance" && <AppearanceSettings />}
                 {section === "security" && <SecuritySettings settings={settings} onLock={onLock} onChanged={load} />}
                 {section === "devices" && <DeviceSettings />}
+                {section === "integrations" && <IntegrationSettings />}
                 {section === "agents" && <AgentSettings />}
                 {section === "shortcuts" && <ShortcutsSettings />}
                 <p className="pt-2 text-center text-xs text-muted-foreground">dotsafe {settings.version}</p>

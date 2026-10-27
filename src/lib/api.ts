@@ -46,6 +46,59 @@ export type VaultHealth = {
   unreadable: number;
 };
 
+/** A setting a service needs. */
+export type ServiceField = { key: string; label: string; hint: string; required: boolean };
+/** Something dotsafe can connect to: a provider that issues keys, or a deploy target. */
+export type ServiceView = {
+  id: string;
+  label: string;
+  kind: "provider" | "target";
+  tokenHelp: string;
+  connectionFields: ServiceField[];
+  bindingFields: ServiceField[];
+  /** Providers: the old key keeps working until it's revoked. */
+  overlap: boolean;
+};
+/** A connected account. Its admin token never leaves Rust. */
+export type ConnectionView = {
+  id: string;
+  service: string;
+  serviceLabel: string;
+  kind: "provider" | "target";
+  name: string;
+  settings: Record<string, string>;
+  usedBy: number;
+};
+export type SecretIntegrations = {
+  provider: {
+    connectionId: string;
+    connectionName: string;
+    serviceLabel: string;
+    settings: Record<string, string>;
+    overlap: boolean;
+  } | null;
+  targets: {
+    id: string;
+    connectionId: string;
+    connectionName: string;
+    serviceLabel: string;
+    name: string;
+    settings: Record<string, string>;
+    pushedAt: number | null;
+    /** The last push matches the current value. */
+    upToDate: boolean;
+  }[];
+};
+export type PushView = { name: string; connection: string; error: string | null };
+export type RotationView = {
+  /** Why the new key failed its check. */
+  checkFailed: string | null;
+  /** The new key is live (false: it was left staged). */
+  promoted: boolean;
+  revokedOld: boolean;
+  pushes: PushView[];
+};
+
 export type Due = "no_policy" | "ok" | "soon" | "overdue";
 export type Usage = { projectId: string; project: string; environmentId: string; environment: string; key: string };
 export type SecretView = {
@@ -263,6 +316,22 @@ export const api = {
   revokeAgentGrants: () => call<void>("revoke_agent_grants"),
   /** Turning it off asks for Touch ID first. */
   setAgentApprovalAuth: (required: boolean) => call<void>("set_agent_approval_auth", { required }),
+  listServices: () => call<ServiceView[]>("list_services"),
+  listConnections: () => call<ConnectionView[]>("list_connections"),
+  addConnection: (serviceId: string, name: string, settings: Record<string, string>, token: string) =>
+    call<void>("add_connection", { serviceId, name, settings, token }),
+  removeConnection: (id: string) => call<void>("remove_connection", { id }),
+  secretIntegrations: (secretId: string) => call<SecretIntegrations>("secret_integrations", { secretId }),
+  /** `connectionId: null` removes the provider. */
+  setSecretProvider: (secretId: string, connectionId: string | null, settings: Record<string, string>) =>
+    call<void>("set_secret_provider", { secretId, connectionId, settings }),
+  addSecretTarget: (secretId: string, connectionId: string, name: string, settings: Record<string, string>) =>
+    call<void>("add_secret_target", { secretId, connectionId, name, settings }),
+  removeSecretTarget: (secretId: string, targetId: string) => call<void>("remove_secret_target", { secretId, targetId }),
+  rotateWithProvider: (secretId: string, leaked: boolean) => call<RotationView>("rotate_with_provider", { secretId, leaked }),
+  pushSecret: (secretId: string) => call<PushView[]>("push_secret", { secretId }),
+  /** Revokes the previous key at the provider, then retires it. */
+  revokePreviousWithProvider: (secretId: string) => call<number>("revoke_previous_with_provider", { secretId }),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),
