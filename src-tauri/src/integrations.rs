@@ -1,0 +1,467 @@
+//! Integrations: connected accounts, each secret's provider and push
+//! targets, and rotation through them.
+//!
+//! Admin tokens go in once, when connecting, and are kept as shared secrets;
+//! they never come back to the webview. Calls to the services run with the
+//! shared vault off the session lock, like background sync, so a slow
+//! provider never freezes the app.
+
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
+
+use dotsafe_core::{Binding, Connection, ProviderLink, Record, Secret, Target, Vault, crypto};
+use dotsafe_integrations::rotate::{self, PushResult};
+use dotsafe_integrations::{Client, Kind, SERVICES, check_settings, service};
+use serde::Serialize;
+use tauri::State;
+use uuid::Uuid;
+use zeroize::Zeroizing;
+
+use crate::state::{AppState, CmdError, CmdResult, Session};
+
+impl From<dotsafe_integrations::Error> for CmdError {
+    fn from(e: dotsafe_integrations::Error) -> Self {
+        match e {
+            dotsafe_integrations::Error::Vault(e) => e.into(),
+            dotsafe_integrations::Error::Unreachable(service) => CmdError {
+                kind: crate::state::ErrorKind::Offline,
+                message: format!("Couldn't reach {service}. Check your connection and try again."),
+            },
+            e => CmdError::other(capitalized(&e.to_string())),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldView {
+    key: &'static str,
+    label: &'static str,
+    hint: &'static str,
+    required: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceView {
+    id: &'static str,
+    label: &'static str,
+    /// `provider` or `target`.
+    kind: &'static str,
+    token_help: &'static str,
+    connection_fields: Vec<FieldView>,
+    binding_fields: Vec<FieldView>,
+    /// Providers: the old key keeps working until it's revoked.
+    overlap: bool,
+}
+
+fn fields(fields: &[dotsafe_integrations::Field]) -> Vec<FieldView> {
+    fields.iter().map(|f| FieldView { key: f.key, label: f.label, hint: f.hint, required: f.required }).collect()
+}
+
+fn kind(k: Kind) -> &'static str {
+    match k {
+        Kind::Provider => "provider",
+        Kind::Target => "target",
+    }
+}
+
+/// What dotsafe can connect to.
+#[tauri::command]
+pub async fn list_services() -> Vec<ServiceView> {
+    SERVICES
+        .iter()
+        .map(|s| ServiceView {
+            id: s.id,
+            label: s.label,
+            kind: kind(s.kind),
+            token_help: s.token_help,
+            connection_fields: fields(s.connection_fields),
+            binding_fields: fields(s.binding_fields),
+            overlap: s.overlap,
+        })
+        .collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionView {
+    id: Uuid,
+    service: String,
+    service_label: &'static str,
+    kind: &'static str,
+    name: String,
+    settings: BTreeMap<String, String>,
+    /// How many secrets use it, as a provider or a target.
+    used_by: usize,
+}
+
+fn connections(records: &[Record]) -> Vec<&Connection> {
+    records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Connection(c) if !c.deleted => Some(c),
+            _ => None,
+        })
+        .collect()
+}
+
+fn bindings(records: &[Record]) -> impl Iterator<Item = &Binding> {
+    records.iter().filter_map(|r| match r {
+        Record::Binding(b) => Some(b),
+        _ => None,
+    })
+}
+
+fn uses(binding: &Binding, connection: Uuid) -> bool {
+    binding.provider.as_ref().is_some_and(|p| p.connection == connection)
+        || binding.targets().any(|(_, t)| t.connection == connection)
+}
+
+/// Connected accounts. Names and settings only; tokens stay in Rust.
+#[tauri::command]
+pub async fn list_connections(state: State<'_, AppState>) -> CmdResult<Vec<ConnectionView>> {
+    state
+        .run(|s| {
+            let records = s.vault()?.list()?;
+            let mut views: Vec<ConnectionView> = connections(&records)
+                .into_iter()
+                .map(|c| {
+                    let svc = service(&c.service).ok();
+                    ConnectionView {
+                        id: c.id,
+                        service: c.service.clone(),
+                        service_label: svc.map_or("Unknown", |s| s.label),
+                        kind: svc.map_or("provider", |s| kind(s.kind)),
+                        name: c.name.clone(),
+                        settings: c.settings.clone(),
+                        used_by: bindings(&records).filter(|b| uses(b, c.id)).count(),
+                    }
+                })
+                .collect();
+            views.sort_by_key(|v| v.name.to_lowercase());
+            Ok(views)
+        })
+        .await
+}
+
+/// Connects an account. The token is stored as a shared secret.
+#[tauri::command]
+pub async fn add_connection(
+    state: State<'_, AppState>,
+    service_id: String,
+    name: String,
+    settings: BTreeMap<String, String>,
+    token: String,
+) -> CmdResult<()> {
+    let token = Zeroizing::new(token.trim().to_string());
+    let name = name.trim().to_string();
+    let svc = service(&service_id)?;
+    let settings = trimmed(settings);
+    check_settings(svc.connection_fields, &settings)?;
+    if name.is_empty() {
+        return Err(CmdError::other("Give the connection a name."));
+    }
+    if token.is_empty() {
+        return Err(CmdError::other("Paste the admin token."));
+    }
+    state
+        .run(move |s| {
+            let vault = s.vault()?;
+            if connections(&vault.list()?).iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
+                return Err(CmdError::other(format!("A connection named {name} already exists.")));
+            }
+            let credential = Secret::new(format!("{name} admin token"), token.as_str(), s.stamp()?);
+            vault.put(Record::Secret(credential.clone()))?;
+            vault.put(Record::Connection(Connection::new(svc.id, &name, credential.id, settings, s.stamp()?)))?;
+            Ok(())
+        })
+        .await
+}
+
+/// Removes a connection nothing uses, and deletes its stored token.
+#[tauri::command]
+pub async fn remove_connection(state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let vault = s.vault()?;
+            let records = vault.list()?;
+            let Some(mut connection) = connections(&records).into_iter().find(|c| c.id == id).cloned() else {
+                return Err(CmdError::other("That connection was already removed."));
+            };
+            if bindings(&records).any(|b| uses(b, id)) {
+                return Err(CmdError::other(format!(
+                    "Secrets still use {}. Remove it from them first.",
+                    connection.name
+                )));
+            }
+            connection.deleted = true;
+            connection.updated = s.stamp()?;
+            let credential = connection.credential;
+            vault.put(Record::Connection(connection))?;
+            if let Some(Record::Secret(mut token)) = vault.get(credential)? {
+                token.delete(s.stamp()?);
+                vault.put(Record::Secret(token))?;
+            }
+            Ok(())
+        })
+        .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderView {
+    connection_id: Uuid,
+    connection_name: String,
+    service_label: &'static str,
+    settings: BTreeMap<String, String>,
+    /// The old key keeps working until revoked.
+    overlap: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetView {
+    id: Uuid,
+    connection_id: Uuid,
+    connection_name: String,
+    service_label: &'static str,
+    name: String,
+    settings: BTreeMap<String, String>,
+    pushed_at: Option<u64>,
+    /// The last push matches the current value.
+    up_to_date: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretIntegrations {
+    provider: Option<ProviderView>,
+    targets: Vec<TargetView>,
+}
+
+/// A secret's provider and targets. Never values: up-to-date is decided
+/// here, from fingerprints.
+#[tauri::command]
+pub async fn secret_integrations(state: State<'_, AppState>, secret_id: Uuid) -> CmdResult<SecretIntegrations> {
+    state
+        .run(move |s| {
+            let records = s.vault()?.list()?;
+            let by_id: HashMap<Uuid, &Connection> = connections(&records).into_iter().map(|c| (c.id, c)).collect();
+            let label = |c: &Connection| service(&c.service).map_or("Unknown", |s| s.label);
+            let binding = bindings(&records).find(|b| b.secret == secret_id);
+            let current = records
+                .iter()
+                .find_map(|r| match r {
+                    Record::Secret(secret) if secret.id == secret_id => secret.current_value().map(crypto::fingerprint),
+                    _ => None,
+                });
+            let provider = binding.and_then(|b| b.provider.as_ref()).and_then(|p| {
+                let c = by_id.get(&p.connection)?;
+                Some(ProviderView {
+                    connection_id: c.id,
+                    connection_name: c.name.clone(),
+                    service_label: label(c),
+                    settings: p.settings.clone(),
+                    overlap: service(&c.service).is_ok_and(|s| s.overlap),
+                })
+            });
+            let mut targets: Vec<TargetView> = binding
+                .into_iter()
+                .flat_map(|b| b.targets())
+                .map(|(id, t)| {
+                    let c = by_id.get(&t.connection);
+                    TargetView {
+                        id,
+                        connection_id: t.connection,
+                        connection_name: c.map_or_else(|| "Removed connection".into(), |c| c.name.clone()),
+                        service_label: c.map_or("Unknown", |c| label(c)),
+                        name: t.name.clone(),
+                        settings: t.settings.clone(),
+                        pushed_at: t.pushed.as_ref().map(|p| p.at),
+                        up_to_date: t.pushed.as_ref().is_some_and(|p| Some(&p.sha256) == current.as_ref()),
+                    }
+                })
+                .collect();
+            targets.sort_by(|a, b| (&a.connection_name, &a.name).cmp(&(&b.connection_name, &b.name)));
+            Ok(SecretIntegrations { provider, targets })
+        })
+        .await
+}
+
+fn binding_for(s: &Session, secret: Uuid) -> CmdResult<Binding> {
+    Ok(match s.vault()?.get(Binding::id_for(secret))? {
+        Some(Record::Binding(b)) => b,
+        _ => Binding::new(secret, s.stamp()?),
+    })
+}
+
+fn connection_of(s: &Session, id: Uuid, want: Kind) -> CmdResult<Connection> {
+    let connection = match s.vault()?.get(id)? {
+        Some(Record::Connection(c)) if !c.deleted => c,
+        _ => return Err(CmdError::other("That connection was removed.")),
+    };
+    if service(&connection.service)?.kind != want {
+        return Err(CmdError::other(match want {
+            Kind::Provider => format!("{} is a deploy target, not a provider.", connection.name),
+            Kind::Target => format!("{} is a provider, not a deploy target.", connection.name),
+        }));
+    }
+    Ok(connection)
+}
+
+/// Sets or clears (`connection_id: null`) the provider a secret's values
+/// come from.
+#[tauri::command]
+pub async fn set_secret_provider(
+    state: State<'_, AppState>,
+    secret_id: Uuid,
+    connection_id: Option<Uuid>,
+    settings: BTreeMap<String, String>,
+) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let mut binding = binding_for(s, secret_id)?;
+            binding.provider = match connection_id {
+                Some(id) => {
+                    let connection = connection_of(s, id, Kind::Provider)?;
+                    let settings = trimmed(settings);
+                    check_settings(service(&connection.service)?.binding_fields, &settings)?;
+                    Some(ProviderLink { connection: id, settings })
+                }
+                None => None,
+            };
+            binding.updated = s.stamp()?;
+            s.vault()?.put(Record::Binding(binding))?;
+            Ok(())
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn add_secret_target(
+    state: State<'_, AppState>,
+    secret_id: Uuid,
+    connection_id: Uuid,
+    name: String,
+    settings: BTreeMap<String, String>,
+) -> CmdResult<()> {
+    let name = name.trim().to_string();
+    if !dotsafe_core::is_valid_var_name(&name) {
+        return Err(CmdError::other("Use letters, numbers and underscores, not starting with a number."));
+    }
+    state
+        .run(move |s| {
+            let connection = connection_of(s, connection_id, Kind::Target)?;
+            let settings = trimmed(settings);
+            check_settings(service(&connection.service)?.binding_fields, &settings)?;
+            let mut binding = binding_for(s, secret_id)?;
+            let changed = s.stamp()?;
+            binding
+                .targets
+                .insert(Uuid::new_v4(), Target { connection: connection_id, name, settings, pushed: None, deleted: false, changed });
+            s.vault()?.put(Record::Binding(binding))?;
+            Ok(())
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn remove_secret_target(state: State<'_, AppState>, secret_id: Uuid, target_id: Uuid) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let mut binding = binding_for(s, secret_id)?;
+            let stamp = s.stamp()?;
+            let target = binding.targets.get_mut(&target_id).ok_or_else(|| CmdError::other("That target was already removed."))?;
+            target.deleted = true;
+            target.changed = stamp;
+            s.vault()?.put(Record::Binding(binding))?;
+            Ok(())
+        })
+        .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushView {
+    name: String,
+    connection: String,
+    error: Option<String>,
+}
+
+fn pushes(results: Vec<PushResult>) -> Vec<PushView> {
+    results
+        .into_iter()
+        .map(|r| PushView { name: r.name, connection: r.connection, error: r.error.map(|e| capitalized(&e)) })
+        .collect()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationView {
+    /// Why the new key was left staged (or went live unverified).
+    check_failed: Option<String>,
+    /// The new key is live.
+    promoted: bool,
+    revoked_old: bool,
+    pushes: Vec<PushView>,
+}
+
+/// The shared vault and this device, to work with off the session lock.
+async fn shared(state: &State<'_, AppState>) -> CmdResult<(Arc<Vault>, Uuid)> {
+    state
+        .run(|s| {
+            s.vault()?; // fails with `locked`
+            Ok((s.vault.clone().expect("checked above"), s.config()?.device_id))
+        })
+        .await
+}
+
+async fn off_lock<T: Send + 'static>(f: impl FnOnce() -> dotsafe_integrations::Result<T> + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
+}
+
+/// Gets a new key from the secret's provider and makes it live: saved,
+/// checked, promoted, pushed. With `leaked`, the old key is revoked at once.
+#[tauri::command]
+pub async fn rotate_with_provider(state: State<'_, AppState>, secret_id: Uuid, leaked: bool) -> CmdResult<RotationView> {
+    let (vault, device) = shared(&state).await?;
+    let out = off_lock(move || rotate::rotate(&vault, &Client::new(), device, secret_id, leaked)).await?;
+    Ok(RotationView {
+        check_failed: out.staged,
+        promoted: out.promoted,
+        revoked_old: out.revoked_old,
+        pushes: pushes(out.pushes),
+    })
+}
+
+/// Pushes the current value to every target.
+#[tauri::command]
+pub async fn push_secret(state: State<'_, AppState>, secret_id: Uuid) -> CmdResult<Vec<PushView>> {
+    let (vault, device) = shared(&state).await?;
+    Ok(pushes(off_lock(move || rotate::push(&vault, &Client::new(), device, secret_id)).await?))
+}
+
+/// Revokes the previous key at the provider, then retires it.
+#[tauri::command]
+pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid) -> CmdResult<usize> {
+    let (vault, device) = shared(&state).await?;
+    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id)).await
+}
+
+fn trimmed(settings: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    settings
+        .into_iter()
+        .map(|(k, v)| (k, v.trim().to_string()))
+        .filter(|(_, v)| !v.is_empty())
+        .collect()
+}
+
+fn capitalized(s: &str) -> String {
+    let mut chars = s.chars();
+    let mut out: String = chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default();
+    if !out.ends_with('.') {
+        out.push('.');
+    }
+    out
+}

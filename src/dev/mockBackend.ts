@@ -76,6 +76,79 @@ function addSecret(name: string, value: string, ageDays: number, rotateEveryDays
   const sid = addSecret("STRIPE_SECRET_KEY", "sk_test_51Nx8abc", 120, 90);
   for (const e of envs.values()) if (projects.get(e.projectId) === "my-api") e.vars.set("STRIPE_SECRET_KEY", LINK + sid);
 }
+// Integrations. `?integrations` starts with an OpenAI provider and a Vercel
+// target connected.
+const SERVICES = [
+  {
+    id: "openai",
+    label: "OpenAI",
+    kind: "provider",
+    tokenHelp: "An admin key from platform.openai.com → Organization → Admin keys.",
+    connectionFields: [{ key: "project_id", label: "Project ID", hint: "proj_…, from the project's settings.", required: true }],
+    bindingFields: [],
+    overlap: true,
+  },
+  {
+    id: "cloudflare_token",
+    label: "Cloudflare API token",
+    kind: "provider",
+    tokenHelp: 'A Cloudflare API token with the "API Tokens: Edit" permission.',
+    connectionFields: [{ key: "account_id", label: "Account ID", hint: "Only for account-owned tokens.", required: false }],
+    bindingFields: [{ key: "token_id", label: "Token ID", hint: "The ID of the token this secret holds.", required: true }],
+    overlap: false,
+  },
+  {
+    id: "vercel",
+    label: "Vercel",
+    kind: "target",
+    tokenHelp: "A Vercel access token from vercel.com/account/tokens.",
+    connectionFields: [{ key: "team_id", label: "Team ID", hint: "team_…, for team projects.", required: false }],
+    bindingFields: [
+      { key: "project", label: "Project", hint: "The project's name or ID.", required: true },
+      { key: "environments", label: "Environments", hint: "Comma-separated. Defaults to all three.", required: false },
+    ],
+    overlap: false,
+  },
+  {
+    id: "cloudflare_workers",
+    label: "Cloudflare Workers",
+    kind: "target",
+    tokenHelp: 'A Cloudflare API token with the "Workers Scripts: Edit" permission.',
+    connectionFields: [{ key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true }],
+    bindingFields: [{ key: "script", label: "Worker", hint: "The Worker's name.", required: true }],
+    overlap: false,
+  },
+];
+type MockConnection = { id: string; service: string; name: string; settings: Record<string, string>; credential: string };
+type MockTarget = { id: string; connectionId: string; name: string; settings: Record<string, string>; pushedValue: string | null; pushedAt: number | null };
+const connections = new Map<string, MockConnection>();
+const bindings = new Map<string, { provider: { connectionId: string; settings: Record<string, string> } | null; targets: MockTarget[] }>();
+function bindingOf(secretId: string) {
+  if (!bindings.has(secretId)) bindings.set(secretId, { provider: null, targets: [] });
+  return bindings.get(secretId)!;
+}
+function addConnection(service: string, name: string, settings: Record<string, string>) {
+  const credential = addSecret(`${name} admin token`, "mock-admin-token", 0);
+  const c = { id: id(), service, name, settings, credential };
+  connections.set(c.id, c);
+  return c;
+}
+if (new URLSearchParams(location.search).has("integrations")) {
+  addConnection("openai", "Acme", { project_id: "proj_123" });
+  addConnection("vercel", "Acme on Vercel", { team_id: "team_1" });
+}
+function pushAll(secretId: string) {
+  const s = secret(secretId);
+  const value = currentOf(s)?.value ?? null;
+  return bindingOf(secretId).targets.map((t) => {
+    const c = connections.get(t.connectionId);
+    if (!c) return { name: t.name, connection: "", error: "That connection was removed." };
+    t.pushedValue = value;
+    t.pushedAt = Date.now();
+    return { name: t.name, connection: c.name, error: null };
+  });
+}
+
 // `?integrity` makes the integrity checks report problems.
 const integrity = new URLSearchParams(location.search).has("integrity");
 // Devices. `?touchid` starts as a Mac set up for Touch ID unlock.
@@ -201,6 +274,8 @@ export function installMockBackend() {
   mockIPC(
     async (cmd, raw) => {
       const a = (raw ?? {}) as Record<string, string>;
+      // Integration commands also take settings maps.
+      const settings = ((raw ?? {}) as { settings?: Record<string, string> }).settings ?? {};
       await new Promise((r) => setTimeout(r, 120));
       const needsUnlock = ![
         "status",
@@ -380,6 +455,98 @@ export function installMockBackend() {
               })),
             )
             .sort((x, y) => x.project.localeCompare(y.project) || x.environment.localeCompare(y.environment) || x.key.localeCompare(y.key));
+        case "list_services":
+          return SERVICES;
+        case "list_connections":
+          return [...connections.values()]
+            .map((c) => {
+              const svc = SERVICES.find((x) => x.id === c.service)!;
+              const usedBy = [...bindings.values()].filter(
+                (b) => b.provider?.connectionId === c.id || b.targets.some((t) => t.connectionId === c.id),
+              ).length;
+              return { id: c.id, service: c.service, serviceLabel: svc.label, kind: svc.kind, name: c.name, settings: c.settings, usedBy };
+            })
+            .sort((x, y) => x.name.localeCompare(y.name));
+        case "add_connection": {
+          const svc = SERVICES.find((x) => x.id === a.serviceId) ?? fail("other", `dotsafe doesn't know ${a.serviceId}`);
+          for (const f of svc.connectionFields) if (f.required && !settings[f.key]?.trim()) fail("other", `${f.label} is required.`);
+          if (!a.token.trim()) fail("other", "Paste the admin token.");
+          if ([...connections.values()].some((c) => c.name.toLowerCase() === a.name.trim().toLowerCase()))
+            fail("other", `A connection named ${a.name.trim()} already exists.`);
+          await delay(300);
+          addConnection(svc.id, a.name.trim(), settings);
+          return null;
+        }
+        case "remove_connection": {
+          const c = connections.get(a.id) ?? fail("other", "That connection was already removed.");
+          const used = [...bindings.values()].some((b) => b.provider?.connectionId === c.id || b.targets.some((t) => t.connectionId === c.id));
+          if (used) fail("other", `Secrets still use ${c.name}. Remove it from them first.`);
+          connections.delete(c.id);
+          secrets.delete(c.credential);
+          return null;
+        }
+        case "secret_integrations": {
+          const b = bindingOf(a.secretId);
+          const current = currentOf(secret(a.secretId))?.value ?? null;
+          const label = (c?: MockConnection) => SERVICES.find((x) => x.id === c?.service)?.label ?? "Unknown";
+          const pc = b.provider ? connections.get(b.provider.connectionId) : undefined;
+          return {
+            provider: b.provider && pc
+              ? { connectionId: pc.id, connectionName: pc.name, serviceLabel: label(pc), settings: b.provider.settings, overlap: SERVICES.find((x) => x.id === pc.service)!.overlap }
+              : null,
+            targets: b.targets.map((t) => {
+              const c = connections.get(t.connectionId);
+              return {
+                id: t.id, connectionId: t.connectionId, connectionName: c?.name ?? "Removed connection", serviceLabel: label(c),
+                name: t.name, settings: t.settings, pushedAt: t.pushedAt, upToDate: t.pushedAt !== null && t.pushedValue === current,
+              };
+            }),
+          };
+        }
+        case "set_secret_provider": {
+          const b = bindingOf(a.secretId);
+          if (a.connectionId) {
+            const c = connections.get(a.connectionId) ?? fail("other", "That connection was removed.");
+            if (SERVICES.find((x) => x.id === c.service)!.kind !== "provider") fail("other", `${c.name} is a deploy target, not a provider.`);
+          }
+          b.provider = a.connectionId ? { connectionId: a.connectionId, settings: settings } : null;
+          return null;
+        }
+        case "add_secret_target": {
+          const c = connections.get(a.connectionId) ?? fail("other", "That connection was removed.");
+          if (SERVICES.find((x) => x.id === c.service)!.kind !== "target") fail("other", `${c.name} is a provider, not a deploy target.`);
+          bindingOf(a.secretId).targets.push({ id: id(), connectionId: c.id, name: a.name, settings: settings, pushedValue: null, pushedAt: null });
+          return null;
+        }
+        case "remove_secret_target": {
+          const b = bindingOf(a.secretId);
+          b.targets = b.targets.filter((t) => t.id !== a.targetId);
+          return null;
+        }
+        case "rotate_with_provider": {
+          const s = secret(a.secretId);
+          const b = bindingOf(a.secretId);
+          const c = (b.provider && connections.get(b.provider.connectionId)) ?? fail("other", `${s.name} has no provider.`);
+          if (s.versions.some((v) => v.state === "pending")) fail("other", `${s.name} already has a staged value; promote or cancel it first.`);
+          await delay(900);
+          const now = Date.now();
+          s.versions.push({ id: id(), value: `sk-mock-${now}`, state: "pending", createdAt: now, changedAt: now, note: `Issued by ${c.name}` });
+          promote(s, now);
+          const overlap = SERVICES.find((x) => x.id === c.service)!.overlap;
+          const revokedOld = a.leaked || !overlap;
+          if (revokedOld) for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: now });
+          return { checkFailed: null, promoted: true, revokedOld, pushes: pushAll(s.id) };
+        }
+        case "push_secret":
+          await delay(500);
+          return pushAll(a.secretId);
+        case "revoke_previous_with_provider": {
+          const s = secret(a.secretId);
+          await delay(500);
+          let n = 0;
+          for (const v of s.versions) if (v.state === "previous") (Object.assign(v, { state: "retired", changedAt: Date.now() }), n++);
+          return n;
+        }
         case "vault_health":
           return integrity ? { stale: 1, unreadable: 2 } : { stale: 0, unreadable: 0 };
         case "reveal_variable":

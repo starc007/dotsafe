@@ -18,7 +18,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::state::{AppState, Session};
-use crate::{broker, commands, devices, secrets};
+use crate::{broker, commands, devices, integrations, secrets};
 
 // Cheap Argon2 settings so tests run fast. Never use these for real vaults.
 const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
@@ -83,6 +83,14 @@ impl Desktop {
                 secrets::delete_secret,
                 devices::list_devices,
                 broker::agent_activity,
+                integrations::list_services,
+                integrations::list_connections,
+                integrations::add_connection,
+                integrations::remove_connection,
+                integrations::secret_integrations,
+                integrations::set_secret_provider,
+                integrations::add_secret_target,
+                integrations::remove_secret_target,
             ])
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -244,6 +252,15 @@ fn listing_commands_never_return_values() {
     );
     let id = secret["id"].clone();
     desktop.ok("stage_secret", json!({ "id": id, "value": "staged-value-must-not-leak-3", "note": "next" }));
+    desktop.ok(
+        "add_connection",
+        json!({ "serviceId": "vercel", "name": "Web", "settings": {}, "token": "token-must-not-leak-5" }),
+    );
+    let web_conn = desktop.ok("list_connections", json!({}))[0]["id"].clone();
+    desktop.ok(
+        "add_secret_target",
+        json!({ "secretId": id, "connectionId": web_conn, "name": "SHARED", "settings": { "project": "web" } }),
+    );
 
     let responses = [
         desktop.ok("list_projects", json!({})),
@@ -259,6 +276,8 @@ fn listing_commands_never_return_values() {
         desktop.ok("status", json!({})),
         desktop.ok("list_devices", json!({})),
         desktop.ok("agent_activity", json!({})),
+        desktop.ok("list_connections", json!({})),
+        desktop.ok("secret_integrations", json!({ "secretId": id })),
     ];
     for response in responses {
         let text = response.to_string();
@@ -438,4 +457,57 @@ fn bucket_forms_are_checked_before_anything_is_contacted() {
     assert_eq!(insecure["message"], "The endpoint must start with https://.");
     let no_key = desktop.err("bucket_has_vault", bucket("https://example.com", " "));
     assert_eq!(no_key["message"], "Enter the access key ID and secret.");
+}
+
+#[test]
+fn connections_providers_and_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "OPENAI_API_KEY", "sk-1");
+    let secret = desktop.ok(
+        "share_variable",
+        json!({ "environmentId": dev, "key": "OPENAI_API_KEY", "name": "OpenAI", "linkCopies": false }),
+    );
+    let id = secret["id"].clone();
+
+    let services = desktop.ok("list_services", json!({}));
+    let ids: Vec<&str> = services.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["openai", "cloudflare_token", "vercel", "cloudflare_workers"]);
+
+    // Settings are checked; the token is required.
+    let add = |service: &str, name: &str, settings: Value, token: &str| {
+        desktop.call("add_connection", json!({ "serviceId": service, "name": name, "settings": settings, "token": token }))
+    };
+    assert_eq!(add("openai", "Acme", json!({}), "t").unwrap_err()["message"], "Project ID is required.");
+    assert_eq!(add("openai", "Acme", json!({ "project_id": "p" }), " ").unwrap_err()["message"], "Paste the admin token.");
+    add("openai", "Acme", json!({ "project_id": "proj_1" }), "admin").unwrap();
+    add("vercel", "Web", json!({}), "vercel").unwrap();
+    assert_eq!(add("vercel", "web", json!({}), "x").unwrap_err()["message"], "A connection named web already exists.");
+    let conns = desktop.ok("list_connections", json!({}));
+    let (acme, web) = (conns[0]["id"].clone(), conns[1]["id"].clone());
+    assert_eq!((conns[0]["kind"].as_str(), conns[1]["kind"].as_str()), (Some("provider"), Some("target")));
+
+    // Providers and targets must be the right kind.
+    let wrong = desktop.err("set_secret_provider", json!({ "secretId": id, "connectionId": web, "settings": {} }));
+    assert_eq!(wrong["message"], "Web is a deploy target, not a provider.");
+    desktop.ok("set_secret_provider", json!({ "secretId": id, "connectionId": acme, "settings": {} }));
+    let target = json!({ "secretId": id, "connectionId": web, "name": "OPENAI_API_KEY", "settings": { "project": "web" } });
+    desktop.ok("add_secret_target", target);
+    let info = desktop.ok("secret_integrations", json!({ "secretId": id }));
+    assert_eq!(info["provider"]["connectionName"], "Acme");
+    assert_eq!(info["provider"]["overlap"], true);
+    assert_eq!(info["targets"][0]["name"], "OPENAI_API_KEY");
+    assert_eq!((info["targets"][0]["pushedAt"].clone(), info["targets"][0]["upToDate"].clone()), (Value::Null, json!(false)));
+    assert_eq!(desktop.ok("list_connections", json!({}))[1]["usedBy"], 1);
+
+    // In-use connections stay until nothing uses them.
+    assert!(desktop.err("remove_connection", json!({ "id": web }))["message"].as_str().unwrap().contains("still use Web"));
+    let target_id = info["targets"][0]["id"].clone();
+    desktop.ok("remove_secret_target", json!({ "secretId": id, "targetId": target_id }));
+    desktop.ok("remove_connection", json!({ "id": web }));
+    desktop.ok("set_secret_provider", json!({ "secretId": id, "connectionId": null, "settings": {} }));
+    assert_eq!(desktop.ok("secret_integrations", json!({ "secretId": id })), json!({ "provider": null, "targets": [] }));
+    let names: Vec<String> = desktop.ok("list_secrets", json!({})).as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_string()).collect();
+    assert_eq!(names, ["Acme admin token", "OpenAI"], "the removed connection's token went with it");
 }
