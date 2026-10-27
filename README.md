@@ -43,6 +43,9 @@ dotsafe secret target add OPENAI_API_KEY --connection web --set project=my-app
 dotsafe secret rotate OPENAI_API_KEY    # new key from OpenAI, live everywhere, pushed to Vercel
 dotsafe secret retire OPENAI_API_KEY    # revokes the old key at OpenAI
 dotsafe secret queue --rotate           # after `device remove`: rotate everything it could read
+dotsafe connect stripe                  # Stripe and Anthropic keys are made in their console; dotsafe checks, pushes and revokes
+dotsafe secret rotate STRIPE_KEY        # opens the steps, asks for the new key, checks it, makes it live
+dotsafe connect aws_iam --set access_key_id=AKIA…   # rotate IAM users' access keys
 ```
 
 **AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
@@ -51,7 +54,7 @@ dotsafe secret queue --rotate           # after `device remove`: rotate everythi
 
 **In the app.** Press ⌘K anywhere to find a variable in any project and copy it, or jump to an environment. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
 
-**Provider rotation.** Connect OpenAI or a Cloudflare API token, and rotating a secret asks the provider for a new key. The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you revoke it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, which are stored in the vault. Set it up in Settings → Integrations, or with `dotsafe connect`.
+**Provider rotation.** Connect OpenAI, a Cloudflare API token or AWS IAM, and rotating a secret asks the provider for a new key. Anthropic and Stripe keys are made in their own console: paste the new one and dotsafe checks it, makes it live and pushes it, then switches the old Anthropic key off (Stripe's is revoked in its dashboard). The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you revoke it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, which are stored in the vault. Set it up in Settings → Integrations, or with `dotsafe connect`.
 
 **After removing a device,** dotsafe lists everything it could still use, in the sidebar and with `dotsafe secret queue`, until each value is rotated. Secrets with a provider rotate in one click. The desktop app also sends a reminder when secrets are due for rotation.
 

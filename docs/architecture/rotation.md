@@ -1,6 +1,6 @@
 # Secrets and rotation
 
-**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5's first slice is implemented: OpenAI and Cloudflare API tokens as providers, Vercel and Cloudflare Workers as push targets, in the CLI and desktop (see [As built (M5, slice 1)](#as-built-m5-slice-1)). Since then: the device-removed rotation queue, audit entries for rotations, pushes and revokes, and due reminders. Still proposed: Anthropic, Stripe, AWS and GitHub Actions, verifying with deploy targets, and drift detection from provider timestamps.
+**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5's first slice is implemented: OpenAI and Cloudflare API tokens as providers, Vercel and Cloudflare Workers as push targets, in the CLI and desktop (see [As built (M5, slice 1)](#as-built-m5-slice-1)). Since then: the device-removed rotation queue, audit entries for rotations, pushes and revokes, due reminders, and slice 2 (Anthropic and Stripe as guided providers, AWS IAM access keys). Still proposed: GitHub Actions secrets (needs libsodium sealed boxes), verifying with deploy targets, and drift detection from provider timestamps.
 
 ## The problem
 
@@ -133,7 +133,18 @@ dotsafe restore STRIPE_SECRET_KEY <version>
   | OpenAI | A project service account (`POST /organization/projects/{id}/service_accounts`); its key is the new value | `GET /models` with the new key | Delete the service account | Yes |
   | Cloudflare API token | Roll it (`PUT …/tokens/{id}/value`) | `GET …/tokens/verify` with the new token | Nothing: rolling ended the old one | No |
 
-  Anthropic's Admin API can disable keys but not create them, and Stripe has no key API, so those stay manual (with a checklist, later). AWS needs SigV4 signing, and GitHub Actions secrets need libsodium sealed boxes, a new primitive that needs a decision first.
+  Slice 2 added:
+
+  | Service | Create | Verify | Revoke | Overlap |
+  |---|---|---|---|---|
+  | Anthropic (guided) | You make it in the Console and paste it | `GET /v1/models` with the new key (`x-api-key`) | Found through the Admin API by its `partial_key_hint` (start and end), then `POST /v1/organizations/api_keys/{id}` with `status: inactive` | Yes |
+  | Stripe (guided) | You make it in the dashboard and paste it | `GET /v1/balance` with the new key | By hand in the dashboard (Stripe has no key API); dotsafe links there, then marks it retired | Yes |
+  | AWS IAM access key | `CreateAccessKey` for the bound IAM user | STS `GetCallerIdentity` signed with the new key, retried while it propagates | `DeleteAccessKey` | Yes |
+
+  - **Guided providers** never create keys; the pasted key goes through the same order as the others (saved staged first, then checked, promoted, pushed). A Stripe connection needs no token, so `connection.credential` is optional.
+  - **AWS** requests are signed with SigV4 (`crates/integrations/src/sigv4.rs`), built on `crypto::hmac_sha256` and `crypto::sha256_hex` in core, and checked against AWS's published example. An AWS secret holds the secret access key; the optional `access_key_id_secret` setting names the shared secret holding `AWS_ACCESS_KEY_ID`, which is rotated, pushed and retired along with it. IAM allows two keys per user, so retire the old key before the next rotation.
+  - **Revoking by hand:** `retire` can be told the old key was revoked in the provider's console (`--by-hand`, "I revoked it"); it's then just marked retired. If dotsafe doesn't know a previous key's id and can't find it, it says so instead of guessing.
+  - **Not checked against the real APIs yet:** Anthropic's Admin API auth header (`x-api-key` is sent; the current reference shows `Authorization: Bearer`), and AWS end to end.
 - **Targets:** Vercel (`POST /v10/projects/{p}/env?upsert=true`, type `encrypted`) and Cloudflare Workers (`PUT /accounts/{a}/workers/scripts/{s}/secrets`).
 - **The flow, in this order:** create → **save the new key as staged at once** (so a crash never loses the only working key) → verify → promote → push to every target → with `leaked`, or for a provider without overlap, revoke and retire the old key. If verification fails and the provider has overlap, the key stays staged and nothing else changes. Without overlap it goes live anyway, because the old key is already dead. `retire` revokes the previous versions' keys at the provider before marking them retired, and stops at the first failure.
 - **Pushes** also happen on manual promote and on demand. Each target records the SHA-256 of what was pushed, so the UI can show "out of date" without reading anything back.

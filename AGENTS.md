@@ -12,7 +12,7 @@ dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets 
 crates/core   Vault format, crypto, merge/sync, config, storage (store.rs). Shared by app and CLI.
 crates/agent  Agent access: broker protocol, local socket, refusal policy, redaction, runner. `dotsafe mcp` (CLI) and the broker (desktop) use it.
 crates/stores Network storage backends (S3/R2) and `open(config)`, which picks the right store and reads keys from the keychain.
-crates/integrations Provider key rotation (OpenAI, Cloudflare tokens) and deploy-target pushes (Vercel, Cloudflare Workers): the HTTP client and the rotate/retire/push flow.
+crates/integrations Provider key rotation (OpenAI, Cloudflare tokens, AWS IAM; Anthropic and Stripe guided) and deploy-target pushes (Vercel, Cloudflare Workers): the HTTP client, AWS SigV4 signing, and the rotate/retire/push flow.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
 src-tauri     Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them).
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
@@ -60,6 +60,7 @@ scripts/check.sh                                    # everything below, in one g
 - **Format changes need a version bump.** Any change to `vault.json`, `head.json` or record files needs a `HEADER_VERSION`/record version (`Record::min_version`)/`HEAD_VERSION` bump, an upgrade path from the previous version, and a matching update to `docs/vault-format.md`.
 - **Vaults go through `Store`.** `crates/core/src/vault.rs` never touches the filesystem directly; backends implement `Store` (`store.rs`). Writes use conditional puts and merge-and-retry.
 - **Network code stays out of core.** `crates/core` has no HTTP client; S3 lives in `crates/stores`. `CachedStore` (core) wraps any remote and must never hold its index lock across network calls.
+- **Request signing uses core's primitives.** AWS SigV4 lives in `crates/integrations/src/sigv4.rs` but only arranges the request; HMAC-SHA256 and SHA-256 come from `crypto::hmac_sha256` / `crypto::sha256_hex`. Keep its test against AWS's published example passing.
 - **Integrations call services only from `crates/integrations`.** Every request is HTTPS with redirects off, and settings go into URLs as encoded path segments. Admin tokens are shared secrets in the vault; they go into the webview once (when connecting) and never come back. A provider's new key is saved to the vault before it's verified, pushed or anything is revoked, so a failure never loses the only working key. Test against a local fake with `Client::with_base_for_tests`; never let config or the environment change where requests go.
 - **Storage keys live in the OS keychain** (`dotsafe_stores::save_credentials`), never in `config.json`, the vault, or the webview.
 - **Keep AAD bindings.** Wrapped keys and records are bound to the vault id and their own id via AAD. Keep it that way.
