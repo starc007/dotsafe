@@ -99,6 +99,7 @@ pub fn run() {
             secrets::list_secrets,
             secrets::get_secret,
             secrets::reveal_secret,
+            secrets::generate_secret_value,
             secrets::copy_secret,
             secrets::share_preview,
             secrets::share_variable,

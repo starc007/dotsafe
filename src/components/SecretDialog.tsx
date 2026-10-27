@@ -498,7 +498,16 @@ function RotationSection({
     );
   }
   if (mode !== "idle") {
-    return <RotateForm leaked={mode === "leaked"} busy={busy} onCancel={() => onMode("idle")} onStage={onStage} onLeaked={onLeaked} />;
+    return (
+      <RotateForm
+        secretId={secret.id}
+        leaked={mode === "leaked"}
+        busy={busy}
+        onCancel={() => onMode("idle")}
+        onStage={onStage}
+        onLeaked={onLeaked}
+      />
+    );
   }
   if (secret.staged) {
     return (
@@ -673,12 +682,14 @@ function Banner({ title, body, children }: { title: string; body: string; childr
 }
 
 function RotateForm({
+  secretId,
   leaked,
   busy,
   onCancel,
   onStage,
   onLeaked,
 }: {
+  secretId: string;
   leaked: boolean;
   busy: string | null;
   onCancel: () => void;
@@ -687,16 +698,28 @@ function RotateForm({
 }) {
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
-  const [generate, setGenerate] = useState(false);
+  // A generated value is shown in the field, so it's visible until edited away.
+  const [visible, setVisible] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      setValue(await api.generateSecretValue(secretId));
+      setVisible(true);
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const newValue = generate ? null : value;
-    if (leaked) onLeaked(newValue);
-    else onStage(newValue, note.trim() || null);
+    if (leaked) onLeaked(value);
+    else onStage(value, note.trim() || null);
   }
 
-  const ready = generate || value.length > 0;
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 rounded-2xl bg-muted/60 p-3.5">
       <div>
@@ -710,32 +733,22 @@ function RotateForm({
       <Field
         label="New value"
         htmlFor="new-value"
-        hint={
-          generate
-            ? "dotsafe makes a random 40-character value. Good for values you control, like signing keys or database passwords."
-            : "Paste a key from the service, or generate a random value."
-        }
+        hint="Paste a key from the service, or generate a random value for ones you control, like signing keys or database passwords."
       >
         <div className="flex gap-2">
           <Input
             id="new-value"
-            type="password"
+            type={visible ? "text" : "password"}
             autoFocus
             autoComplete="off"
-            className="h-9 bg-card"
-            placeholder={generate ? "A random value will be generated" : "Paste the new value"}
-            disabled={generate}
-            value={generate ? "" : value}
+            spellCheck={false}
+            className={cn("h-9 bg-card", visible && "font-mono text-[12.5px] md:text-[12.5px]")}
+            placeholder="Paste the new value"
+            value={value}
             onChange={(e) => setValue(e.target.value)}
           />
-          <Button
-            type="button"
-            variant={generate ? "secondary" : "outline"}
-            className="h-9 bg-card"
-            aria-pressed={generate}
-            onClick={() => setGenerate((g) => !g)}
-          >
-            <Sparkles aria-hidden />
+          <Button type="button" variant="outline" className="h-9 bg-card" onClick={generate} disabled={generating}>
+            {generating ? <Spinner /> : <Sparkles aria-hidden />}
             Generate
           </Button>
         </div>
@@ -755,7 +768,7 @@ function RotateForm({
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy !== null}>
           Cancel
         </Button>
-        <Button type="submit" variant={leaked ? "destructive" : "default"} disabled={busy !== null || !ready}>
+        <Button type="submit" variant={leaked ? "destructive" : "default"} disabled={busy !== null || !value}>
           {busy !== null && <Spinner />}
           {leaked ? "Replace now" : "Stage new value"}
         </Button>

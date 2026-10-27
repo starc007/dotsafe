@@ -320,6 +320,8 @@ export const api = {
   listSecrets: () => call<SecretView[]>("list_secrets"),
   getSecret: (id: string) => call<SecretDetail>("get_secret", { id }),
   revealSecret: (id: string) => call<string>("reveal_secret", { id }),
+  /** A fresh random value from the secret's generator; nothing is saved. */
+  generateSecretValue: (id: string) => call<string>("generate_secret_value", { id }),
   copySecret: (id: string) => call<void>("copy_secret", { id }),
   sharePreview: (environmentId: string, key: string) =>
     call<{ copies: Usage[]; different: Usage[] }>("share_preview", { environmentId, key }),
