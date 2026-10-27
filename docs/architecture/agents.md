@@ -73,6 +73,7 @@ Grant {
 - **Refused for agents, whatever the user clicks:**
   - Shells and interpreters given inline code: `sh`, `bash -c`, `zsh -c`, `node -e/-p/--eval`, `python -c`, `ruby -e`, `perl -e`, `deno eval`, `bun -e`.
   - Commands that dump the environment: `env`, `printenv`, `set`, `export -p`.
+  - `dotsafe` itself: `get` and `export` print values, and a vault left open by `dotsafe unlock` would let them run without a password.
   - These are a speed bump, not a boundary. See [Limits](#limits).
 - **Repo files the agent can edit:** when the command runs a script in the workspace (`bun test`, `npm run dev`), the dialog warns that the agent can change that script. It shows uncommitted changes in the files the command will run, using `git status`.
 - **Headless policies:** for `dotsafe daemon` without a UI, the user creates standing grants in the app. They're stored in the vault, not in the repo, because the agent can edit the repo.
