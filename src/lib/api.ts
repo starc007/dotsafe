@@ -307,6 +307,7 @@ export const api = {
   changePassword: (currentPassword: string | null, newPassword: string) =>
     call<void>("change_password", { currentPassword, newPassword }),
   resetRecoveryKey: (password: string) => call<string>("reset_recovery_key", { password }),
+  setAutoLock: (minutes: number) => call<void>("set_auto_lock", { minutes }),
   lock: () => call<void>("lock"),
 
   listProjects: () => call<ProjectView[]>("list_projects"),

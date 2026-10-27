@@ -77,6 +77,7 @@ impl Desktop {
                 commands::preview_import,
                 commands::import_variables,
                 commands::get_settings,
+                commands::set_auto_lock,
                 storage::set_backup_dir,
                 storage::back_up_now,
                 storage::move_vault_to_folder,
@@ -763,6 +764,10 @@ fn backups_and_moving_the_vault_from_the_app() {
     let settings = desktop.ok("get_settings", json!({}));
     assert_eq!(settings["lastBackup"], at);
     assert_eq!(settings["storage"], "folder");
+    assert_eq!(settings["autoLockMinutes"], 15);
+    desktop.ok("set_auto_lock", json!({ "minutes": 60 }));
+    assert_eq!(desktop.ok("get_settings", json!({}))["autoLockMinutes"], 60);
+    assert_eq!(desktop.err("set_auto_lock", json!({ "minutes": 0 }))["message"], "Choose between 1 minute and 24 hours.");
     assert_eq!(dotsafe_core::backup::snapshots(backups.path()).unwrap().len(), 1);
 
     let taken = desktop.err("move_vault_to_folder", json!({ "path": dir.path() }));

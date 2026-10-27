@@ -23,6 +23,7 @@ let lastSyncedAt: number | null = Date.now() - 3 * 60_000;
 // Backups.
 let backupDir: string | null = null;
 let lastBackup: number | null = null;
+let autoLockMinutes = 15;
 // `?offline` makes every license server call fail. Keys containing LIMIT or
 // REVOKED act out those answers.
 const licenseOffline = new URLSearchParams(location.search).has("offline");
@@ -964,6 +965,9 @@ export function installMockBackend() {
           await delay(600);
           lastSyncedAt = Date.now();
           return { lastSyncedAt, error: null };
+        case "set_auto_lock":
+          autoLockMinutes = (raw as { minutes: number }).minutes;
+          return null;
         case "get_settings":
           return {
             vaultPath: storage.path,
@@ -974,7 +978,7 @@ export function installMockBackend() {
             lastBackup,
             license,
             version: "0.1.0",
-            autoLockMinutes: 15,
+            autoLockMinutes,
             clipboardClearSeconds: 30,
           };
         case "activate_license": {

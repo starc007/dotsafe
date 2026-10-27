@@ -47,7 +47,14 @@ pub struct Config {
     /// Unix milliseconds of the last backup snapshot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_backup: Option<u64>,
+    /// Minutes of inactivity before the app locks. Not synced: each machine
+    /// chooses. Unset means [`DEFAULT_AUTO_LOCK_MINUTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_lock_minutes: Option<u32>,
 }
+
+/// How long the app waits, idle, before locking, unless changed in Settings.
+pub const DEFAULT_AUTO_LOCK_MINUTES: u32 = 15;
 
 /// What to rotate after a device was removed: every value it could have
 /// read, which is every value older than the removal.
@@ -60,6 +67,12 @@ pub struct RotationQueue {
 }
 
 impl Config {
+    /// How long the app waits, idle, before locking.
+    pub fn auto_lock(&self) -> std::time::Duration {
+        let minutes = self.auto_lock_minutes.unwrap_or(DEFAULT_AUTO_LOCK_MINUTES);
+        std::time::Duration::from_secs(u64::from(minutes) * 60)
+    }
+
     /// The saved config, or `None` if this machine hasn't set up a vault.
     pub fn load() -> Result<Option<Config>> {
         match fs::read(config_path()?) {
@@ -87,6 +100,7 @@ impl Config {
                 rotation_queue: None,
                 backup_dir: None,
                 last_backup: None,
+                auto_lock_minutes: None,
             },
         }
     }
