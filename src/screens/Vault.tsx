@@ -268,7 +268,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           />
           <SidebarAction
             icon={<Share2 aria-hidden />}
-            label="Secrets"
+            label="Shared secrets"
             shortcut={SHORTCUTS.secrets}
             active={secretsOpen}
             onClick={() => (secretsOpen ? setSecretsOpen(false) : openSecrets())}
