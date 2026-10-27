@@ -15,6 +15,7 @@ import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
 import { QuickCopy } from "@/components/QuickCopy";
 import { RotationQueueDialog } from "@/components/RotationQueueDialog";
+import { SecretDialog } from "@/components/SecretDialog";
 import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SecretsPage } from "@/screens/Secrets";
@@ -48,6 +49,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   // Shared secrets, and the secret whose details are open there.
   const [secretsOpen, setSecretsOpen] = useState(false);
   const [openSecretId, setOpenSecretId] = useState<string | null>(null);
+  // A secret opened from a variable's badge, over the project, without leaving it.
+  const [badgeSecret, setBadgeSecret] = useState<{ id: string; open: boolean } | null>(null);
   // An environment to open in the selected project, when jumping from a secret.
   const [focusEnvironment, setFocusEnvironment] = useState<string | null>(null);
   // Reopening Settings returns to the section viewed last.
@@ -120,9 +123,9 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     setFocusEnvironment(environmentId);
   }, []);
 
-  // A linked variable's badge asks to open its secret.
+  // A linked variable's badge asks to open its secret: in place, over the project.
   useEffect(() => {
-    const onOpen = (e: Event) => openSecrets((e as CustomEvent<string>).detail);
+    const onOpen = (e: Event) => setBadgeSecret({ id: (e as CustomEvent<string>).detail, open: true });
     window.addEventListener("dotsafe:open-secret", onOpen);
     return () => window.removeEventListener("dotsafe:open-secret", onOpen);
   });
@@ -335,6 +338,20 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           )}
         </AnimatePresence>
       </section>
+      <SecretDialog
+        secretId={badgeSecret?.id ?? null}
+        open={badgeSecret?.open ?? false}
+        // Keep the id while it closes, so the content doesn't vanish mid-fade.
+        onOpenChange={(open) => !open && setBadgeSecret((b) => b && { ...b, open: false })}
+        onChanged={() => {
+          load();
+          window.dispatchEvent(new Event("dotsafe:variables-changed"));
+        }}
+        onOpenEnvironment={(projectId, environmentId) => {
+          setBadgeSecret((b) => b && { ...b, open: false });
+          openEnvironment(projectId, environmentId);
+        }}
+      />
       <RotationQueueDialog
         open={queueOpen}
         onOpenChange={setQueueOpen}

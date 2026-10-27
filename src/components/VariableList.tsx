@@ -93,9 +93,12 @@ export function VariableList({
   useEffect(() => {
     load();
     const unlisten = listen("vault-synced", load);
+    // A secret opened from a badge here can change links (unlink, delete).
+    window.addEventListener("dotsafe:variables-changed", load);
     const t = timers.current;
     return () => {
       unlisten.then((f) => f());
+      window.removeEventListener("dotsafe:variables-changed", load);
       t.forEach((id) => window.clearTimeout(id));
     };
   }, [load]);
