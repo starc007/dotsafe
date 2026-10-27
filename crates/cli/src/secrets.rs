@@ -98,6 +98,15 @@ pub enum SecretCmd {
     },
     /// List secrets that are due for rotation
     Due,
+    /// What to rotate after removing a device: every value it could have read
+    Queue {
+        /// Rotate every queued secret that has a provider
+        #[arg(long, conflicts_with = "dismiss")]
+        rotate: bool,
+        /// Clear the queue
+        #[arg(long)]
+        dismiss: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -127,18 +136,23 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         SecretCmd::List => {
             let records = ctx.vault.list()?;
             let secrets = Secrets::from_records(&records);
-            if secrets.iter().next().is_none() {
+            // Connection tokens are listed by `dotsafe connections`.
+            let tokens = dotsafe_core::integration::credentials(&records);
+            let own: Vec<&Secret> = sorted(&secrets).into_iter().filter(|s| !tokens.contains(&s.id)).collect();
+            if own.is_empty() {
                 eprintln!("No shared secrets yet. Make one with `dotsafe secret share KEY`.");
             }
-            for secret in sorted(&secrets) {
+            for secret in own {
                 let uses = usages(&records, secret.id).len();
                 println!("{}\t{}\t{}", secret.name, describe_age(secret), plural(uses, "environment"));
             }
         }
         SecretCmd::Due => {
-            let secrets = ctx.vault.secrets()?;
+            let records = ctx.vault.list()?;
+            let secrets = Secrets::from_records(&records);
+            let tokens = dotsafe_core::integration::credentials(&records);
             let mut any = false;
-            for secret in sorted(&secrets) {
+            for secret in sorted(&secrets).into_iter().filter(|s| !tokens.contains(&s.id)) {
                 let due = secret.due(now_ms());
                 if matches!(due, Due::Soon | Due::Overdue) {
                     any = true;
@@ -391,6 +405,59 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 bail!("{} failed", plural(failed, "push"));
             }
         }
+        SecretCmd::Queue { rotate, dismiss } => {
+            let mut config = crate::load_config()?;
+            let Some(queue) = config.rotation_queue.clone() else {
+                eprintln!("Nothing to rotate. The queue fills when you remove a device with `dotsafe device remove`.");
+                return Ok(());
+            };
+            if dismiss {
+                config.rotation_queue = None;
+                config.save()?;
+                eprintln!("Cleared the rotation queue.");
+                return Ok(());
+            }
+            let records = ctx.vault.list()?;
+            let exposed = dotsafe_core::integration::exposed_since(&records, queue.since);
+            let secrets = Secrets::from_records(&records);
+            let with_provider = |id: &Uuid| {
+                records.iter().any(|r| matches!(r, Record::Binding(b) if b.secret == *id && b.provider.is_some()))
+            };
+            if rotate {
+                let queued: Vec<&Secret> =
+                    exposed.secrets.iter().filter(|id| with_provider(id)).filter_map(|id| secrets.get(*id)).collect();
+                if queued.is_empty() {
+                    eprintln!("No queued secret has a provider; rotate them with `dotsafe secret rotate`.");
+                }
+                for secret in queued {
+                    match provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, false) {
+                        Ok(out) if out.promoted => {
+                            eprintln!("Rotated {}.", secret.name);
+                            report_pushes(&out.pushes);
+                        }
+                        Ok(out) => eprintln!("{}: the new key failed its check and is staged ({}).", secret.name, out.staged.unwrap_or_default()),
+                        Err(e) => eprintln!("Couldn't rotate {}: {e}", secret.name),
+                    }
+                }
+                return Ok(());
+            }
+            let total = exposed.secrets.len() + exposed.variables.len();
+            if total == 0 {
+                eprintln!("Everything {} could read has been rotated. Clear the queue with `dotsafe secret queue --dismiss`.", queue.device);
+                return Ok(());
+            }
+            eprintln!("{} to rotate since removing {}:", plural(total, "value"), queue.device);
+            for id in &exposed.secrets {
+                if let Some(secret) = secrets.get(*id) {
+                    let how = if with_provider(id) { "has a provider" } else { "rotate by hand" };
+                    println!("secret\t{}\t{how}", secret.name);
+                }
+            }
+            let labels = env_labels(&records);
+            for (env, key) in &exposed.variables {
+                println!("variable\t{}/{key}", labels.get(env).map(String::as_str).unwrap_or("?"));
+            }
+        }
         SecretCmd::Policy { secret, every } => {
             let mut secret = find(&ctx.vault.secrets()?, &secret)?.clone();
             let policy = Policy { rotate_every_days: (every > 0).then_some(every), ..secret.policy.clone() };
@@ -403,6 +470,24 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// "project/environment" for every live environment.
+fn env_labels(records: &[Record]) -> std::collections::HashMap<Uuid, String> {
+    let projects: std::collections::HashMap<Uuid, &str> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Project(p) => Some((p.id, p.name.as_str())),
+            _ => None,
+        })
+        .collect();
+    records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Environment(e) => Some((e.id, format!("{}/{}", projects.get(&e.project_id).unwrap_or(&"?"), e.name))),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Prints each push's outcome. Returns how many failed.

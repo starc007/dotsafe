@@ -421,9 +421,19 @@ fn connections_providers_and_targets() {
     let out = connect(&["connect", "vercel", "--name", "Web", "--token-stdin"]);
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(m.ok(&project, &["connections"]), "Acme\tOpenAI\tproject_id=proj_1\nWeb\tVercel\t\n");
-    // The token is a shared secret, never printed.
-    assert!(m.ok(&project, &["secret", "list"]).contains("Acme admin token"));
+    // The token is stored but never printed, and stays out of the secrets list.
+    assert!(!m.ok(&project, &["secret", "list"]).contains("admin token"));
     assert!(!m.ok(&project, &["connections"]).contains("admin-token-123"));
+    let mut cmd = m.cmd(&project, &["reconnect", "Acme", "--token-stdin"]);
+    cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(b"admin-token-456\n").unwrap();
+    }
+    assert!(child.wait_with_output().unwrap().status.success());
+    let history = m.ok(&project, &["secret", "history", "Acme admin token"]);
+    assert!(history.starts_with("1\tcurrent") && history.contains("retired"), "{history}");
 
     // A provider must be a provider and a target a target.
     let wrong = m.run(&project, &["secret", "provider", "OPENAI_API_KEY", "--connection", "Web"]);
@@ -444,4 +454,31 @@ fn connections_providers_and_targets() {
     m.ok(&project, &["disconnect", "Acme"]);
     assert_eq!(m.ok(&project, &["connections"]), "");
     assert!(!m.ok(&project, &["secret", "list"]).contains("admin token"), "the stored tokens are deleted");
+}
+
+#[test]
+fn rotation_queue_lists_what_a_removed_device_could_read() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "DB_URL=postgres://old", "TOKEN=t1"]);
+    m.ok(&project, &["secret", "share", "TOKEN"]);
+    assert!(stderr(&m.run(&project, &["secret", "queue"])).contains("Nothing to rotate"));
+
+    // As if a device was removed just now (`device remove` needs an enrolled device).
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let path = m.config.path().join("config.json");
+    let mut config: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    config["rotation_queue"] = serde_json::json!({ "since": now, "device": "Lost laptop" });
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let out = m.run(&project, &["secret", "queue"]);
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "secret\tTOKEN\trotate by hand\nvariable\tmy-api/development/DB_URL\n");
+    assert!(stderr(&out).contains("2 values to rotate since removing Lost laptop"));
+
+    m.ok(&project, &["set", "DB_URL=postgres://new"]);
+    assert_eq!(m.ok(&project, &["secret", "queue"]), "secret\tTOKEN\trotate by hand\n");
+    m.ok(&project, &["secret", "queue", "--dismiss"]);
+    assert!(stderr(&m.run(&project, &["secret", "queue"])).contains("Nothing to rotate"));
 }
