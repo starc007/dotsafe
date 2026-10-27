@@ -11,8 +11,12 @@ use crate::crypto::{self, KEY_LEN, Kdf, KdfParams, Sealed, SecretKey};
 use crate::error::{Error, Result};
 
 pub const HEADER_FORMAT: &str = "dotsafe-vault";
-/// v3 added device and enrollment slots, and re-keying.
-pub const HEADER_VERSION: u32 = 3;
+/// v3 added device and enrollment slots, and re-keying. v4 remembers removed
+/// slots, so conflict copies of the header can be merged.
+pub const HEADER_VERSION: u32 = 4;
+/// How many removed slot ids to remember. Conflict copies are short-lived,
+/// so only recent removals matter.
+const MAX_REMOVED: usize = 256;
 
 // These labels only separate domains; they're unchanged from v1 so existing
 // slots and MACs stay valid.
@@ -39,6 +43,11 @@ pub struct VaultHeader {
     /// every record is re-sealed. Empty until re-keying exists.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_keys: Vec<PreviousKey>,
+    /// Ids of slots removed from this header, newest last. When a sync
+    /// client leaves two copies, this tells a slot that was removed on one
+    /// side from one that was added on the other. Absent before v4.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_slots: Vec<Uuid>,
     /// HMAC over the header serialized with this field empty, keyed from the
     /// vault key. Detects edits to the header by anyone without the vault key.
     #[serde(with = "crypto::b64")]
@@ -115,6 +124,7 @@ impl VaultHeader {
             epoch: 1,
             key_slots: Vec::new(),
             previous_keys: Vec::new(),
+            removed_slots: Vec::new(),
             mac: Vec::new(),
         };
         header.set_password(vault_key, password, params)?;
@@ -162,7 +172,7 @@ impl VaultHeader {
 
     fn replace_slot(&mut self, vault_key: &SecretKey, kek: &SecretKey, unlock: Unlock) -> Result<()> {
         let same_kind = |s: &KeySlot| std::mem::discriminant(&s.unlock) == std::mem::discriminant(&unlock);
-        self.key_slots.retain(|s| !same_kind(s));
+        self.drop_slots(same_kind);
         self.add_slot(vault_key, kek, unlock)
     }
 
@@ -185,7 +195,7 @@ impl VaultHeader {
         let key = DeviceKey(Zeroizing::new(crypto::random_array()?));
         let salt = crypto::random_array::<16>()?.to_vec();
         let kek = crypto::hkdf(Some(&salt), key.0.as_ref(), DEVICE_KEK_INFO);
-        self.key_slots.retain(|s| !matches!(&s.unlock, Unlock::Device { device_id: d, .. } if *d == device_id));
+        self.drop_slots(|s| matches!(&s.unlock, Unlock::Device { device_id: d, .. } if *d == device_id));
         let unlock = Unlock::Device { device_id, name: name.to_string(), added: now_ms, salt };
         self.add_slot(vault_key, &kek, unlock)?;
         Ok(key)
@@ -193,10 +203,9 @@ impl VaultHeader {
 
     /// Removes a device's slot. Returns whether it had one.
     pub(crate) fn remove_device(&mut self, vault_key: &SecretKey, device_id: Uuid) -> Result<bool> {
-        let before = self.key_slots.len();
-        self.key_slots.retain(|s| !matches!(&s.unlock, Unlock::Device { device_id: d, .. } if *d == device_id));
+        let removed = self.drop_slots(|s| matches!(&s.unlock, Unlock::Device { device_id: d, .. } if *d == device_id));
         self.sign(vault_key)?;
-        Ok(self.key_slots.len() < before)
+        Ok(removed > 0)
     }
 
     /// Adds a one-time enrollment code, valid for ten minutes.
@@ -211,11 +220,11 @@ impl VaultHeader {
 
     /// Drops expired enrollment slots. Doesn't re-sign; callers do.
     pub(crate) fn prune_enrollments(&mut self, now_ms: u64) {
-        self.key_slots.retain(|s| !matches!(s.unlock, Unlock::Enrollment { expires, .. } if expires <= now_ms));
+        self.drop_slots(|s| matches!(s.unlock, Unlock::Enrollment { expires, .. } if expires <= now_ms));
     }
 
     pub(crate) fn remove_slot(&mut self, vault_key: &SecretKey, slot_id: Uuid) -> Result<()> {
-        self.key_slots.retain(|s| s.id != slot_id);
+        self.drop_slots(|s| s.id == slot_id);
         self.sign(vault_key)
     }
 
@@ -250,7 +259,7 @@ impl VaultHeader {
         let aad = self.previous_key_aad(old_epoch);
         self.previous_keys =
             vec![PreviousKey { epoch: old_epoch, wrapped_key: crypto::seal(new_key, old_key.as_bytes(), &aad)? }];
-        self.key_slots.retain(|s| matches!(s.unlock, Unlock::Device { .. }));
+        self.drop_slots(|s| !matches!(s.unlock, Unlock::Device { .. }));
         self.set_password(new_key, password, params)?;
         self.set_recovery(new_key)
     }
@@ -264,6 +273,48 @@ impl VaultHeader {
 
     pub(crate) fn drop_previous_keys(&mut self, vault_key: &SecretKey) -> Result<()> {
         self.previous_keys.clear();
+        self.sign(vault_key)
+    }
+
+    /// Removes the slots matching `remove` and remembers their ids. Returns
+    /// how many were removed.
+    fn drop_slots(&mut self, remove: impl Fn(&KeySlot) -> bool) -> usize {
+        let (gone, kept): (Vec<KeySlot>, Vec<KeySlot>) = self.key_slots.drain(..).partition(|s| remove(s));
+        self.key_slots = kept;
+        self.removed_slots.extend(gone.iter().map(|s| s.id));
+        let excess = self.removed_slots.len().saturating_sub(MAX_REMOVED);
+        self.removed_slots.drain(..excess);
+        gone.len()
+    }
+
+    /// Merges sync-conflict copies of this header, then re-signs. Each copy
+    /// must be from the same vault and epoch and already verified with
+    /// `vault_key`. Slots added on any side are kept unless removed on any
+    /// side, so a password replaced on one device can't come back from
+    /// another's copy. If two passwords were set at once, both work until
+    /// the next change.
+    pub(crate) fn merge_copies(&mut self, vault_key: &SecretKey, copies: &[VaultHeader]) -> Result<()> {
+        for copy in copies {
+            for id in &copy.removed_slots {
+                if !self.removed_slots.contains(id) {
+                    self.removed_slots.push(*id);
+                }
+            }
+            for slot in &copy.key_slots {
+                if !self.key_slots.iter().any(|s| s.id == slot.id) {
+                    self.key_slots.push(slot.clone());
+                }
+            }
+            for previous in &copy.previous_keys {
+                if !self.previous_keys.iter().any(|p| p.epoch == previous.epoch) {
+                    self.previous_keys.push(previous.clone());
+                }
+            }
+        }
+        let removed = self.removed_slots.clone();
+        self.key_slots.retain(|s| !removed.contains(&s.id));
+        let excess = self.removed_slots.len().saturating_sub(MAX_REMOVED);
+        self.removed_slots.drain(..excess);
         self.sign(vault_key)
     }
 

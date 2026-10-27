@@ -11,7 +11,7 @@
 - **Revoking** needs the password. It removes the slot, generates a new vault key, recreates the password slot (same password) and the recovery slot, which means **a new recovery key** (the old slot can't be re-wrapped without the paper key). It re-seals every record and the head, then drops the old key. It all happens at once, not in the background: vaults are small, and an interrupted re-key finishes on the next unlock.
 - **Other devices** keep their slots, which go **stale**: Touch ID unlock answers "needs the password once", and after a password unlock the app re-enrolls the device automatically.
 - **Records sealed with a dropped key** (written by a device that hadn't seen the re-key, or by the revoked one) are skipped and reported by `Vault::unreadable_records()`, never trusted.
-- **Concurrent header changes:** every header change re-reads the newest header, re-applies itself and writes conditionally, retrying on conflict. Changes from two devices both survive on stores with conditional writes (S3/R2). On synced folders the check can't be atomic, so a true simultaneous write can still lose one; merging folder conflict copies of `vault.json` isn't built.
+- **Concurrent header changes:** every header change re-reads the newest header, re-applies itself and writes conditionally, retrying on conflict. Changes from two devices both survive on stores with conditional writes (S3/R2). On synced folders the check can't be atomic, so the sync client may keep a conflict copy of `vault.json`; those copies are merged (header v4, see [vault-format.md](../vault-format.md#header-v4-merging-conflict-copies)).
 - **Not built yet:** suggesting a password change on revoke, the bulk rotation queue after revoking, Windows Hello and Linux, and CLI device unlock (the CLI has `dotsafe device list` and `dotsafe device remove`).
 
 ## Goals
@@ -87,7 +87,7 @@ v1 loses one of two concurrent `vault.json` writes. v2:
 - On stores with conditional writes, header writes use the same compare-and-swap loop as records ([storage.md](storage.md#the-store-interface)).
 - On synced folders, header conflict copies are merged:
   - The higher `epoch` wins outright.
-  - Within an epoch, slots merge as a set, and removals are kept as tombstones with stamps so a removed slot can't come back.
+  - Within an epoch, slots merge as a set, and removed slot ids are kept (`removed_slots`) so a removed slot can't come back. Only copies whose MAC verifies with the vault key are merged.
   - The MAC is recomputed by the merging device, which has the vault key.
 
 ## Device list
