@@ -108,7 +108,7 @@ On a synced folder the conditional write can't be atomic, so two devices changin
 - **Padding:** the plaintext JSON is padded with trailing spaces to the next multiple of 1 KiB up to 16 KiB, then to the next power of two. Ciphertext sizes reveal only that bucket.
 - **Plaintext:** one of the following.
   - `project`: `{ id, name, deleted, updated }`
-  - `environment`: `{ id, project_id, name, deleted, updated, vars: { KEY: { value, secret?, stamp } } }`. A variable holds its own `value`, or links to a shared secret by its id in `secret`. Neither set is a tombstone.
+  - `environment`: `{ id, project_id, name, deleted, updated, parent?, vars: { KEY: { value, secret?, hidden?, stamp } } }`. A variable holds its own `value`, or links to a shared secret by its id in `secret`. Neither set is a tombstone. `parent` and `hidden` are record v5 (below).
   - `secret`: `{ id, name, deleted, updated, policy: { rotate_every_days?, generator? }, versions: { <uuid>: { value | null, state, created, changed, note? } } }`. `state` is `pending`, `current`, `previous` or `retired`. A `null` value has been wiped.
 
   - `connection`: `{ id, service, name, credential?, settings: { k: v }, deleted, updated }`. An account at a provider or deploy service. `credential` is the id of the shared secret holding its admin token, absent for services that need none (Stripe).
@@ -127,6 +127,15 @@ A client that predates shared secrets would read a linked variable as a tombston
 ### Record version 4 (integrations)
 
 `connection`, `binding` and `proxy_profile` records, and `audit` days that log a `rotate`, `push` or `revoke` action, are written with `"version": 4` and AAD `"dotsafe/v4/record" ‖ vault_id ‖ epoch ‖ id`. Clients that predate integrations refuse them ("unsupported record version 4") instead of failing to parse an unknown record type, and relabelling one as v3 or v2 fails authentication. Every other record keeps the oldest version that can hold it.
+
+### Record version 5 (inheritance and references)
+
+An `environment` that has a `parent`, a `hidden` variable, or a value containing `${{` is written with `"version": 5` and AAD `"dotsafe/v5/record" ‖ vault_id ‖ epoch ‖ id`. Older clients refuse it: they'd otherwise inject the literal `${{ DB_HOST }}` into a command, or drop `parent` when rewriting the environment. Environments without them keep the oldest version that holds them.
+
+- **`parent`:** another environment in the same project whose variables this one inherits; its own variables override them. Merges on `updated`, like `name`.
+- **`hidden: true`:** "removed here". The variable the parent would provide doesn't apply. A tombstone (no `value`, no `secret`, not hidden) just deletes this environment's own value, so the parent's shows through again.
+- **References:** `${{ NAME }}` in a value is replaced by `NAME`'s final value in the same environment (after inheritance), so a child that overrides `DB_HOST` changes the parent's `DB_URL = postgres://${{ DB_HOST }}/app` for itself. `$${{` is a literal `${{`. Shared secrets' values are never templates.
+- **Errors, not guesses:** a reference to a name that isn't set, a loop of references, a parent chain that loops, crosses projects, goes deeper than 8 or points at a deleted environment all fail with a clear message (`Error::Reference`) instead of producing a value. All of it happens in `core::resolve::Resolver`, which every consumer uses.
 
 **Merging bindings:** `provider` merges on `updated`. Targets merge by id on their own `changed` stamp. `keys` is the union of both sides; each version's key id is set once, when the provider issues it.
 
