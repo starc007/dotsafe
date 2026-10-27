@@ -1,6 +1,6 @@
 # Devices and keys
 
-**Status:** M4 is implemented on macOS (header format v3). See [As built](#as-built-m4) for where it differs from the design below. Team sharing is still an open decision.
+**Status:** M4 is implemented on macOS (header format v3). See [As built](#as-built-m4) for where it differs from the design below. Team sharing is a future feature (see [Teams](#teams-future)).
 
 ## As built (M4)
 
@@ -94,16 +94,28 @@ v1 loses one of two concurrent `vault.json` writes. v2:
 
 The Devices screen lists each slot's name, when it was added, and when it last wrote, using the device id in record stamps. It isn't a security boundary, since any device with the vault key could forge stamps. It's there to help users spot devices they forgot.
 
-## Teams (open decision)
+## Teams (future)
 
-Sharing a vault between people adds a new requirement: adding a member without knowing their secrets, and revoking one cleanly. The options:
+**Status:** deferred, October 2026. Not being built now; this is the proposal to start from.
+
+Sharing a vault between people adds a new requirement: adding a member without knowing their secrets, and removing one cleanly. The options:
 
 | Option | Crypto | Trade-off |
 |---|---|---|
-| **A. Per-member public keys** | X25519 + XChaCha20-Poly1305 sealed boxes to wrap the vault key per member | Clean onboarding and revocation. A new algorithm, so it needs an explicit decision and an AGENTS.md update |
-| **B. Shared team password plus enrollment codes** | None new | Works now. Revocation means re-key plus a new team password for everyone. Weak for teams over ~5 people |
+| **A. Per-member public keys** | X25519 + XChaCha20-Poly1305 sealed boxes to wrap the vault key per member | Clean onboarding and removal. A new algorithm, so it needs an explicit decision and an AGENTS.md update |
+| **B. Shared team password plus enrollment codes** | None new | Works now. Removing anyone means re-key plus a new team password for everyone. Weak for teams over ~5 people |
 
-Device slots, epochs and re-keying are the foundation for both, so M4 doesn't block on this choice. Decide before any team feature is built.
+The proposal is A:
+
+- **A team shares a vault, not an account.** Each person keeps their personal vault; the team vault lives in storage the team already shares (a bucket, a WebDAV share, a shared Drive or Dropbox folder). The app and CLI hold several vaults at once, with a switcher.
+- **Identity keys.** Each person has an X25519 key pair, protected by their personal vault and keychain. The team vault's header (v5) has a **member slot** per person: the vault key sealed to their public key. Sealing is X25519 plus the existing HKDF-SHA256 and XChaCha20-Poly1305; X25519 is the only new primitive.
+- **Inviting** uses a short-lived code, like enrollment today; the new member adds their own slot.
+- **Removing** a member deletes their slot and re-keys, sealing the new key to every remaining member's public key with nobody else involved. The rotation queue then lists what they could read.
+- **Access per vault.** People who shouldn't see production aren't in the production vault. Scopes inside one vault (keys per environment) can come later.
+- **No enforced roles at first.** Anyone holding the vault key can change the header, so admin-only actions would need signatures (Ed25519, another algorithm). Every member can invite and remove; the audit log records who did what.
+- **Seats** are license activations: a team license allows N, and each member activates it. The license server never learns who is in a vault.
+
+Build order: several vaults in config, CLI and sidebar; identity keys and member slots; team setup and members screens; seat licensing in `api/`.
 
 ## Open questions
 
