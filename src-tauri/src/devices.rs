@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::{
-    CachedStore, Config, DeviceKey, EnrollmentCode, Error, FolderStore, KdfParams, Store, Vault, config,
+    CachedStore, Config, DeviceKey, EnrollmentCode, Error, FolderStore, KdfParams, RotationQueue, Store, Vault, config,
 };
 use dotsafe_stores::S3Store;
 use serde::Serialize;
@@ -249,6 +249,7 @@ pub async fn revoke_device(state: State<'_, AppState>, device_id: Uuid, password
             if device_id == own {
                 return Err(CmdError::other("To stop this Mac using Touch ID, turn off Touch ID unlock."));
             }
+            let name = s.vault()?.devices().into_iter().find(|d| d.device_id == device_id).map(|d| d.name);
             let recovery =
                 s.vault_mut()?.revoke_device(device_id, &password, KdfParams::default()).map_err(|e| match e {
                     Error::InvalidCredentials => {
@@ -258,6 +259,12 @@ pub async fn revoke_device(state: State<'_, AppState>, device_id: Uuid, password
                 })?;
             // This Mac's own slot went stale with the re-key; refresh it.
             after_password_unlock(s)?;
+            // Everything that device could read should now be rotated.
+            let mut config = s.config()?.clone();
+            config.rotation_queue =
+                Some(RotationQueue { since: now_ms(), device: name.unwrap_or_else(|| "the removed device".into()) });
+            config.save()?;
+            s.config = Some(config);
             Ok(recovery.to_display_string())
         })
         .await

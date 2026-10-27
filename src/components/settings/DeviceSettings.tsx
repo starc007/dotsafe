@@ -249,6 +249,8 @@ function RemoveDeviceDialog({
     try {
       setRecoveryKey(await api.revokeDevice(device.deviceId, password));
       onRemoved();
+      // The sidebar picks up the new rotation queue.
+      window.dispatchEvent(new Event("dotsafe:vault-changed"));
     } catch (err) {
       setError(message(err));
     } finally {
@@ -275,7 +277,7 @@ function RemoveDeviceDialog({
           <ul className="flex list-disc flex-col gap-1 pl-5 text-[13px] text-muted-foreground">
             <li>You'll get a new recovery key; the old one stops working.</li>
             <li>Other devices with Touch ID will ask for the password once.</li>
-            <li>It can still read what it already had. Rotate the secrets it could see, most important first.</li>
+            <li>It can still use what it already had. dotsafe lists those values in the sidebar until each is rotated.</li>
           </ul>
           <Field label="Your master password" htmlFor="revoke-password" error={error}>
             <Input

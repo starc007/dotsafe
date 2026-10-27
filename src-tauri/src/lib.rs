@@ -5,6 +5,7 @@ mod import;
 mod integrations;
 mod licensing;
 mod presence;
+mod reminders;
 mod secrets;
 mod state;
 mod sync;
@@ -20,6 +21,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState::default())
         .manage(broker::Approvals::default())
         .setup(|app| {
@@ -27,6 +29,7 @@ pub fn run() {
             state.spawn_housekeeping(app.handle().clone());
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
+            reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
             let approvals = app.state::<broker::Approvals>().inner().clone();
             broker::spawn(state.inner().clone(), approvals, app.handle().clone());
             Ok(())
@@ -99,6 +102,7 @@ pub fn run() {
             integrations::list_connections,
             integrations::add_connection,
             integrations::remove_connection,
+            integrations::replace_connection_token,
             integrations::secret_integrations,
             integrations::set_secret_provider,
             integrations::add_secret_target,
@@ -106,6 +110,9 @@ pub fn run() {
             integrations::rotate_with_provider,
             integrations::push_secret,
             integrations::revoke_previous_with_provider,
+            integrations::rotation_queue,
+            integrations::rotate_queued_with_providers,
+            integrations::dismiss_rotation_queue,
             devices::unlock_with_touch_id,
             devices::set_touch_id_unlock,
             devices::list_devices,

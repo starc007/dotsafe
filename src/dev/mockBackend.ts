@@ -149,6 +149,33 @@ function pushAll(secretId: string) {
   });
 }
 
+// The rotation queue after removing a device: values as they were then.
+// `?queue` starts with one, as if "Old laptop" was removed a moment ago.
+let rotationQueue: { since: number; device: string; vars: Map<string, string> } | null = null;
+function startQueue(device: string) {
+  const vars = new Map<string, string>();
+  for (const e of envs.values()) for (const [k, v] of e.vars) if (!linkOf(v)) vars.set(`${e.id}/${k}`, v);
+  rotationQueue = { since: Date.now(), device, vars };
+}
+function queueView() {
+  if (!rotationQueue) return null;
+  const q = rotationQueue;
+  const tokens = new Set([...connections.values()].map((c) => c.credential));
+  return {
+    since: q.since,
+    device: q.device,
+    secrets: [...secrets.values()]
+      .filter((s) => (currentOf(s)?.createdAt ?? Infinity) < q.since)
+      .map((s) => ({ id: s.id, name: s.name, hasProvider: !!bindings.get(s.id)?.provider, connectionToken: tokens.has(s.id) }))
+      .sort((x, y) => Number(y.hasProvider) - Number(x.hasProvider) || x.name.localeCompare(y.name)),
+    variables: [...envs.values()].flatMap((e) =>
+      [...e.vars]
+        .filter(([k, v]) => q.vars.get(`${e.id}/${k}`) === v)
+        .map(([key]) => ({ projectId: e.projectId, project: projects.get(e.projectId)!, environmentId: e.id, environment: e.name, key })),
+    ),
+  };
+}
+
 // `?integrity` makes the integrity checks report problems.
 const integrity = new URLSearchParams(location.search).has("integrity");
 // Devices. `?touchid` starts as a Mac set up for Touch ID unlock.
@@ -271,6 +298,7 @@ function collect(source: { kind: string; text?: string }) {
 const rank = (n: string) => ({ development: 0, staging: 1, production: 2 })[n] ?? 3;
 
 export function installMockBackend() {
+  if (new URLSearchParams(location.search).has("queue")) startQueue("Old laptop");
   mockIPC(
     async (cmd, raw) => {
       const a = (raw ?? {}) as Record<string, string>;
@@ -329,7 +357,10 @@ export function installMockBackend() {
           await delay(800);
           if ((raw as { password: string }).password !== password) fail("invalid_password", "Wrong password.");
           const i = mockDevices.findIndex((d) => d.deviceId === (raw as { deviceId: string }).deviceId);
-          if (i >= 0) mockDevices.splice(i, 1);
+          if (i >= 0) {
+            startQueue(mockDevices[i].name);
+            mockDevices.splice(i, 1);
+          }
           return recoveryKey;
         }
         case "connect_with_code": {
@@ -477,6 +508,16 @@ export function installMockBackend() {
           addConnection(svc.id, a.name.trim(), settings);
           return null;
         }
+        case "replace_connection_token": {
+          const c = connections.get(a.id) ?? fail("other", "That connection was removed.");
+          if (!a.token.trim()) fail("other", "Paste the new admin token.");
+          const s = secret(c.credential);
+          const now = Date.now();
+          s.versions.push({ id: id(), value: a.token.trim(), state: "pending", createdAt: now, changedAt: now, note: "Replaced" });
+          promote(s, now);
+          for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: now });
+          return null;
+        }
         case "remove_connection": {
           const c = connections.get(a.id) ?? fail("other", "That connection was already removed.");
           const used = [...bindings.values()].some((b) => b.provider?.connectionId === c.id || b.targets.some((t) => t.connectionId === c.id));
@@ -547,12 +588,32 @@ export function installMockBackend() {
           for (const v of s.versions) if (v.state === "previous") (Object.assign(v, { state: "retired", changedAt: Date.now() }), n++);
           return n;
         }
+        case "rotation_queue":
+          return queueView();
+        case "rotate_queued_with_providers": {
+          const view = queueView();
+          const out = [];
+          for (const q of view?.secrets.filter((s) => s.hasProvider) ?? []) {
+            await delay(400);
+            const s = secret(q.id);
+            const now = Date.now();
+            s.versions.push({ id: id(), value: `sk-mock-${now}`, state: "pending", createdAt: now, changedAt: now, note: "Issued by provider" });
+            promote(s, now);
+            out.push({ name: s.name, error: null, pushes: pushAll(s.id) });
+          }
+          return out;
+        }
+        case "dismiss_rotation_queue":
+          rotationQueue = null;
+          return null;
         case "vault_health":
           return integrity ? { stale: 1, unreadable: 2 } : { stale: 0, unreadable: 0 };
         case "reveal_variable":
           return resolve(env(a.environmentId).vars.get(a.key)) ?? fail("other", `${a.key} isn't set.`);
-        case "list_secrets":
-          return [...secrets.values()].map(secretView).sort((x, y) => x.name.localeCompare(y.name));
+        case "list_secrets": {
+          const tokens = new Set([...connections.values()].map((c) => c.credential));
+          return [...secrets.values()].filter((x) => !tokens.has(x.id)).map(secretView).sort((x, y) => x.name.localeCompare(y.name));
+        }
         case "get_secret":
           return secretDetail(secret(a.id));
         case "reveal_secret":

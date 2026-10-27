@@ -165,7 +165,9 @@ export function AgentSettings() {
       <Surface aria-labelledby="agents-recent-title">
         <SurfaceHeader icon={<History aria-hidden />}>
           <SurfaceTitle id="agents-recent-title">Activity</SurfaceTitle>
-          <SurfaceDescription>From every device, kept encrypted in your vault for 90 days.</SurfaceDescription>
+          <SurfaceDescription>
+            Agent requests, rotations and pushes from every device, kept encrypted in your vault for 90 days.
+          </SurfaceDescription>
         </SurfaceHeader>
         <SurfaceBody className={cn(activity?.recent.length ? "p-0" : undefined)}>
           {activity === null ? (
@@ -194,7 +196,7 @@ export function AgentSettings() {
                       (e.outcome === "denied" || e.outcome === "failed") && "bg-muted text-muted-foreground",
                     )}
                   >
-                    {e.outcome}
+                    {e.outcome === "allowed" && e.actor === "You" ? "done" : e.outcome}
                   </span>
                 </li>
               ))}

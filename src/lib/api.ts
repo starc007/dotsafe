@@ -89,6 +89,13 @@ export type SecretIntegrations = {
     upToDate: boolean;
   }[];
 };
+/** What still needs rotating after a device was removed. */
+export type QueueView = {
+  since: number;
+  device: string;
+  secrets: { id: string; name: string; hasProvider: boolean; connectionToken: boolean }[];
+  variables: { projectId: string; project: string; environmentId: string; environment: string; key: string }[];
+};
 export type PushView = { name: string; connection: string; error: string | null };
 export type RotationView = {
   /** Why the new key failed its check. */
@@ -177,7 +184,8 @@ export type GrantLifetime = "once" | "15m" | "1h" | "lock";
 export type AgentEvent = {
   at: number;
   actor: string;
-  action: "run" | "generate";
+  /** `rotate`, `push` and `revoke` are your own rotations through integrations. */
+  action: "run" | "generate" | "rotate" | "push" | "revoke";
   outcome: "allowed" | "denied" | "refused" | "failed";
   summary: string;
   environment: string;
@@ -321,6 +329,7 @@ export const api = {
   addConnection: (serviceId: string, name: string, settings: Record<string, string>, token: string) =>
     call<void>("add_connection", { serviceId, name, settings, token }),
   removeConnection: (id: string) => call<void>("remove_connection", { id }),
+  replaceConnectionToken: (id: string, token: string) => call<void>("replace_connection_token", { id, token }),
   secretIntegrations: (secretId: string) => call<SecretIntegrations>("secret_integrations", { secretId }),
   /** `connectionId: null` removes the provider. */
   setSecretProvider: (secretId: string, connectionId: string | null, settings: Record<string, string>) =>
@@ -332,6 +341,11 @@ export const api = {
   pushSecret: (secretId: string) => call<PushView[]>("push_secret", { secretId }),
   /** Revokes the previous key at the provider, then retires it. */
   revokePreviousWithProvider: (secretId: string) => call<number>("revoke_previous_with_provider", { secretId }),
+  /** `null` when nothing is queued. */
+  rotationQueue: () => call<QueueView | null>("rotation_queue"),
+  rotateQueuedWithProviders: () =>
+    call<{ name: string; error: string | null; pushes: PushView[] }[]>("rotate_queued_with_providers"),
+  dismissRotationQueue: () => call<void>("dismiss_rotation_queue"),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),
