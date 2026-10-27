@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AutoHeight } from "@/components/AutoHeight";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SurfaceBody, SurfaceHeader, surfaceDescriptionClass, surfaceTitleClass } from "@/components/Surface";
@@ -38,20 +39,22 @@ export function SurfaceDialog({
           className,
         )}
       >
-        <SurfaceHeader
-          icon={icon}
-          action={
-            <DialogClose asChild>
-              <Button variant="ghost" size="icon" aria-label="Close" className="rounded-full bg-card hover:bg-card/80">
-                <X aria-hidden />
-              </Button>
-            </DialogClose>
-          }
-        >
-          <DialogTitle className={surfaceTitleClass}>{title}</DialogTitle>
-          {description && <DialogDescription className={surfaceDescriptionClass}>{description}</DialogDescription>}
-        </SurfaceHeader>
-        <SurfaceBody>{children}</SurfaceBody>
+        <AutoHeight>
+          <SurfaceHeader
+            icon={icon}
+            action={
+              <DialogClose asChild>
+                <Button variant="ghost" size="icon" aria-label="Close" className="rounded-full bg-card hover:bg-card/80">
+                  <X aria-hidden />
+                </Button>
+              </DialogClose>
+            }
+          >
+            <DialogTitle className={surfaceTitleClass}>{title}</DialogTitle>
+            {description && <DialogDescription className={surfaceDescriptionClass}>{description}</DialogDescription>}
+          </SurfaceHeader>
+          <SurfaceBody>{children}</SurfaceBody>
+        </AutoHeight>
       </DialogContent>
     </Dialog>
   );
