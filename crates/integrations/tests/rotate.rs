@@ -172,11 +172,22 @@ fn openai_rotation_issues_verifies_promotes_and_pushes() {
     assert_eq!(push.auth, "Bearer vercel-token");
     assert_eq!(push.body, json!({ "key": "API_KEY", "value": "sk-new", "type": "encrypted", "target": ["production"] }));
 
+    // Each step is in the audit log, as format v4 days.
+    let events = dotsafe_core::audit::recent(&s.vault, 10).unwrap();
+    let logged: Vec<String> = events.iter().rev().map(|e| format!("{:?} {}", e.action, e.summary)).collect();
+    assert_eq!(logged, ["Rotate API_KEY: new key from Acme openai", "Push API_KEY: pushed to Acme vercel as API_KEY"]);
+    let day = s.vault.list().unwrap().into_iter().find(|r| matches!(r, Record::Audit(_))).unwrap();
+    let path = s._dir.path().join("records").join(format!("{}.json", day.id()));
+    let file: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(file["version"], 4);
+
     // Retiring revokes the old service account, then marks it retired.
     assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret).unwrap(), 1);
     let revoke = fake.seen().into_iter().find(|r| r.method == "DELETE").unwrap();
     assert_eq!(revoke.path, "/organization/projects/proj_1/service_accounts/old-key-id");
     assert_eq!(states(&secret(&s.vault, s.secret))[1].1, VersionState::Retired);
+    let latest = &dotsafe_core::audit::recent(&s.vault, 1).unwrap()[0];
+    assert_eq!(latest.summary, "API_KEY: revoked the old key at Acme openai");
 }
 
 #[test]
