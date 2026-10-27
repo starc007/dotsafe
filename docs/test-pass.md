@@ -39,9 +39,9 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 - [x] **D11** Import a `.env` by drag-and-drop and with the file picker. The preview shows names and changes only.
 - [x] **D12** Keyboard: every action has a shortcut or a keyboard path. Shortcuts listed in Settings work, and do nothing while a dialog is open.
 
-### Shared secrets and rotation
+### Secrets and rotation
 
-- [ ] **D13** Make a variable shared (the Share dialog finds matching copies in other projects). Link it into a second environment.
+- [ ] **D13** Make a variable a secret. The dialog lists copies with the same value (tick which to link) and ones with a different value (never linked); the name gets the environment in brackets when the name is taken. Leave a copy unticked: the secret's Overview warns about it, and Link fixes it.
 - [ ] **D14** Rotate by hand: stage → promote → retire the previous version. Roll back. Restore an old version from history.
 - [ ] **D15** Leaked fast path: rotate a leaked secret in one step.
 - [ ] **D16** Rotation reminders: set a short policy and check that the macOS **notification** appears when the secret is due.

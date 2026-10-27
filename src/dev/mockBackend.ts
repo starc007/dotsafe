@@ -131,7 +131,7 @@ const SERVICES = [
     connectionFields: [{ key: "access_key_id", label: "Admin access key ID", hint: "AKIA…", required: true, secretRef: false }],
     bindingFields: [
       { key: "user_name", label: "IAM user", hint: "The user whose access key this secret holds.", required: true, secretRef: false },
-      { key: "access_key_id_secret", label: "Shared secret for the key ID", hint: "Optional: the shared secret that holds AWS_ACCESS_KEY_ID.", required: false, secretRef: true },
+      { key: "access_key_id_secret", label: "Secret for the key ID", hint: "Optional: the secret that holds AWS_ACCESS_KEY_ID.", required: false, secretRef: true },
     ],
     overlap: true,
     guided: false, manualRevoke: false, needsToken: true, consoleUrl: "https://console.aws.amazon.com/iam/home#/users",
@@ -274,7 +274,7 @@ function fakeAgentRequest() {
 }
 
 const linkOf = (v: string | undefined) => (v?.startsWith(LINK) ? v.slice(LINK.length) : null);
-const secret = (sid: string) => secrets.get(sid) ?? fail("other", "That shared secret no longer exists.");
+const secret = (sid: string) => secrets.get(sid) ?? fail("other", "That secret no longer exists.");
 const currentOf = (s: MockSecret) =>
   s.versions.filter((v) => v.state === "current").sort((x, y) => y.changedAt - x.changedAt)[0] ?? null;
 const resolve = (v: string | undefined) => {
@@ -331,7 +331,18 @@ const secretDetail = (s: MockSecret) => ({
   versions: [...s.versions]
     .sort((x, y) => y.createdAt - x.createdAt)
     .map(({ value, ...v }) => ({ ...v, wiped: value === null })),
+  copies: unlinkedCopies(s),
 });
+/** Variables with their own copy of one of `s`'s values, instead of a link. */
+function unlinkedCopies(s: MockSecret) {
+  const current = currentOf(s)?.value;
+  const values = s.versions.filter((v) => v.state !== "pending" && v.value !== null).map((v) => v.value);
+  return [...envs.values()].flatMap((e) =>
+    [...e.vars]
+      .filter(([, v]) => values.includes(v))
+      .map(([key, v]) => ({ projectId: e.projectId, project: projects.get(e.projectId), environmentId: e.id, environment: e.name, key, outdated: v !== current })),
+  );
+}
 function promote(s: MockSecret, now: number) {
   for (const v of s.versions) {
     const next = v.state === "pending" ? "current" : v.state === "current" ? "previous" : v.state === "previous" ? "retired" : null;
@@ -764,6 +775,7 @@ export function installMockBackend() {
           return {
             copies: others.filter((e) => e.vars.get(a.key) === value).map(usage),
             different: others.filter((e) => e.vars.get(a.key) !== value).map(usage),
+            nameTaken: [...secrets.values()].some((s) => s.name === a.key),
           };
         }
         case "share_variable": {
@@ -850,7 +862,7 @@ export function installMockBackend() {
             fail("other", "Use letters, numbers and underscores, not starting with a number.");
           if (a.previousKey !== a.key && e.vars.has(a.key)) fail("other", `${a.key} already exists.`);
           if (a.previousKey === a.key && linkOf(e.vars.get(a.key)))
-            fail("other", `${a.key} is linked to a shared secret. Rotate the secret, or unlink ${a.key} first.`);
+            fail("other", `${a.key} is linked to a secret. Rotate the secret, or unlink ${a.key} first.`);
           if (a.previousKey && a.previousKey !== a.key) e.vars.delete(a.previousKey);
           e.vars.set(a.key, a.value);
           return null;

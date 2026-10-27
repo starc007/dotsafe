@@ -11,7 +11,7 @@ import { DragRegion } from "@/components/DragRegion";
 import { SecretDialog } from "@/components/SecretDialog";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
-/** Every shared secret: age, rotation status, and where it's linked. Esc closes. */
+/** Every secret: age, rotation status, and where it's linked. Esc closes. */
 export function SecretsPage({
   openSecretId,
   onOpenSecret,
@@ -63,7 +63,7 @@ export function SecretsPage({
     <div className="flex min-h-0 flex-1 flex-col">
       <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
         <h1 data-tauri-drag-region className="text-sm font-semibold">
-          Shared secrets
+          Secrets
         </h1>
         <DragRegion className="flex-1 self-stretch" />
         <Button variant="ghost" size="sm" onClick={onClose} aria-keyshortcuts="Escape" className="text-muted-foreground">
@@ -76,11 +76,11 @@ export function SecretsPage({
       <div className="relative min-h-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto flex max-w-2xl flex-col gap-4 pb-4">
           <p className="px-1 text-muted-foreground">
-            A shared secret is defined once and linked into any number of environments. Rotating it updates all of them.
+            A secret keeps its history and can be rotated in one step. Link it into other environments and rotating updates all of them.
           </p>
           <Surface aria-labelledby="secrets-title">
             <SurfaceHeader icon={<KeyRound aria-hidden />}>
-              <SurfaceTitle id="secrets-title">Shared secrets</SurfaceTitle>
+              <SurfaceTitle id="secrets-title">Secrets</SurfaceTitle>
               <SurfaceDescription>
                 {secrets === null ? " " : `${secrets.length} ${secrets.length === 1 ? "secret" : "secrets"}`}
               </SurfaceDescription>
@@ -88,7 +88,7 @@ export function SecretsPage({
             <SurfaceBody className="overflow-hidden p-0">
               {error ? (
                 <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
-                  <p className="text-sm font-semibold">Couldn't load shared secrets</p>
+                  <p className="text-sm font-semibold">Couldn't load secrets</p>
                   <p className="selectable text-muted-foreground">{error}</p>
                   <Button variant="outline" onClick={load}>
                     Try again
@@ -105,14 +105,14 @@ export function SecretsPage({
                     <Share2 aria-hidden className="size-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold">No shared secrets yet</p>
+                    <p className="text-sm font-semibold">No secrets yet</p>
                     <p className="mt-1 max-w-sm text-muted-foreground">
-                      Hover a variable and choose Share. Other environments with the same value can link to it too.
+                      Hover a variable and choose Make it a secret. Other environments with the same value can link to it too.
                     </p>
                   </div>
                 </div>
               ) : (
-                <ul aria-label="Shared secrets" className="divide-y">
+                <ul aria-label="Secrets" className="divide-y">
                   {secrets.map((s) => (
                     <li key={s.id}>
                       <button

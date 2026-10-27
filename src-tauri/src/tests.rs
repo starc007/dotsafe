@@ -388,8 +388,14 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     assert_eq!(secret["usedIn"].as_array().unwrap().len(), 2);
     let linked = desktop.ok("list_variables", json!({ "environmentId": web }));
     assert_eq!(linked[0]["secret"]["name"], "Stripe");
+    // docs was left unticked: it's reported as its own copy, then as outdated once rotated.
+    let copies = |id: &Value| desktop.ok("get_secret", json!({ "id": id }))["copies"].clone();
+    assert_eq!(projects(&copies(&id)), ["docs"]);
+    assert_eq!(copies(&id)[0]["outdated"], false);
+    // A second secret from a same-named variable gets told the name is taken.
+    assert_eq!(desktop.ok("share_preview", json!({ "environmentId": other, "key": "STRIPE_KEY" }))["nameTaken"], false);
     let edit = json!({ "environmentId": web, "key": "STRIPE_KEY", "value": "x", "previousKey": "STRIPE_KEY" });
-    assert!(desktop.err("set_variable", edit)["message"].as_str().unwrap().contains("linked to a shared secret"));
+    assert!(desktop.err("set_variable", edit)["message"].as_str().unwrap().contains("linked to a secret"));
 
     // Staged values aren't live until promoted; the old one stays as previous.
     // Generating shows a fresh value without saving anything.
@@ -404,6 +410,7 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" })), "sk_old");
     let promoted = desktop.ok("promote_secret", json!({ "id": id }));
     assert_eq!((promoted["staged"].clone(), promoted["hasPrevious"].clone()), (json!(false), json!(true)));
+    assert_eq!(copies(&id)[0]["outdated"], true, "docs still has the old value");
     for env in [&api, &web] {
         assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": env, "key": "STRIPE_KEY" })), "sk_new");
     }

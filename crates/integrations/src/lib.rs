@@ -167,8 +167,8 @@ pub const SERVICES: &[Service] = &[
             },
             Field {
                 key: "access_key_id_secret",
-                label: "Shared secret for the key ID",
-                hint: "Optional: the shared secret that holds AWS_ACCESS_KEY_ID. It gets the new ID on every rotation.",
+                label: "Secret for the key ID",
+                hint: "Optional: the secret that holds AWS_ACCESS_KEY_ID. It gets the new ID on every rotation.",
                 required: false,
                 secret_ref: true,
             },

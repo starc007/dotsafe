@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, Share2, TriangleAlert } from "lucide-react";
+import { FolderLock, KeyRound, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, TriangleAlert } from "lucide-react";
 import { api, message, type ProjectView, type QueueView, type VaultHealth } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
@@ -46,7 +46,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
-  // Shared secrets, and the secret whose details are open there.
+  // Secrets, and the secret whose details are open there.
   const [secretsOpen, setSecretsOpen] = useState(false);
   const [openSecretId, setOpenSecretId] = useState<string | null>(null);
   // A secret opened from a variable's badge, over the project, without leaving it.
@@ -172,7 +172,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   useShortcut(SHORTCUTS.nextProject, () => stepProject(1));
 
   const selected = projects?.find((p) => p.id === selectedId) ?? null;
-  // New content enters from the right going into Settings or Shared secrets,
+  // New content enters from the right going into Settings or Secrets,
   // from the left coming back.
   const direction = settingsOpen || secretsOpen ? 1 : -1;
 
@@ -282,8 +282,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             onClick={() => setQuickCopyOpen(true)}
           />
           <SidebarAction
-            icon={<Share2 aria-hidden />}
-            label="Shared secrets"
+            icon={<KeyRound aria-hidden />}
+            label="Secrets"
             shortcut={SHORTCUTS.secrets}
             active={secretsOpen}
             onClick={() => (secretsOpen ? setSecretsOpen(false) : openSecrets())}

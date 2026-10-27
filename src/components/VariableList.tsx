@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { Braces, Check, Copy, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, RotateCcw, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
+import { Braces, Check, Copy, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, RotateCcw, Search, Trash2, Unlink, Upload } from "lucide-react";
 import { api, message, type EnvironmentView, type ImportResult, type SecretRef, type VariableView } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
 import { SHORTCUTS, ariaShortcut, useShortcut, type Shortcut } from "@/lib/shortcuts";
@@ -201,7 +201,7 @@ export function VariableList({
     hide(key);
     await load();
     await onChanged();
-    toast.success(name === key ? `${key} is now shared` : `${key} is now the shared secret ${name}`, {
+    toast.success(name === key ? `${key} is now a secret` : `${key} is now the secret ${name}`, {
       description: linked ? `Also linked in ${linked} other ${linked === 1 ? "environment" : "environments"}.` : undefined,
     });
   }
@@ -210,7 +210,7 @@ export function VariableList({
     if (!unlinking) return;
     try {
       await api.unlinkVariable(envId, unlinking);
-      toast(`${unlinking} has its own value now`, { description: "Rotating the shared secret won't change it." });
+      toast(`${unlinking} has its own value now`, { description: "Rotating the secret won't change it." });
       await load();
     } catch (e) {
       toast.error(message(e));
@@ -427,7 +427,7 @@ export function VariableList({
                             <span className="truncate">{links[key].name}</span>
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent>Shared secret. Open it to rotate or see where it's used.</TooltipContent>
+                        <TooltipContent>Secret. Open it to rotate or see where it's used.</TooltipContent>
                       </Tooltip>
                     )}
                     {/* Kept on its own compositing layer (will-change): WebKit otherwise
@@ -459,8 +459,8 @@ export function VariableList({
                         </IconButton>
                       ) : (
                         <>
-                          <IconButton label={`Share ${key}`} onClick={() => setSharing(key)}>
-                            <Share2 aria-hidden />
+                          <IconButton label={`Make ${key} a secret`} onClick={() => setSharing(key)}>
+                            <KeyRound aria-hidden />
                           </IconButton>
                           <IconButton label={`Edit ${key}`} onClick={() => startEdit(key)}>
                             <Pencil aria-hidden />
@@ -522,6 +522,7 @@ export function VariableList({
         open={sharing !== null}
         onOpenChange={(open) => !open && setSharing(null)}
         environmentId={envId}
+        environmentName={environment.name}
         variable={lastShared.current}
         onShared={(name, linked) => shared(lastShared.current, name, linked)}
       />

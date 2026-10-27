@@ -68,7 +68,7 @@ dotsafe connect aws_iam --set access_key_id=AKIA…   # rotate IAM users' access
 
 **Devices.** Turn on Touch ID unlock in Settings → Devices (the password is still asked every two weeks). Add a Mac with a one-time code instead of typing the password there. If a device is lost, remove it: dotsafe switches the vault to a new key and re-encrypts everything, so it can't read anything new.
 
-**Shared secrets.** A variable can link to a shared secret instead of holding its own value. Rotate the secret once and every linked environment, in any project, gets the new value. Each secret keeps its history, so a bad rotation can be rolled back or an earlier value restored.
+**Secrets.** Make any variable a secret to keep its history and rotate it in one step. Other environments, in any project, can link to the same secret, and rotating updates all of them. A bad rotation can be rolled back or an earlier value restored, and copies left unlinked are flagged so they don't go stale.
 
 **Vaults in a bucket.** Instead of a synced folder, a vault can live in any S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO). The bucket only ever holds encrypted files. Each machine keeps an encrypted copy, so dotsafe works offline and syncs when it's back online. The access key is kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
 
