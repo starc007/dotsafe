@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, Lock, Plus, Search, Settings as SettingsIcon, Share2, TriangleAlert } from "lucide-react";
-import { api, message, type ProjectView, type VaultHealth } from "@/lib/api";
+import { FolderLock, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, Share2, TriangleAlert } from "lucide-react";
+import { api, message, type ProjectView, type QueueView, type VaultHealth } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
 import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
@@ -14,6 +14,7 @@ import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
 import { QuickCopy } from "@/components/QuickCopy";
+import { RotationQueueDialog } from "@/components/RotationQueueDialog";
 import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SecretsPage } from "@/screens/Secrets";
@@ -39,6 +40,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [creating, setCreating] = useState(false);
   const [quickCopyOpen, setQuickCopyOpen] = useState(false);
   const [health, setHealth] = useState<VaultHealth | null>(null);
+  const [queue, setQueue] = useState<QueueView | null>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
@@ -66,14 +69,18 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
       setError(message(e));
     }
     api.vaultHealth().then(setHealth, () => {});
+    api.rotationQueue().then(setQueue, () => {});
   }, []);
 
   useEffect(() => {
     load();
     // Another device's changes arrived through the bucket.
     const unlisten = listen("vault-synced", load);
+    // A device was removed, or something queued was rotated.
+    window.addEventListener("dotsafe:vault-changed", load);
     return () => {
       unlisten.then((f) => f());
+      window.removeEventListener("dotsafe:vault-changed", load);
     };
   }, [load]);
 
@@ -235,6 +242,21 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               <span className="flex-1 truncate">Vault needs a look</span>
             </button>
           )}
+          {queue && (
+            <button
+              type="button"
+              onClick={() => setQueueOpen(true)}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left font-medium outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <ListChecks aria-hidden />
+              <span className="flex-1 truncate">
+                {queue.secrets.length + queue.variables.length > 0 ? "Rotate after removal" : "Rotation done"}
+              </span>
+              {queue.secrets.length + queue.variables.length > 0 && (
+                <span className="text-xs text-muted-foreground">{queue.secrets.length + queue.variables.length}</span>
+              )}
+            </button>
+          )}
           <SidebarAction
             icon={<Search aria-hidden />}
             label="Find"
@@ -310,6 +332,17 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           )}
         </AnimatePresence>
       </section>
+      <RotationQueueDialog
+        open={queueOpen}
+        onOpenChange={setQueueOpen}
+        onChanged={load}
+        onOpenSecret={(id) => openSecrets(id)}
+        onOpenEnvironment={openEnvironment}
+        onOpenIntegrations={() => {
+          setSecretsOpen(false);
+          setSettingsSection("integrations");
+        }}
+      />
       <QuickCopy
         open={quickCopyOpen}
         onOpenChange={setQuickCopyOpen}

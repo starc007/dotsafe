@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AddConnectionDialog } from "@/components/AddConnectionDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ReplaceTokenDialog } from "@/components/ReplaceTokenDialog";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Connected accounts at providers and deploy targets. */
@@ -15,6 +16,7 @@ export function IntegrationSettings() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<ConnectionView | null>(null);
+  const [replacing, setReplacing] = useState<ConnectionView | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -90,6 +92,9 @@ export function IntegrationSettings() {
                       {c.usedBy > 0 && ` · used by ${c.usedBy} ${c.usedBy === 1 ? "secret" : "secrets"}`}
                     </span>
                   </span>
+                  <Button variant="ghost" onClick={() => setReplacing(c)}>
+                    Replace token…
+                  </Button>
                   <Button
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
@@ -104,6 +109,7 @@ export function IntegrationSettings() {
         </SurfaceBody>
       </Surface>
       <AddConnectionDialog open={adding} services={services} onOpenChange={setAdding} onAdded={load} />
+      <ReplaceTokenDialog connection={replacing} onClose={() => setReplacing(null)} />
       <ConfirmDialog
         open={removing !== null}
         busy={busy}

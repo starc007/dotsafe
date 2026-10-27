@@ -87,10 +87,13 @@ impl Desktop {
                 integrations::list_connections,
                 integrations::add_connection,
                 integrations::remove_connection,
+                integrations::replace_connection_token,
                 integrations::secret_integrations,
                 integrations::set_secret_provider,
                 integrations::add_secret_target,
                 integrations::remove_secret_target,
+                integrations::rotation_queue,
+                integrations::dismiss_rotation_queue,
             ])
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -509,5 +512,50 @@ fn connections_providers_and_targets() {
     desktop.ok("set_secret_provider", json!({ "secretId": id, "connectionId": null, "settings": {} }));
     assert_eq!(desktop.ok("secret_integrations", json!({ "secretId": id })), json!({ "provider": null, "targets": [] }));
     let names: Vec<String> = desktop.ok("list_secrets", json!({})).as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_string()).collect();
-    assert_eq!(names, ["Acme admin token", "OpenAI"], "the removed connection's token went with it");
+    assert_eq!(names, ["OpenAI"], "connection tokens stay out of the secrets list");
+
+    // A token can be replaced; the old one is kept, retired.
+    let blank = desktop.err("replace_connection_token", json!({ "id": acme, "token": " " }));
+    assert_eq!(blank["message"], "Paste the new admin token.");
+    desktop.ok("replace_connection_token", json!({ "id": acme, "token": "admin-2" }));
+    let records = desktop.state.0.lock().unwrap().vault.clone().unwrap().list().unwrap();
+    let token = records
+        .iter()
+        .find_map(|r| match r {
+            dotsafe_core::Record::Secret(s) if s.name == "Acme admin token" => Some(s.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(token.current_value(), Some("admin-2"));
+    assert!(token.versions().iter().any(|(_, v)| v.state == dotsafe_core::VersionState::Retired));
+}
+
+#[test]
+fn the_rotation_queue_shrinks_as_values_are_rotated() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "DB_URL", "postgres://old");
+    desktop.set(&dev, "SHARED", "s1");
+    desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": false }));
+    assert_eq!(desktop.ok("rotation_queue", json!({})), Value::Null);
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    if let Some(config) = desktop.state.0.lock().unwrap().config.as_mut() {
+        config.rotation_queue = Some(dotsafe_core::RotationQueue { since, device: "Lost laptop".into() });
+    }
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let queue = desktop.ok("rotation_queue", json!({}));
+    assert_eq!(queue["device"], "Lost laptop");
+    assert_eq!(queue["secrets"][0]["name"], "shared");
+    assert_eq!(queue["secrets"][0]["hasProvider"], false);
+    assert_eq!(queue["variables"][0]["key"], "DB_URL");
+
+    let edit = json!({ "environmentId": dev, "key": "DB_URL", "value": "postgres://new", "previousKey": "DB_URL" });
+    desktop.ok("set_variable", edit);
+    assert_eq!(desktop.ok("rotation_queue", json!({}))["variables"], json!([]));
+    desktop.ok("dismiss_rotation_queue", json!({}));
+    assert_eq!(desktop.ok("rotation_queue", json!({})), Value::Null);
 }

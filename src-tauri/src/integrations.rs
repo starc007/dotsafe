@@ -179,6 +179,33 @@ pub async fn add_connection(
         .await
 }
 
+/// Swaps in a new admin token, for when the old one was rotated or revoked
+/// at the service. The old one is kept in the token's history, retired.
+#[tauri::command]
+pub async fn replace_connection_token(state: State<'_, AppState>, id: Uuid, token: String) -> CmdResult<()> {
+    let token = Zeroizing::new(token.trim().to_string());
+    if token.is_empty() {
+        return Err(CmdError::other("Paste the new admin token."));
+    }
+    state
+        .run(move |s| {
+            let vault = s.vault()?;
+            let connection = match vault.get(id)? {
+                Some(Record::Connection(c)) if !c.deleted => c,
+                _ => return Err(CmdError::other("That connection was removed.")),
+            };
+            let mut secret = match vault.get(connection.credential)? {
+                Some(Record::Secret(secret)) => secret,
+                _ => return Err(CmdError::other(format!("{}'s stored token is missing.", connection.name))),
+            };
+            secret.rotate(token.as_str(), Some("Replaced".into()), s.stamp()?)?;
+            secret.retire_previous(s.stamp()?);
+            vault.put(Record::Secret(secret))?;
+            Ok(())
+        })
+        .await
+}
+
 /// Removes a connection nothing uses, and deletes its stored token.
 #[tauri::command]
 pub async fn remove_connection(state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
@@ -447,6 +474,136 @@ pub async fn push_secret(state: State<'_, AppState>, secret_id: Uuid) -> CmdResu
 pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid) -> CmdResult<usize> {
     let (vault, device) = shared(&state).await?;
     off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id)).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedSecret {
+    id: Uuid,
+    name: String,
+    has_provider: bool,
+    /// A connection's admin token: replaced from Settings → Integrations.
+    connection_token: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedVariable {
+    project_id: Uuid,
+    project: String,
+    environment_id: Uuid,
+    environment: String,
+    key: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueView {
+    since: u64,
+    device: String,
+    secrets: Vec<QueuedSecret>,
+    variables: Vec<QueuedVariable>,
+}
+
+/// What still needs rotating after a device was removed from this Mac:
+/// every value older than the removal. `None` when there's no queue.
+#[tauri::command]
+pub async fn rotation_queue(state: State<'_, AppState>) -> CmdResult<Option<QueueView>> {
+    state
+        .run(|s| {
+            let Some(queue) = s.config()?.rotation_queue.clone() else { return Ok(None) };
+            let records = s.vault()?.list()?;
+            let exposed = dotsafe_core::integration::exposed_since(&records, queue.since);
+            let tokens = dotsafe_core::integration::credentials(&records);
+            let mut secrets: Vec<QueuedSecret> = exposed
+                .secrets
+                .iter()
+                .filter_map(|id| {
+                    records.iter().find_map(|r| match r {
+                        Record::Secret(secret) if secret.id == *id => Some(QueuedSecret {
+                            id: *id,
+                            name: secret.name.clone(),
+                            has_provider: bindings(&records).any(|b| b.secret == *id && b.provider.is_some()),
+                            connection_token: tokens.contains(id),
+                        }),
+                        _ => None,
+                    })
+                })
+                .collect();
+            secrets.sort_by_key(|s| (!s.has_provider, s.connection_token, s.name.to_lowercase()));
+            let mut variables: Vec<QueuedVariable> = exposed
+                .variables
+                .into_iter()
+                .filter_map(|(env_id, key)| {
+                    let env = records.iter().find_map(|r| match r {
+                        Record::Environment(e) if e.id == env_id => Some(e),
+                        _ => None,
+                    })?;
+                    let project = records.iter().find_map(|r| match r {
+                        Record::Project(p) if p.id == env.project_id => Some(p.name.clone()),
+                        _ => None,
+                    })?;
+                    Some(QueuedVariable {
+                        project_id: env.project_id,
+                        project,
+                        environment_id: env_id,
+                        environment: env.name.clone(),
+                        key,
+                    })
+                })
+                .collect();
+            variables.sort_by(|a, b| (&a.project, &a.environment, &a.key).cmp(&(&b.project, &b.environment, &b.key)));
+            Ok(Some(QueueView { since: queue.since, device: queue.device, secrets, variables }))
+        })
+        .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedRotation {
+    name: String,
+    /// Why it wasn't rotated, or why the new key is only staged.
+    error: Option<String>,
+    pushes: Vec<PushView>,
+}
+
+/// Rotates every queued secret that has a provider, one after another.
+#[tauri::command]
+pub async fn rotate_queued_with_providers(state: State<'_, AppState>) -> CmdResult<Vec<QueuedRotation>> {
+    let queued: Vec<(Uuid, String)> = rotation_queue(state.clone())
+        .await?
+        .map(|q| q.secrets.into_iter().filter(|s| s.has_provider).map(|s| (s.id, s.name)).collect())
+        .unwrap_or_default();
+    let (vault, device) = shared(&state).await?;
+    off_lock(move || {
+        let client = Client::new();
+        Ok(queued
+            .into_iter()
+            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, false) {
+                Ok(out) if out.promoted => QueuedRotation { name, error: None, pushes: pushes(out.pushes) },
+                Ok(out) => QueuedRotation {
+                    name,
+                    error: Some(format!("The new key failed its check and is staged: {}", out.staged.unwrap_or_default())),
+                    pushes: Vec::new(),
+                },
+                Err(e) => QueuedRotation { name, error: Some(capitalized(&e.to_string())), pushes: Vec::new() },
+            })
+            .collect())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn dismiss_rotation_queue(state: State<'_, AppState>) -> CmdResult<()> {
+    state
+        .run(|s| {
+            let mut config = s.config()?.clone();
+            config.rotation_queue = None;
+            config.save()?;
+            s.config = Some(config);
+            Ok(())
+        })
+        .await
 }
 
 fn trimmed(settings: BTreeMap<String, String>) -> BTreeMap<String, String> {

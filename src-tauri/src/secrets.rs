@@ -180,7 +180,14 @@ pub async fn list_secrets(state: State<'_, AppState>) -> CmdResult<Vec<SecretVie
     state
         .run(|s| {
             let snapshot = Snapshot::take(s)?;
-            let mut views: Vec<SecretView> = snapshot.secrets.iter().map(|secret| snapshot.view(secret)).collect();
+            // Connection tokens are managed in Settings → Integrations.
+            let tokens = dotsafe_core::integration::credentials(&snapshot.records);
+            let mut views: Vec<SecretView> = snapshot
+                .secrets
+                .iter()
+                .filter(|secret| !tokens.contains(&secret.id))
+                .map(|secret| snapshot.view(secret))
+                .collect();
             views.sort_by_key(|v| v.name.to_lowercase());
             Ok(views)
         })
