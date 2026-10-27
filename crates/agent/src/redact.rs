@@ -17,14 +17,23 @@ const MIN_ENCODED: usize = 8;
 
 pub struct Redactor {
     matcher: Option<AhoCorasick>,
-    replacements: Vec<String>,
+    /// The variable name behind each pattern.
+    names: Vec<String>,
+}
+
+/// Where a secret turned up in some text.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Found<'a> {
+    pub start: usize,
+    pub end: usize,
+    pub name: &'a str,
 }
 
 impl Redactor {
     /// `secrets` are (variable name, value) pairs.
     pub fn new(secrets: &[(String, String)]) -> Redactor {
         let mut patterns: Vec<String> = Vec::new();
-        let mut replacements = Vec::new();
+        let mut names = Vec::new();
         for (name, value) in secrets {
             if value.len() < MIN_LEN {
                 continue;
@@ -32,7 +41,7 @@ impl Redactor {
             for pattern in encodings(value) {
                 if !patterns.contains(&pattern) {
                     patterns.push(pattern);
-                    replacements.push(format!("[dotsafe:{name}]"));
+                    names.push(name.clone());
                 }
             }
         }
@@ -42,7 +51,16 @@ impl Redactor {
                 .build(&patterns)
                 .expect("literal patterns always build")
         });
-        Redactor { matcher, replacements }
+        Redactor { matcher, names }
+    }
+
+    /// Every secret in `text`, in order, without changing it.
+    pub fn find<'a>(&'a self, text: &str) -> Vec<Found<'a>> {
+        let Some(matcher) = &self.matcher else { return Vec::new() };
+        matcher
+            .find_iter(text)
+            .map(|m| Found { start: m.start(), end: m.end(), name: &self.names[m.pattern().as_usize()] })
+            .collect()
     }
 
     /// The text with every secret replaced, and how many were found.
@@ -52,7 +70,7 @@ impl Redactor {
         let mut out = String::with_capacity(text.len());
         matcher.replace_all_with(text, &mut out, |m, _, dst| {
             count += 1;
-            dst.push_str(&self.replacements[m.pattern().as_usize()]);
+            dst.push_str(&format!("[dotsafe:{}]", self.names[m.pattern().as_usize()]));
             true
         });
         (out, count)
@@ -138,6 +156,14 @@ mod tests {
         assert_eq!(r.redact(url_encoded).0, "[dotsafe:DATABASE_URL]");
         let json = Redactor::new(&[("X".into(), "line\"quote\\back".into())]);
         assert_eq!(json.redact(r#"{"x":"line\"quote\\back"}"#).0, r#"{"x":"[dotsafe:X]"}"#);
+    }
+
+    #[test]
+    fn finds_report_where_and_which() {
+        let r = redactor();
+        let text = "key=sk_live_abc123XYZ";
+        assert_eq!(r.find(text), [Found { start: 4, end: text.len(), name: "API_KEY" }]);
+        assert!(r.find("nothing here").is_empty());
     }
 
     #[test]

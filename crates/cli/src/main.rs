@@ -1,5 +1,7 @@
+mod export;
 mod link;
 mod mcp;
+mod scan;
 mod secrets;
 mod session;
 
@@ -85,6 +87,28 @@ enum Cmd {
         file: PathBuf,
         #[command(flatten)]
         env: EnvArg,
+    },
+    /// Print the variables as .env lines, or write them to a file for tools that need one
+    Export {
+        #[command(flatten)]
+        env: EnvArg,
+        /// Write to this file instead, e.g. .env (owner-only, and it must be gitignored)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Write the file even if git would commit it, or dotsafe didn't write it
+        #[arg(long, requires = "output")]
+        force: bool,
+    },
+    /// Look for vault values in files before they're committed
+    Scan {
+        /// Files or folders to scan [default: this directory]
+        paths: Vec<PathBuf>,
+        /// Scan what's staged for commit (the pre-commit hook does this)
+        #[arg(long, conflicts_with = "paths")]
+        staged: bool,
+        /// Add a git pre-commit hook that runs `dotsafe scan --staged`
+        #[arg(long, conflicts_with_all = ["paths", "staged"])]
+        install_hook: bool,
     },
     /// Shared secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
@@ -294,6 +318,58 @@ fn run(cli: Cli) -> Result<ExitCode> {
             ctx.vault.put(Record::Environment(target.env))?;
             eprintln!("Imported {imported} variables from {} into {label}.", file.display());
             eprintln!("You can delete {} and use `dotsafe run -- <command>` instead.", file.display());
+        }
+        Cmd::Export { env, output, force } => {
+            let ctx = Ctx::open()?;
+            let target = ctx.target(env.env, false)?;
+            let secrets = ctx.vault.secrets()?;
+            let vars: Vec<(String, String)> =
+                secrets.resolve(&target.env).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let text = export::text(&vars, &target.label(), output.is_some());
+            match output {
+                Some(path) => {
+                    export::write(&path, &text, force)?;
+                    eprintln!("Wrote {} variables from {} to {}.", vars.len(), target.label(), path.display());
+                }
+                None => print!("{}", *text),
+            }
+        }
+        Cmd::Scan { install_hook: true, .. } => {
+            let path = scan::install_hook()?;
+            eprintln!("Commits in this checkout now stop if they contain a vault value ({}).", path.display());
+        }
+        Cmd::Scan { paths, staged, .. } => {
+            let ctx = Ctx::open().map_err(|e| {
+                if staged {
+                    e.context(
+                        "dotsafe couldn't check this commit; run `dotsafe unlock` first, or skip the check once with `git commit --no-verify`",
+                    )
+                } else {
+                    e
+                }
+            })?;
+            let matcher = scan::matcher(&ctx.vault)?;
+            drop(ctx);
+            let (hits, scanned) = scan::scan(&matcher, scan::sources(&paths, staged)?)?;
+            for hit in &hits {
+                println!("{}:{}:{}\t{}", hit.file, hit.line, hit.column, hit.name);
+            }
+            if hits.is_empty() {
+                eprintln!("No vault values in {scanned} files.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            let files = hits.iter().map(|h| &h.file).collect::<std::collections::BTreeSet<_>>().len();
+            let one = hits.len() == 1;
+            eprintln!(
+                "Found {} vault {} in {files} {}. Take {} out; if {} already pushed, rotate {}.",
+                hits.len(),
+                if one { "value" } else { "values" },
+                if files == 1 { "file" } else { "files" },
+                if one { "it" } else { "them" },
+                if one { "it was" } else { "they were" },
+                if one { "it" } else { "them" },
+            );
+            return Ok(ExitCode::FAILURE);
         }
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Mcp { action: None } => mcp::serve()?,

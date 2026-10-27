@@ -16,6 +16,7 @@ const NEVER: &[&str] = &[
     "awk", "gawk", "mawk", "nawk", "jq", // read it inline (ENVIRON, $ENV)
     "nice", "nohup", "timeout", "time", "stdbuf", "xargs", "sudo", "doas", "su", "exec", "command", "builtin", "eval",
     "watch", "script", "unbuffer", // run another program
+    "dotsafe", // `get` and `export` print values; agents use the MCP tools instead
 ];
 
 /// Shells: refused when given a command string.
@@ -167,6 +168,7 @@ mod tests {
             "osascript -e beep",
             "pwsh -Command ls",
             "irb",
+            "dotsafe get STRIPE_KEY",
         ] {
             assert!(refusal(&cmd(bad)).is_some(), "{bad} should be refused");
         }

@@ -1,4 +1,5 @@
-//! A small `.env` parser, shared by `dotsafe import` and the desktop app's import.
+//! A small `.env` parser, shared by `dotsafe import` and the desktop app's
+//! import, and the writer behind `dotsafe export`.
 //!
 //! Supports `KEY=value`, `export KEY=value`, comments, single quotes (literal),
 //! double quotes (with `\n`, `\t`, `\"`, `\\` escapes, and values spanning
@@ -53,6 +54,39 @@ pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
     Ok(vars)
 }
 
+/// Writes variables as `.env` lines that [`parse`] (and dotenv, Docker
+/// Compose and Prisma) read back unchanged. Plain values stay bare; others
+/// are single-quoted so tools that expand `$VARS` leave them alone, and only
+/// values with a newline or a `'` fall back to escaped double quotes.
+pub fn format<'a>(vars: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    let mut out = String::new();
+    for (key, value) in vars {
+        out.push_str(key);
+        out.push('=');
+        if value.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-./:@%+,".contains(&b)) {
+            out.push_str(value);
+        } else if !value.contains(['\'', '\n', '\r']) {
+            out.push('\'');
+            out.push_str(value);
+            out.push('\'');
+        } else {
+            out.push('"');
+            for c in value.chars() {
+                match c {
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    '"' => out.push_str("\\\""),
+                    '\\' => out.push_str("\\\\"),
+                    c => out.push(c),
+                }
+            }
+            out.push('"');
+        }
+        out.push('\n');
+    }
+    out
+}
 
 fn closing_quote(s: &str) -> Option<usize> {
     let mut escaped = false;
@@ -127,6 +161,22 @@ DOUBLE="line\nbreak \"quoted\""
             parse(input).unwrap(),
             kv(&[("KEY", "-----BEGIN KEY-----\nabc\n-----END KEY-----"), ("NEXT", "1")])
         );
+    }
+
+    #[test]
+    fn formats_values_that_parse_back_unchanged() {
+        let vars = kv(&[
+            ("PLAIN", "abc-123_x.y/z:8080"),
+            ("EMPTY", ""),
+            ("SPACES", "two words # not a comment"),
+            ("DOLLAR", "pa$$word ${HOME}"),
+            ("QUOTE", "it's \"here\""),
+            ("PEM", "-----BEGIN-----\nab\\cd\n-----END-----"),
+        ]);
+        let text = format(vars.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        assert!(text.contains("PLAIN=abc-123_x.y/z:8080\n"));
+        assert!(text.contains("DOLLAR='pa$$word ${HOME}'\n"));
+        assert_eq!(parse(&text).unwrap(), vars);
     }
 
     #[test]
