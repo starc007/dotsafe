@@ -60,9 +60,9 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Backups and moving
 
-- [ ] **D23** Settings → Backups: choose a folder, click Back up now, and check the dated folder appears. Its age shows in Settings.
-- [ ] **D24** Move vault to an empty folder. The app keeps working from the new place, and the old copy is untouched. Moving into a folder that already has a vault is refused.
-- [ ] **D25** Point a fresh config at a backup snapshot folder and unlock it (this is how a restore works).
+- [x] **D23** Settings → Backups: choose a folder, click Back up now, and check the dated folder appears. Its age shows in Settings.
+- [x] **D24** Move vault to an empty folder. The app keeps working from the new place, and the old copy is untouched. Moving into a folder that already has a vault is refused.
+- [x] **D25** Point a fresh config at a backup snapshot folder and unlock it (this is how a restore works).
 
 ### Licensing
 
