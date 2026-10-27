@@ -6,6 +6,8 @@ import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/motion/tabs";
@@ -21,11 +23,11 @@ import { SurfaceFooter } from "@/components/Surface";
 const MASK = "••••••••••••";
 const REVEAL_MS = 30_000;
 const POLICIES = [
-  { value: "off", label: "Off", days: null },
-  { value: "30", label: "30 days", days: 30 },
-  { value: "90", label: "90 days", days: 90 },
-  { value: "180", label: "180 days", days: 180 },
-  { value: "365", label: "1 year", days: 365 },
+  { value: "off", days: null },
+  { value: "30", days: 30 },
+  { value: "90", days: 90 },
+  { value: "180", days: 180 },
+  { value: "365", days: 365 },
 ] as const;
 
 const STATE_LABEL: Record<VersionState, string> = {
@@ -762,38 +764,49 @@ function SettingsSection({
   const policy = POLICIES.find((p) => p.days === secret.rotateEveryDays)?.value ?? "off";
 
   return (
-    <section aria-label="Settings" className="flex flex-col gap-3">
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSave(name, secret.rotateEveryDays);
-        }}
-      >
-        <Input
-          aria-label="Secret name"
-          className="h-9 font-mono text-[12.5px] md:text-[12.5px]"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button type="submit" variant="outline" className="h-9" disabled={busy !== null || name.trim() === secret.name || !name.trim()}>
-          Rename
-        </Button>
-      </form>
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs text-muted-foreground">Remind me to rotate every</p>
-        <Tabs
+    <section aria-label="Settings" className="flex flex-col gap-5">
+      <Field label="Name" htmlFor="secret-rename" hint="Shown in Shared secrets. Linked variables keep their names.">
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave(name, secret.rotateEveryDays);
+          }}
+        >
+          <Input
+            id="secret-rename"
+            className="h-9 font-mono text-[12.5px] md:text-[12.5px]"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Button type="submit" variant="outline" className="h-9" disabled={busy !== null || name.trim() === secret.name || !name.trim()}>
+            Rename
+          </Button>
+        </form>
+      </Field>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <Label htmlFor="rotation-reminder" className="text-[13px]">
+            Rotation reminder
+          </Label>
+          <p className="mt-0.5 text-xs text-muted-foreground">A notification when it's time to rotate.</p>
+        </div>
+        <Select
           value={policy}
           onValueChange={(value) => onSave(secret.name, POLICIES.find((p) => p.value === value)?.days ?? null)}
+          disabled={busy !== null}
         >
-          <TabsList aria-label="Rotation reminder" className="w-full bg-muted p-0.5">
+          <SelectTrigger id="rotation-reminder" className="h-9 w-40 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
             {POLICIES.map((p) => (
-              <TabsTrigger key={p.value} value={p.value} className="flex-1 py-1 text-[13px]">
-                {p.label}
-              </TabsTrigger>
+              <SelectItem key={p.value} value={p.value}>
+                {reminderLabel(p.days)}
+              </SelectItem>
             ))}
-          </TabsList>
-        </Tabs>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex justify-end">
         <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={onDelete}>
