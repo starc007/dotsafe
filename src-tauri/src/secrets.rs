@@ -397,14 +397,17 @@ pub async fn unlink_variable(state: State<'_, AppState>, environment_id: Uuid, k
         .await
 }
 
-/// Stages a new value: typed in, or generated with the secret's generator.
-/// Linked variables keep the current value until it's promoted.
+/// Rotates by hand to a new value: typed in, or generated with the secret's
+/// generator. With `live` it goes live at once and the old value stays as
+/// previous; otherwise it's staged, and linked variables keep the current
+/// value until it's promoted.
 #[tauri::command]
 pub async fn stage_secret(
     state: State<'_, AppState>,
     id: Uuid,
     value: Option<String>,
     note: Option<String>,
+    live: bool,
 ) -> CmdResult<SecretDetail> {
     let value = value.map(Zeroizing::new);
     state
@@ -416,7 +419,11 @@ pub async fn stage_secret(
                     None => secret.policy.generator.clone().unwrap_or_default().generate()?,
                 };
                 let note = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-                secret.stage(value.as_str(), note, s.stamp()?)?;
+                if live {
+                    secret.rotate(value.as_str(), note, s.stamp()?)?;
+                } else {
+                    secret.stage(value.as_str(), note, s.stamp()?)?;
+                }
                 Ok(())
             })
         })

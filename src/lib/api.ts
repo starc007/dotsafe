@@ -333,9 +333,9 @@ export const api = {
   linkVariable: (environmentId: string, key: string, secretId: string) =>
     call<void>("link_variable", { environmentId, key, secretId }),
   unlinkVariable: (environmentId: string, key: string) => call<void>("unlink_variable", { environmentId, key }),
-  /** `value: null` generates one. */
-  stageSecret: (id: string, value: string | null, note: string | null) =>
-    call<SecretDetail>("stage_secret", { id, value, note }),
+  /** `value: null` generates one. `live` skips staging: it goes live at once. */
+  stageSecret: (id: string, value: string | null, note: string | null, live: boolean) =>
+    call<SecretDetail>("stage_secret", { id, value, note, live }),
   promoteSecret: (id: string) => call<SecretDetail>("promote_secret", { id }),
   cancelStagedSecret: (id: string) => call<SecretDetail>("cancel_staged_secret", { id }),
   rollBackSecret: (id: string) => call<SecretDetail>("roll_back_secret", { id }),
