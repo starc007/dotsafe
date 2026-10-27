@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { ArrowLeft, Folder, ShieldCheck } from "lucide-react";
-import { api, message, type BucketInput } from "@/lib/api";
+import { api, message, type BucketInput, type WebDavInput } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { Field } from "@/components/Field";
 
 const MIN_LENGTH = 8;
 
-type Where = "folder" | "bucket";
+type Where = "folder" | "bucket" | "webdav";
 
 type Props = {
   defaultPath: string;
@@ -35,8 +35,10 @@ export function Setup(props: Props) {
       title={connecting ? "Connect to your vault" : "Set up dotsafe"}
       subtitle={
         connecting
-          ? `This ${where === "folder" ? "folder" : "bucket"} already has a vault.`
-          : `Encrypted on this Mac, ${where === "folder" ? "synced through your own folder" : "stored in your own bucket"}.`
+          ? `This ${where === "bucket" ? "bucket" : "folder"} already has a vault.`
+          : `Encrypted on this Mac, ${
+              where === "folder" ? "synced through your own folder" : where === "bucket" ? "stored in your own bucket" : "stored on your own server"
+            }.`
       }
     >
       <Tabs
@@ -54,12 +56,17 @@ export function Setup(props: Props) {
           <TabsTrigger value="bucket" className="flex-1 py-1 text-[13px]">
             S3 or R2 bucket
           </TabsTrigger>
+          <TabsTrigger value="webdav" className="flex-1 py-1 text-[13px]">
+            WebDAV
+          </TabsTrigger>
         </TabsList>
       </Tabs>
       {where === "folder" ? (
         <FolderSetup {...props} onConnectingChange={setConnecting} />
-      ) : (
+      ) : where === "bucket" ? (
         <BucketSetup {...props} onConnectingChange={setConnecting} />
+      ) : (
+        <WebDavSetup {...props} onConnectingChange={setConnecting} />
       )}
     </Centered>
   );
@@ -347,6 +354,119 @@ function BucketSetup({ canJoinWithCode, onCreated, onConnected, onConnectingChan
       )}
       <SurfaceFooter className="pt-1">
         <Button type="button" variant="ghost" size="lg" onClick={back} disabled={busy}>
+          <ArrowLeft aria-hidden />
+          Back
+        </Button>
+        <Button type="submit" size="lg" className="px-4" disabled={busy}>
+          {busy && <Spinner />}
+          {hasVault ? "Connect" : "Create vault"}
+        </Button>
+      </SurfaceFooter>
+    </form>
+  );
+}
+
+function WebDavSetup({ onCreated, onConnected, onConnectingChange }: FormProps) {
+  const [webdav, setWebdav] = useState<WebDavInput>({ url: "https://", username: "", password: "" });
+  const [hasVault, setHasVault] = useState<boolean | null>(null);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const set = (field: keyof WebDavInput) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setWebdav((w) => ({ ...w, [field]: e.target.value }));
+
+  async function check(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const has = await api.webdavHasVault(webdav);
+      setHasVault(has);
+      onConnectingChange(has);
+    } catch (err) {
+      setError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const invalid = !hasVault && checkNewPassword(password, confirm);
+    if (invalid) return setError(invalid);
+    setBusy(true);
+    try {
+      if (hasVault) {
+        await api.connectWebdavVault(webdav, password);
+        onConnected();
+      } else {
+        onCreated(await api.createWebdavVault(webdav, password));
+      }
+    } catch (err) {
+      setError(message(err));
+      setBusy(false);
+    }
+  }
+
+  if (hasVault === null) {
+    const ready = webdav.url.trim().length > 8 && webdav.username.trim() && webdav.password;
+    return (
+      <form onSubmit={check} className="flex flex-col gap-4">
+        <Field label="Folder address" htmlFor="dav-url" hint="Nextcloud: …/remote.php/dav/files/<you>/dotsafe/. Also ownCloud, many NAS boxes and Fastmail.">
+          <Input id="dav-url" autoFocus className="h-9" autoComplete="off" spellCheck={false} value={webdav.url} onChange={set("url")} />
+        </Field>
+        <Field label="Username" htmlFor="dav-user">
+          <Input id="dav-user" className="h-9" autoComplete="off" spellCheck={false} value={webdav.username} onChange={set("username")} />
+        </Field>
+        <Field label="Password" htmlFor="dav-password" error={error} hint="An app password is best. Kept in your Mac's keychain.">
+          <Input
+            id="dav-password"
+            type="password"
+            className="h-9"
+            autoComplete="off"
+            aria-invalid={!!error}
+            value={webdav.password}
+            onChange={set("password")}
+          />
+        </Field>
+        <SurfaceFooter className="pt-1">
+          <Button type="submit" size="lg" className="px-4" disabled={busy || !ready}>
+            {busy && <Spinner />}
+            Continue
+          </Button>
+        </SurfaceFooter>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <p className="truncate rounded-full bg-muted/50 px-3 py-2 text-muted-foreground" title={webdav.url}>
+        {webdav.url.replace(/\/+$/, "")}
+      </p>
+      <PasswordFields
+        connecting={hasVault}
+        password={password}
+        confirm={confirm}
+        error={error}
+        onPassword={setPassword}
+        onConfirm={setConfirm}
+        autoFocus
+      />
+      <SurfaceFooter className="pt-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="lg"
+          onClick={() => {
+            setHasVault(null);
+            onConnectingChange(false);
+            setError(null);
+          }}
+          disabled={busy}
+        >
           <ArrowLeft aria-hidden />
           Back
         </Button>

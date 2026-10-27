@@ -905,8 +905,12 @@ pub async fn import_variables(
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     vault_path: Option<String>,
-    /// `folder` or `s3`.
+    /// `folder`, `s3` or `webdav`.
     storage: &'static str,
+    /// Where backup snapshots go, if set.
+    backup_dir: Option<String>,
+    /// When the last backup was taken (Unix ms).
+    last_backup: Option<u64>,
     last_synced_at: Option<u64>,
     sync_error: Option<String>,
     license: Option<LicenseView>,
@@ -944,7 +948,13 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
         .run(|s| {
             Ok(Settings {
                 vault_path: s.config.as_ref().map(Config::describe_location),
-                storage: if s.config.as_ref().is_some_and(|c| c.s3.is_some()) { "s3" } else { "folder" },
+                storage: match s.config.as_ref() {
+                    Some(c) if c.s3.is_some() => "s3",
+                    Some(c) if c.webdav.is_some() => "webdav",
+                    _ => "folder",
+                },
+                backup_dir: s.config.as_ref().and_then(|c| c.backup_dir.as_ref()).map(|p| p.display().to_string()),
+                last_backup: s.config.as_ref().and_then(|c| c.last_backup),
                 last_synced_at: s.sync.last_synced_at,
                 sync_error: s.sync.error.clone(),
                 license: s.config.as_ref().and_then(|c| c.license.as_ref()).map(LicenseView::from),
@@ -1025,7 +1035,7 @@ async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> +
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
 }
 
-fn check_new_password(password: &str) -> Result<(), String> {
+pub(crate) fn check_new_password(password: &str) -> Result<(), String> {
     if password.chars().count() < MIN_PASSWORD_LEN {
         return Err(format!("Use at least {MIN_PASSWORD_LEN} characters."));
     }

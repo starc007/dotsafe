@@ -47,7 +47,9 @@ pub fn spawn_syncer(state: AppState, app: AppHandle) {
 
 fn shared_vault(state: &AppState) -> Option<Arc<Vault>> {
     let session = state.0.lock().ok()?;
-    session.config.as_ref()?.s3.as_ref()?;
+    if !session.config.as_ref()?.is_remote() {
+        return None;
+    }
     session.vault.clone()
 }
 

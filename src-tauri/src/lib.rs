@@ -8,6 +8,7 @@ mod presence;
 mod reminders;
 mod secrets;
 mod state;
+mod storage;
 mod sync;
 mod tray;
 #[cfg(test)]
@@ -33,6 +34,7 @@ pub fn run() {
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
+            storage::spawn_backups(state.inner().clone(), app.handle().clone());
             tray::setup(app)?;
             let approvals = app.state::<broker::Approvals>().inner().clone();
             broker::spawn(state.inner().clone(), approvals, app.handle().clone());
@@ -63,6 +65,12 @@ pub fn run() {
             commands::bucket_has_vault,
             commands::create_bucket_vault,
             commands::connect_bucket_vault,
+            storage::webdav_has_vault,
+            storage::create_webdav_vault,
+            storage::connect_webdav_vault,
+            storage::set_backup_dir,
+            storage::back_up_now,
+            storage::move_vault_to_folder,
             commands::sync_now,
             commands::unlock,
             commands::unlock_with_recovery,

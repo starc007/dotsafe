@@ -18,7 +18,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::state::{AppState, Session};
-use crate::{broker, commands, devices, integrations, secrets};
+use crate::{broker, commands, devices, integrations, secrets, storage};
 
 // Cheap Argon2 settings so tests run fast. Never use these for real vaults.
 const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
@@ -77,6 +77,10 @@ impl Desktop {
                 commands::preview_import,
                 commands::import_variables,
                 commands::get_settings,
+                storage::set_backup_dir,
+                storage::back_up_now,
+                storage::move_vault_to_folder,
+                storage::webdav_has_vault,
                 secrets::list_secrets,
                 secrets::get_secret,
                 secrets::reveal_secret,
@@ -717,4 +721,33 @@ fn inherited_variables_show_where_they_come_from() {
 
     desktop.ok("restore_variable", json!({ "environmentId": staging, "key": "SENTRY" }));
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": staging, "key": "SENTRY" })), "https://s");
+}
+
+#[test]
+fn backups_and_moving_the_vault_from_the_app() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "API_KEY", "sk_app");
+
+    assert_eq!(desktop.err("back_up_now", json!({}))["message"], "Choose a backup folder first.");
+    let backups = tempfile::tempdir().unwrap();
+    desktop.ok("set_backup_dir", json!({ "path": backups.path() }));
+    let at = desktop.ok("back_up_now", json!({}));
+    let settings = desktop.ok("get_settings", json!({}));
+    assert_eq!(settings["lastBackup"], at);
+    assert_eq!(settings["storage"], "folder");
+    assert_eq!(dotsafe_core::backup::snapshots(backups.path()).unwrap().len(), 1);
+
+    let taken = desktop.err("move_vault_to_folder", json!({ "path": dir.path() }));
+    assert_eq!(taken["message"], "That folder already holds a vault. Pick an empty one.");
+    let target = tempfile::tempdir().unwrap();
+    let new_home = target.path().join("vault");
+    let old = desktop.ok("move_vault_to_folder", json!({ "path": new_home }));
+    assert_eq!(old, json!(dir.path().display().to_string()));
+    assert_eq!(desktop.ok("get_settings", json!({}))["vaultPath"], json!(new_home.display().to_string()));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": dev, "key": "API_KEY" })), "sk_app");
+
+    let bad = json!({ "webdav": { "url": "http://cloud.example.com/dav/", "username": "me", "password": "x" } });
+    assert!(desktop.err("webdav_has_vault", bad)["message"].as_str().unwrap().contains("https://"));
 }
