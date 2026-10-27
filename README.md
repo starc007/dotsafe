@@ -19,6 +19,9 @@ api           # licensing and checkout API (Cloudflare Worker), see api/README.m
 dotsafe init                      # create a vault (iCloud Drive by default) or connect to one
 dotsafe import                    # import ./.env into this project's development env
 dotsafe import --from doppler     # or --from infisical, or --from 1password --item NAME (or a JSON export file)
+dotsafe set 'DB_URL=postgres://${{ DB_HOST }}/app'   # values can include other variables
+dotsafe inherit production -e staging               # staging gets production's variables; its own override them
+dotsafe unset -e staging --hide SENTRY_DSN          # remove an inherited variable from staging only
 dotsafe set API_KEY               # prompts for the value, so it stays out of shell history
 dotsafe set -e production A=1 B=2
 dotsafe get API_KEY
