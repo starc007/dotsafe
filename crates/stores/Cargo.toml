@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = "0.23.1"
 dotsafe-core.workspace = true
 keyring = "4.2.0"
 rusty-s3 = "0.10.2"
