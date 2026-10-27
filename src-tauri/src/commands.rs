@@ -21,7 +21,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
 use crate::licensing::{self, ApiError};
-use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind, IDLE_LOCK};
+use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const DEFAULT_ENV: &str = "development";
@@ -915,7 +915,7 @@ pub struct Settings {
     sync_error: Option<String>,
     license: Option<LicenseView>,
     version: &'static str,
-    auto_lock_minutes: u64,
+    auto_lock_minutes: u32,
     clipboard_clear_seconds: u64,
 }
 
@@ -959,9 +959,30 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 sync_error: s.sync.error.clone(),
                 license: s.config.as_ref().and_then(|c| c.license.as_ref()).map(LicenseView::from),
                 version: env!("CARGO_PKG_VERSION"),
-                auto_lock_minutes: IDLE_LOCK.as_secs() / 60,
+                auto_lock_minutes: s
+                    .config
+                    .as_ref()
+                    .and_then(|c| c.auto_lock_minutes)
+                    .unwrap_or(dotsafe_core::DEFAULT_AUTO_LOCK_MINUTES),
                 clipboard_clear_seconds: CLIPBOARD_CLEAR.as_secs(),
             })
+        })
+        .await
+}
+
+/// Sets how many idle minutes pass before the app locks, on this machine.
+#[tauri::command]
+pub async fn set_auto_lock(state: State<'_, AppState>, minutes: u32) -> CmdResult<()> {
+    if !(1..=24 * 60).contains(&minutes) {
+        return Err(CmdError::other("Choose between 1 minute and 24 hours."));
+    }
+    state
+        .run(move |s| {
+            let mut config = s.config()?.clone();
+            config.auto_lock_minutes = Some(minutes);
+            config.save()?;
+            s.config = Some(config);
+            Ok(())
         })
         .await
 }

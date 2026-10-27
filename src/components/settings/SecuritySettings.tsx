@@ -6,6 +6,7 @@ import { api, message, type Settings, type VaultHealth } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { SHORTCUTS, ariaShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import { IntegrityNotice } from "@/components/IntegrityNotice";
@@ -37,6 +38,17 @@ export function SecuritySettings({
       await api.setBackupDir(picked);
       await api.backUpNow();
       toast.success("Backed up", { description: "dotsafe backs up to this folder once a day while unlocked." });
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      onChanged();
+    }
+  }
+
+  async function setAutoLock(minutes: number) {
+    try {
+      await api.setAutoLock(minutes);
+      toast.success(`Auto-lock: ${autoLockLabel(minutes).toLowerCase()}`);
     } catch (e) {
       toast.error(message(e));
     } finally {
@@ -172,8 +184,21 @@ export function SecuritySettings({
               Move…
             </Button>
           </SettingsRow>
-          <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while.">
-            After {settings.autoLockMinutes} minutes
+          <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while. Set on this Mac.">
+            <Select value={String(settings.autoLockMinutes)} onValueChange={(value) => setAutoLock(Number(value))}>
+              <SelectTrigger aria-label="Auto-lock" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[...new Set([...AUTO_LOCK_MINUTES, settings.autoLockMinutes])]
+                  .sort((a, b) => a - b)
+                  .map((minutes) => (
+                    <SelectItem key={minutes} value={String(minutes)}>
+                      {autoLockLabel(minutes)}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </SettingsRow>
           <SettingsRow label="Clipboard" detail="Copied values are cleared unless you've copied something else since.">
             After {settings.clipboardClearSeconds} seconds
@@ -185,6 +210,13 @@ export function SecuritySettings({
       <NewRecoveryKeyDialog open={dialog === "recovery"} onOpenChange={(open) => !open && setDialog(null)} />
     </>
   );
+}
+
+const AUTO_LOCK_MINUTES = [1, 5, 15, 30, 60, 240];
+
+function autoLockLabel(minutes: number): string {
+  if (minutes % 60 === 0) return `After ${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`;
+  return `After ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 function backupAge(at: number): string {

@@ -145,6 +145,7 @@ pub fn run() {
             broker::revoke_agent_grants,
             broker::set_agent_approval_auth,
             commands::get_settings,
+            commands::set_auto_lock,
             commands::activate_license,
             commands::check_license,
             commands::remove_license,

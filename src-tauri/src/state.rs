@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dotsafe_agent::grants::Grants;
-use dotsafe_core::{Config, Environment, Project, Record, Stamp, Vault};
+use dotsafe_core::{Config, DEFAULT_AUTO_LOCK_MINUTES, Environment, Project, Record, Stamp, Vault};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Runtime};
@@ -15,7 +15,6 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 /// Lock the vault after this long without any command from the UI.
-pub const IDLE_LOCK: Duration = Duration::from_secs(15 * 60);
 /// Clear a copied secret from the clipboard after this long.
 pub const CLIPBOARD_CLEAR: Duration = Duration::from_secs(30);
 
@@ -184,7 +183,11 @@ impl AppState {
                 std::thread::sleep(Duration::from_secs(5));
                 let Ok(mut session) = inner.lock() else { return };
 
-                if session.vault.is_some() && session.last_activity.elapsed() >= IDLE_LOCK {
+                let idle_lock = session
+                    .config
+                    .as_ref()
+                    .map_or(Duration::from_secs(u64::from(DEFAULT_AUTO_LOCK_MINUTES) * 60), Config::auto_lock);
+                if session.vault.is_some() && session.last_activity.elapsed() >= idle_lock {
                     session.lock();
                     let _ = app.emit("vault-locked", ());
                 }
