@@ -191,13 +191,13 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               </motion.div>
             ) : (
               <motion.div key="projects" custom={direction} {...swapMotion} className="flex min-h-0 flex-1 flex-col">
-            <div className="flex items-center justify-between px-3 pb-1">
+            <div className="flex items-center justify-between px-3 pt-1 pb-1">
               <h2 className="px-1 text-xs font-medium text-muted-foreground">Projects</h2>
               <IconButton label="New project" aria-keyshortcuts={ariaShortcut(SHORTCUTS.newProject)} onClick={startCreating}>
                 <Plus aria-hidden />
               </IconButton>
             </div>
-            <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 pb-2">
+            <nav aria-label="Projects" className="flex-1 overflow-y-auto px-2 pt-0.5 pb-2">
               {creating && (
                 <InlineCreate
                   label="Project name"

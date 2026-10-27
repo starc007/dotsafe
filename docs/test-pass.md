@@ -53,10 +53,10 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Look and feel (WebKit)
 
-- [ ] **D19** Light, dark and system themes; the window chrome follows.
-- [ ] **D20** Dialogs open without flicker or a jump from below (earlier feedback, the join-with-code modal). Row actions fade cleanly with no leftover painting.
-- [ ] **D21** Turn on Reduce Motion in macOS settings: animations are gone or minimal.
-- [ ] **D22** Every list has loading, empty and error states. Copy is short and reads well.
+- [x] **D19** Light, dark and system themes; the window chrome follows.
+- [x] **D20** Dialogs open without flicker or a jump from below (earlier feedback, the join-with-code modal). Row actions fade cleanly with no leftover painting.
+- [x] **D21** Turn on Reduce Motion in macOS settings: animations are gone or minimal.
+- [x] **D22** Every list has loading, empty and error states. Copy is short and reads well.
 
 ### Backups and moving
 
