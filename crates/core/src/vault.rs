@@ -32,13 +32,15 @@ const RECORDS_DIR: &str = "records";
 const RECORD_FORMAT: &str = "dotsafe-record";
 /// Records are written with the oldest version that can hold them
 /// ([`Record::min_version`]): v3 for shared secrets and linked variables, v4
-/// for integrations, v2 for the rest. Clients that predate a version refuse
+/// for integrations, v5 for environments with a parent or references, v2 for
+/// the rest. Clients that predate a version refuse
 /// those records instead of rewriting them without what they don't know.
-const RECORD_VERSION_MAX: u32 = 4;
+const RECORD_VERSION_MAX: u32 = 5;
 const RECORD_AAD_V1: &[u8] = b"dotsafe/v1/record";
 const RECORD_AAD: &[u8] = b"dotsafe/v2/record";
 const RECORD_AAD_V3: &[u8] = b"dotsafe/v3/record";
 const RECORD_AAD_V4: &[u8] = b"dotsafe/v4/record";
+const RECORD_AAD_V5: &[u8] = b"dotsafe/v5/record";
 // A domain label, unchanged from v1 so the records key stays the same.
 const RECORDS_KEY_INFO: &[u8] = b"dotsafe/v1/records";
 
@@ -696,6 +698,7 @@ impl Vault {
         let label = match version {
             3 => RECORD_AAD_V3,
             4 => RECORD_AAD_V4,
+            5 => RECORD_AAD_V5,
             _ => RECORD_AAD,
         };
         [label, self.header.vault_id.as_bytes(), &epoch.to_be_bytes(), id.as_bytes()].concat()

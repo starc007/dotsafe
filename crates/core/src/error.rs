@@ -24,6 +24,10 @@ pub enum Error {
     UnsupportedVersion { kind: &'static str, version: u32 },
     /// An operation that doesn't make sense in the current state, such as
     /// promoting when nothing is staged. The message is for people.
+    /// A variable that can't be worked out: a missing or looping
+    /// `${{ NAME }}` reference, or a broken parent chain.
+    #[error("{0}")]
+    Reference(String),
     #[error("{0}")]
     Invalid(String),
     #[error("invalid vault data: {0}")]

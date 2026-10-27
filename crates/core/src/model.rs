@@ -103,11 +103,13 @@ impl Record {
 
     /// The oldest record format that can hold this record: 3 for shared
     /// secrets, linked variables and audit days, 4 for integrations (and
-    /// audit days that log them), 2 for the rest. Older clients refuse newer versions instead of rewriting
+    /// audit days that log them), 5 for environments with a parent, hidden
+    /// variables or references, 2 for the rest. Older clients refuse newer versions instead of rewriting
     /// them without what they don't understand.
     pub(crate) fn min_version(&self) -> u32 {
         match self {
             Record::Project(_) => 2,
+            Record::Environment(e) if e.needs_v5() => 5,
             Record::Environment(e) if e.vars.values().any(|v| v.secret.is_some()) => 3,
             Record::Environment(_) => 2,
             Record::Audit(a) if a.needs_v4() => 4,
@@ -170,8 +172,12 @@ pub struct Environment {
     pub project_id: Uuid,
     pub name: String,
     pub deleted: bool,
-    /// Stamp for `name` and `deleted`.
+    /// Stamp for `name`, `deleted` and `parent`.
     pub updated: Stamp,
+    /// The environment in the same project this one inherits variables
+    /// from; its own variables override them. Record format v5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Uuid>,
     vars: BTreeMap<String, Var>,
 }
 
@@ -183,6 +189,10 @@ struct Var {
     /// (tombstone).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     secret: Option<Uuid>,
+    /// Removed here: hides the variable this environment would inherit.
+    /// Unlike a tombstone, the parent's value doesn't show through. v5.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    hidden: bool,
     stamp: Stamp,
 }
 
@@ -195,6 +205,9 @@ pub enum Entry<'a> {
 
 impl Var {
     fn entry(&self) -> Option<Entry<'_>> {
+        if self.hidden {
+            return None;
+        }
         match (&self.value, self.secret) {
             (_, Some(id)) => Some(Entry::Secret(id)),
             (Some(value), None) => Some(Entry::Value(value)),
@@ -212,6 +225,7 @@ impl Environment {
             name,
             deleted: false,
             updated: stamp,
+            parent: None,
             vars: BTreeMap::new(),
         }
     }
@@ -251,16 +265,35 @@ impl Environment {
     }
 
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>, stamp: Stamp) {
-        self.vars.insert(key.into(), Var { value: Some(value.into()), secret: None, stamp });
+        self.vars.insert(key.into(), Var { value: Some(value.into()), secret: None, hidden: false, stamp });
     }
 
     /// Links `key` to a shared secret, replacing any value it had.
     pub fn link(&mut self, key: impl Into<String>, secret: Uuid, stamp: Stamp) {
-        self.vars.insert(key.into(), Var { value: None, secret: Some(secret), stamp });
+        self.vars.insert(key.into(), Var { value: None, secret: Some(secret), hidden: false, stamp });
     }
 
+    /// Deletes this environment's own `key`. An inherited value, if any,
+    /// shows through again.
     pub fn remove(&mut self, key: impl Into<String>, stamp: Stamp) {
-        self.vars.insert(key.into(), Var { value: None, secret: None, stamp });
+        self.vars.insert(key.into(), Var { value: None, secret: None, hidden: false, stamp });
+    }
+
+    /// Removes `key` here even though the parent has it.
+    pub fn hide(&mut self, key: impl Into<String>, stamp: Stamp) {
+        self.vars.insert(key.into(), Var { value: None, secret: None, hidden: true, stamp });
+    }
+
+    /// Variables removed here that the parent would otherwise provide.
+    pub fn hidden(&self) -> impl Iterator<Item = &str> {
+        self.vars.iter().filter(|(_, v)| v.hidden).map(|(k, _)| k.as_str())
+    }
+
+    /// Uses anything from record format v5: a parent, hidden variables, or a
+    /// `${{ NAME }}` reference.
+    pub(crate) fn needs_v5(&self) -> bool {
+        self.parent.is_some()
+            || self.vars.values().any(|v| v.hidden || v.value.as_deref().is_some_and(|value| value.contains("${{")))
     }
 
     fn merge(self, other: Environment) -> Environment {

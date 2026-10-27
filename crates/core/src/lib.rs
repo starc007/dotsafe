@@ -13,6 +13,7 @@ pub mod header;
 pub mod integration;
 pub mod license;
 pub mod model;
+pub mod resolve;
 pub mod secret;
 pub mod store;
 pub mod vault;
@@ -27,6 +28,7 @@ pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_va
 pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};
 pub use cache::CachedStore;
 pub use store::{Cond, FolderStore, Put, Store};
+pub use resolve::Resolver;
 pub use vault::Vault;
 
 /// Version of the core library, reported by the app and CLI.
