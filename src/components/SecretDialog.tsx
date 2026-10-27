@@ -707,7 +707,15 @@ function RotateForm({
             : "The new value is staged first. Linked variables switch over when you promote it."}
         </p>
       </div>
-      <Field label="New value" htmlFor="new-value">
+      <Field
+        label="New value"
+        htmlFor="new-value"
+        hint={
+          generate
+            ? "dotsafe makes a random 40-character value. Good for values you control, like signing keys or database passwords."
+            : "Paste a key from the service, or generate a random value."
+        }
+      >
         <div className="flex gap-2">
           <Input
             id="new-value"
