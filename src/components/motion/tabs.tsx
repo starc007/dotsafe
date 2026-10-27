@@ -197,7 +197,11 @@ export function TabsList({
 } & HTMLAttributes<HTMLDivElement>) {
   const { variant, value, icons, track, placed, setPlaced } = useTabs();
   const reduce = useReducedMotion();
-  const tracked = icons === "selected" && variant !== "underline";
+  // Pills are always placed by measuring within the list. A shared layout
+  // animation measures in page coordinates, so when the dialog around the tabs
+  // changes height or scrolls, the pill would glide in from above or below.
+  const tracked = variant !== "underline";
+  const foldIcons = icons === "selected";
   const rootRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -280,7 +284,7 @@ export function TabsList({
       // Measure the settled layout: open the selected icon and fold the rest
       // for one synchronous read, then hand the styles back to Motion before
       // anything paints. Exact in any layout, from flex rows to grids.
-      const icons = Array.from(list.querySelectorAll<HTMLElement>('[role="tab"] > [data-tabs-icon]'));
+      const icons = foldIcons ? Array.from(list.querySelectorAll<HTMLElement>('[role="tab"] > [data-tabs-icon]')) : [];
       const saved = icons.map((icon) => [icon.style.width, icon.style.marginRight]);
       for (const icon of icons) {
         const open = icon.parentElement?.parentElement === target;
@@ -310,7 +314,7 @@ export function TabsList({
     const observer = new ResizeObserver(place);
     for (const tab of list.querySelectorAll('[role="tab"]')) if (tab.parentElement) observer.observe(tab.parentElement);
     return () => observer.disconnect();
-  }, [tracked, value, children, reduce, track, setPlaced]);
+  }, [tracked, foldIcons, value, children, reduce, track, setPlaced]);
 
   useLayoutEffect(() => {
     if (variant === "underline") return;
@@ -499,7 +503,6 @@ export function TabsTrigger({
     setValue,
     layoutId,
     variant,
-    icons,
     track,
     placed,
     tabStop,
@@ -569,7 +572,7 @@ export function TabsTrigger({
   // Tracked pills are placed in the list, so this wrapper must not be their
   // containing block. Server HTML can't measure, so until the first
   // measurement the pill fills the selected tab with CSS, like the others.
-  const tracked = icons === "selected" && placed;
+  const tracked = placed;
 
   return (
     <div className={cn("shrink-0", !tracked && "relative")}>
