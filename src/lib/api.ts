@@ -19,7 +19,7 @@ export type Status = {
 export type DeviceView = { deviceId: string; name: string; added: number; stale: boolean; thisDevice: boolean };
 export type DevicesView = { devices: DeviceView[]; touchIdUnlock: boolean; touchIdAvailable: boolean };
 
-export type EnvironmentView = { id: string; name: string; varCount: number };
+export type EnvironmentView = { id: string; name: string; varCount: number; parent: string | null };
 export type ProjectView = { id: string; name: string; environments: EnvironmentView[] };
 
 export type ImportSource = { kind: "text"; text: string } | { kind: "files" };
@@ -27,7 +27,19 @@ export type ImportChange = "new" | "update" | "unchanged" | "linked";
 
 export type SecretRef = { id: string; name: string };
 /** A variable's name, and the shared secret it links to, if any. */
-export type VariableView = { key: string; secret: SecretRef | null };
+/** A variable's name and where it comes from. Never its value. */
+export type VariableView = {
+  key: string;
+  secret: SecretRef | null;
+  /** Its value includes other variables with `${{ NAME }}`. */
+  references: boolean;
+  /** Set by an ancestor environment, not this one: its name. */
+  inheritedFrom: string | null;
+  /** Set here, replacing what the named ancestor has. */
+  overrides: string | null;
+  /** Removed here: the ancestor in `inheritedFrom` has it, but it doesn't apply. */
+  removed: boolean;
+};
 
 /** A variable anywhere in the vault, for the quick-copy palette. Names only. */
 export type VariableHit = {
@@ -322,8 +334,14 @@ export const api = {
   updateSecretSettings: (id: string, name: string, rotateEveryDays: number | null) =>
     call<SecretDetail>("update_secret_settings", { id, name, rotateEveryDays }),
   deleteSecret: (id: string) => call<void>("delete_secret", { id }),
-  revealVariable: (environmentId: string, key: string) =>
-    call<string>("reveal_variable", { environmentId, key }),
+  /** `raw`: the value as written, with `${{ NAME }}` references, for editing. */
+  revealVariable: (environmentId: string, key: string, raw = false) =>
+    call<string>("reveal_variable", { environmentId, key, raw }),
+  hideVariable: (environmentId: string, key: string) => call<void>("hide_variable", { environmentId, key }),
+  restoreVariable: (environmentId: string, key: string) => call<void>("restore_variable", { environmentId, key }),
+  /** `parent: null` stops inheriting. */
+  setEnvironmentParent: (environmentId: string, parent: string | null) =>
+    call<void>("set_environment_parent", { environmentId, parent }),
   copyVariable: (environmentId: string, key: string) => call<void>("copy_variable", { environmentId, key }),
   setVariable: (environmentId: string, key: string, value: string, previousKey?: string) =>
     call<void>("set_variable", { environmentId, key, value, previousKey: previousKey ?? null }),

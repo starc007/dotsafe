@@ -166,8 +166,9 @@ function VariableForm({
         label="Value"
         htmlFor="var-value"
         hint={
-          <span className="flex items-center gap-1">
-            Encrypted before it's saved. <Kbd>⌘</Kbd>
+          <span className="flex flex-wrap items-center gap-1">
+            Encrypted before it's saved. Include another variable with <code className="font-mono">{"${{ NAME }}"}</code>.{" "}
+            <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd> to save.
           </span>
         }

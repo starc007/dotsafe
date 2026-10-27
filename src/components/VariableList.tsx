@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { Check, Copy, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
-import { api, message, type EnvironmentView, type ImportResult, type SecretRef } from "@/lib/api";
+import { Braces, Check, Copy, CornerDownRight, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, RotateCcw, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
+import { api, message, type EnvironmentView, type ImportResult, type SecretRef, type VariableView } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
 import { SHORTCUTS, ariaShortcut, useShortcut, type Shortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,8 @@ export function VariableList({
   const [keys, setKeys] = useState<string[] | null>(null);
   // Variables linked to a shared secret, by name.
   const [links, setLinks] = useState<Record<string, SecretRef>>({});
+  // Where each variable comes from (own, inherited, removed here), by name.
+  const [views, setViews] = useState<Record<string, VariableView>>({});
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -80,6 +82,7 @@ export function VariableList({
       const vars = await api.listVariables(envId);
       setKeys(vars.map((v) => v.key));
       setLinks(Object.fromEntries(vars.flatMap((v) => (v.secret ? [[v.key, v.secret]] : []))));
+      setViews(Object.fromEntries(vars.map((v) => [v.key, v])));
       setError(null);
     } catch (e) {
       setError(message(e));
@@ -159,7 +162,8 @@ export function VariableList({
 
   async function startEdit(key: string) {
     try {
-      const value = revealed[key] ?? (await api.revealVariable(envId, key));
+      // As written, so `${{ NAME }}` references survive the edit.
+      const value = await api.revealVariable(envId, key, true);
       setDialog({ type: "edit", key, value });
     } catch (e) {
       toast.error(message(e));
@@ -211,6 +215,19 @@ export function VariableList({
     }
   }
 
+  /** Removes an inherited variable here, or brings it back. */
+  async function setRemoved(key: string, removed: boolean) {
+    try {
+      if (removed) await api.hideVariable(envId, key);
+      else await api.restoreVariable(envId, key);
+      hide(key);
+      toast(removed ? `${key} is removed here` : `${key} is inherited again`);
+      await load();
+    } catch (e) {
+      toast.error(message(e));
+    }
+  }
+
   async function deleteConfirmed() {
     if (!deleting) return;
     try {
@@ -245,6 +262,9 @@ export function VariableList({
   const shownVar = lastVarDialog.current;
 
   const visible = keys?.filter((k) => k.toLowerCase().includes(filter.trim().toLowerCase())) ?? [];
+  const own = keys?.filter((k) => !views[k]?.inheritedFrom).length ?? 0;
+  const inherited = keys?.filter((k) => views[k]?.inheritedFrom && !views[k]?.removed).length ?? 0;
+  const parentName = keys?.map((k) => views[k]?.inheritedFrom ?? views[k]?.overrides).find(Boolean);
 
 
   return (
@@ -304,7 +324,11 @@ export function VariableList({
         >
           <SurfaceTitle>{environment.name}</SurfaceTitle>
           <SurfaceDescription>
-            {keys === null ? " " : `${keys.length} ${keys.length === 1 ? "variable" : "variables"}`}
+            {keys === null
+              ? " "
+              : `${own} ${own === 1 ? "variable" : "variables"}${
+                  inherited ? ` · ${inherited} inherited${parentName ? ` from ${parentName}` : ""}` : ""
+                }`}
           </SurfaceDescription>
         </SurfaceHeader>
 
@@ -316,7 +340,32 @@ export function VariableList({
           ) : (
             <ul aria-label="Variables" className="divide-y">
               <AnimatePresence initial={false} custom={instant}>
-                {visible.map((key) => (
+                {visible.map((key) => {
+                  const view = views[key];
+                  const from = view?.inheritedFrom;
+                  if (view?.removed)
+                    return (
+                      <motion.li
+                        key={key}
+                        custom={instant}
+                        variants={rowVariants}
+                        initial={instant ? false : "hidden"}
+                        animate="shown"
+                        exit="hidden"
+                        className="group flex min-h-11 items-center gap-3 overflow-hidden px-4 py-1.5"
+                      >
+                        <span className="w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] text-muted-foreground line-through" title={key}>
+                          {key}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+                          Removed here; {from} has it
+                        </span>
+                        <IconButton label={`Inherit ${key} from ${from} again`} onClick={() => setRemoved(key, false)}>
+                          <RotateCcw aria-hidden />
+                        </IconButton>
+                      </motion.li>
+                    );
+                  return (
                   <motion.li
                     key={key}
                     custom={instant}
@@ -326,9 +375,26 @@ export function VariableList({
                     exit="hidden"
                     className="group flex min-h-11 items-center gap-3 overflow-hidden px-4 py-1.5"
                   >
-                    <span className="selectable w-2/5 max-w-56 shrink-0 truncate font-mono text-[12.5px] font-medium" title={key}>
-                      {key}
+                    <span
+                      className={`selectable flex w-2/5 max-w-56 shrink-0 items-center gap-1.5 truncate font-mono text-[12.5px] font-medium ${from ? "text-muted-foreground" : ""}`}
+                      title={key}
+                    >
+                      <span className="truncate">{key}</span>
+                      {view?.references && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Braces aria-label="Uses references" className="size-3.5 shrink-0 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>Includes other variables with {"${{ NAME }}"}; revealing shows the result.</TooltipContent>
+                        </Tooltip>
+                      )}
                     </span>
+                    {(from || view?.overrides) && (
+                      <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        <CornerDownRight aria-hidden className="size-3" />
+                        {from ? `from ${from}` : `overrides ${view?.overrides}`}
+                      </span>
+                    )}
                     {links[key] && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -375,7 +441,16 @@ export function VariableList({
                           {copiedKey === key ? <Check aria-hidden /> : <Copy aria-hidden />}
                         </ActionSwapIcon>
                       </IconButton>
-                      {links[key] ? (
+                      {from ? (
+                        <>
+                          <IconButton label={`Override ${key} here`} onClick={() => startEdit(key)}>
+                            <Pencil aria-hidden />
+                          </IconButton>
+                          <IconButton label={`Remove ${key} here`} onClick={() => setRemoved(key, true)} className="hover:text-destructive">
+                            <Trash2 aria-hidden />
+                          </IconButton>
+                        </>
+                      ) : links[key] ? (
                         <IconButton label={`Unlink ${key} from ${links[key].name}`} onClick={() => setUnlinking(key)}>
                           <Unlink aria-hidden />
                         </IconButton>
@@ -389,12 +464,15 @@ export function VariableList({
                           </IconButton>
                         </>
                       )}
-                      <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
-                        <Trash2 aria-hidden />
-                      </IconButton>
+                      {!from && (
+                        <IconButton label={`Delete ${key}`} onClick={() => setDeleting(key)} className="hover:text-destructive">
+                          <Trash2 aria-hidden />
+                        </IconButton>
+                      )}
                     </div>
                   </motion.li>
-                ))}
+                  );
+                })}
               </AnimatePresence>
               {visible.length === 0 && (
                 <li className="px-4 py-6 text-center text-muted-foreground">No variables match “{filter}”.</li>
@@ -455,7 +533,11 @@ export function VariableList({
       <ConfirmDialog
         open={deleting !== null}
         title={`Delete ${deleting}?`}
-        description={`It will be removed from ${label} on every synced device.`}
+        description={
+          deleting && views[deleting]?.overrides
+            ? `${label}'s own value is removed; ${views[deleting]?.overrides}'s applies again.`
+            : `It will be removed from ${label} on every synced device.`
+        }
         confirmLabel="Delete"
         onConfirm={deleteConfirmed}
         onCancel={() => setDeleting(null)}

@@ -24,7 +24,8 @@ use dotsafe_agent::protocol::{
 use dotsafe_agent::proxy::{self, ProxyServer};
 use dotsafe_agent::run::{self, DEFAULT_TIMEOUT, MAX_TIMEOUT, RunPlan};
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
-use dotsafe_core::{Charset, Entry, Environment, Generator, Project, Record, is_valid_var_name};
+use dotsafe_core::resolve::Raw;
+use dotsafe_core::{Charset, Environment, Generator, Project, Record, is_valid_var_name};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 use uuid::Uuid;
@@ -120,15 +121,21 @@ impl Broker {
             Ok(found) => found,
             Err(response) => return response,
         };
-        let secrets = dotsafe_core::Secrets::from_records(&records);
-        let variables = env
-            .entries()
-            .map(|(name, entry)| VariableInfo {
-                name: name.to_string(),
-                shared: match entry {
-                    Entry::Secret(id) => Some(secrets.get(id).map_or_else(|| "deleted".into(), |s| s.name.clone())),
-                    Entry::Value(_) => None,
+        let resolver = dotsafe_core::Resolver::from_records(&records);
+        let entries = match resolver.entries(env.id) {
+            Ok(entries) => entries,
+            Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+        };
+        let variables = entries
+            .into_iter()
+            .map(|e| VariableInfo {
+                shared: match e.entry {
+                    Raw::Secret(id) => {
+                        Some(resolver.secrets().get(id).map_or_else(|| "deleted".into(), |s| s.name.clone()))
+                    }
+                    Raw::Value(_) => None,
                 },
+                name: e.key,
             })
             .collect();
         Response::Variables(VariablesInfo { project: project.name, environment: env.name, variables })
@@ -161,7 +168,11 @@ impl Broker {
                 Ok(found) => found,
                 Err(response) => return response,
             };
-            let mut variables: Vec<String> = env.keys().map(String::from).collect();
+            // Own and inherited variables.
+            let mut variables: Vec<String> = match dotsafe_core::Resolver::from_records(&records).entries(env.id) {
+                Ok(entries) => entries.into_iter().map(|e| e.key).collect(),
+                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+            };
             if let Some(wanted) = &request.variables {
                 let missing: Vec<&String> = wanted.iter().filter(|w| !variables.contains(w)).collect();
                 if !missing.is_empty() {
@@ -233,17 +244,17 @@ impl Broker {
                 Ok(records) => records,
                 Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
             };
-            let all = dotsafe_core::Secrets::from_records(&records);
             let Some(env) = records.iter().find_map(|r| match r {
                 Record::Environment(e) if e.id.to_string() == scope.environment && !e.deleted => Some(e.clone()),
                 _ => None,
             }) else {
                 return Response::error(ErrorCode::NotFound, "That environment no longer exists.");
             };
-            all.resolve(&env)
-                .filter(|(k, _)| scope.variables.iter().any(|v| v == k))
-                .map(|(k, v)| (k.to_string(), v.to_string()))
-                .collect::<Vec<_>>()
+            // Inherited variables, links and references, worked out in one place.
+            match dotsafe_core::Resolver::from_records(&records).resolve(env.id) {
+                Ok(all) => all.into_iter().filter(|(k, _)| scope.variables.iter().any(|v| v == k)).collect::<Vec<_>>(),
+                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+            }
         };
 
         let timeout = request
