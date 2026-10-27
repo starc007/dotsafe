@@ -24,6 +24,9 @@ dotsafe get API_KEY
 dotsafe list
 dotsafe unset API_KEY
 dotsafe run -- bun dev            # runs the command with the variables injected
+dotsafe export -o .env            # for tools that need a file: owner-only, refused unless gitignored
+dotsafe scan                      # find vault values in this checkout (raw or encoded); names only
+dotsafe scan --install-hook       # pre-commit hook that runs `dotsafe scan --staged`
 dotsafe unlock --for 8h           # cache the key in the OS keychain; `dotsafe lock` to forget it
 dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
 dotsafe sync                      # vaults in a bucket: exchange changes now
@@ -38,6 +41,8 @@ dotsafe secret due                      # what's due under each secret's rotatio
 **AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
 
 `dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key.
+
+**In the app.** Press ⌘K anywhere to find a variable in any project and copy it, or jump to an environment. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
 
 **Devices.** Turn on Touch ID unlock in Settings → Devices (the password is still asked every two weeks). Add a Mac with a one-time code instead of typing the password there. If a device is lost, remove it: dotsafe switches the vault to a new key and re-encrypts everything, so it can't read anything new.
 
