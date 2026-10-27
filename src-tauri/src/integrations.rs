@@ -39,6 +39,8 @@ pub struct FieldView {
     label: &'static str,
     hint: &'static str,
     required: bool,
+    /// The value is the name of another shared secret.
+    secret_ref: bool,
 }
 
 #[derive(Serialize)]
@@ -53,10 +55,19 @@ pub struct ServiceView {
     binding_fields: Vec<FieldView>,
     /// Providers: the old key keeps working until it's revoked.
     overlap: bool,
+    /// Providers: you make keys in the console and paste them.
+    guided: bool,
+    /// Providers: old keys are revoked in the console, then marked retired.
+    manual_revoke: bool,
+    needs_token: bool,
+    console_url: Option<&'static str>,
 }
 
 fn fields(fields: &[dotsafe_integrations::Field]) -> Vec<FieldView> {
-    fields.iter().map(|f| FieldView { key: f.key, label: f.label, hint: f.hint, required: f.required }).collect()
+    fields
+        .iter()
+        .map(|f| FieldView { key: f.key, label: f.label, hint: f.hint, required: f.required, secret_ref: f.secret_ref })
+        .collect()
 }
 
 fn kind(k: Kind) -> &'static str {
@@ -79,6 +90,10 @@ pub async fn list_services() -> Vec<ServiceView> {
             connection_fields: fields(s.connection_fields),
             binding_fields: fields(s.binding_fields),
             overlap: s.overlap,
+            guided: s.guided,
+            manual_revoke: s.manual_revoke,
+            needs_token: s.needs_token,
+            console_url: s.console_url,
         })
         .collect()
 }
@@ -162,7 +177,7 @@ pub async fn add_connection(
     if name.is_empty() {
         return Err(CmdError::other("Give the connection a name."));
     }
-    if token.is_empty() {
+    if token.is_empty() && svc.needs_token {
         return Err(CmdError::other("Paste the admin token."));
     }
     state
@@ -171,9 +186,14 @@ pub async fn add_connection(
             if connections(&vault.list()?).iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
                 return Err(CmdError::other(format!("A connection named {name} already exists.")));
             }
-            let credential = Secret::new(format!("{name} admin token"), token.as_str(), s.stamp()?);
-            vault.put(Record::Secret(credential.clone()))?;
-            vault.put(Record::Connection(Connection::new(svc.id, &name, credential.id, settings, s.stamp()?)))?;
+            let credential = if svc.needs_token {
+                let credential = Secret::new(format!("{name} admin token"), token.as_str(), s.stamp()?);
+                vault.put(Record::Secret(credential.clone()))?;
+                Some(credential.id)
+            } else {
+                None
+            };
+            vault.put(Record::Connection(Connection::new(svc.id, &name, credential, settings, s.stamp()?)))?;
             Ok(())
         })
         .await
@@ -194,7 +214,10 @@ pub async fn replace_connection_token(state: State<'_, AppState>, id: Uuid, toke
                 Some(Record::Connection(c)) if !c.deleted => c,
                 _ => return Err(CmdError::other("That connection was removed.")),
             };
-            let mut secret = match vault.get(connection.credential)? {
+            let Some(credential) = connection.credential else {
+                return Err(CmdError::other(format!("{} doesn't use a token.", connection.name)));
+            };
+            let mut secret = match vault.get(credential)? {
                 Some(Record::Secret(secret)) => secret,
                 _ => return Err(CmdError::other(format!("{}'s stored token is missing.", connection.name))),
             };
@@ -226,7 +249,7 @@ pub async fn remove_connection(state: State<'_, AppState>, id: Uuid) -> CmdResul
             connection.updated = s.stamp()?;
             let credential = connection.credential;
             vault.put(Record::Connection(connection))?;
-            if let Some(Record::Secret(mut token)) = vault.get(credential)? {
+            if let Some(Record::Secret(mut token)) = credential.map(|id| vault.get(id)).transpose()?.flatten() {
                 token.delete(s.stamp()?);
                 vault.put(Record::Secret(token))?;
             }
@@ -240,10 +263,15 @@ pub async fn remove_connection(state: State<'_, AppState>, id: Uuid) -> CmdResul
 pub struct ProviderView {
     connection_id: Uuid,
     connection_name: String,
+    service_id: String,
     service_label: &'static str,
     settings: BTreeMap<String, String>,
     /// The old key keeps working until revoked.
     overlap: bool,
+    /// You make new keys in the console and paste them.
+    guided: bool,
+    /// Old keys are revoked in the console.
+    manual_revoke: bool,
 }
 
 #[derive(Serialize)]
@@ -285,12 +313,16 @@ pub async fn secret_integrations(state: State<'_, AppState>, secret_id: Uuid) ->
                 });
             let provider = binding.and_then(|b| b.provider.as_ref()).and_then(|p| {
                 let c = by_id.get(&p.connection)?;
+                let svc = service(&c.service).ok();
                 Some(ProviderView {
                     connection_id: c.id,
                     connection_name: c.name.clone(),
+                    service_id: c.service.clone(),
                     service_label: label(c),
                     settings: p.settings.clone(),
-                    overlap: service(&c.service).is_ok_and(|s| s.overlap),
+                    overlap: svc.is_some_and(|s| s.overlap),
+                    guided: svc.is_some_and(|s| s.guided),
+                    manual_revoke: svc.is_some_and(|s| s.manual_revoke),
                 })
             });
             let mut targets: Vec<TargetView> = binding
@@ -346,23 +378,44 @@ pub async fn set_secret_provider(
     connection_id: Option<Uuid>,
     settings: BTreeMap<String, String>,
 ) -> CmdResult<()> {
-    state
+    let lookup = state
         .run(move |s| {
             let mut binding = binding_for(s, secret_id)?;
+            let mut lookup = false;
             binding.provider = match connection_id {
                 Some(id) => {
                     let connection = connection_of(s, id, Kind::Provider)?;
-                    let settings = trimmed(settings);
-                    check_settings(service(&connection.service)?.binding_fields, &settings)?;
+                    let svc = service(&connection.service)?;
+                    let mut settings = trimmed(settings);
+                    check_settings(svc.binding_fields, &settings)?;
+                    // Settings that name another shared secret are stored as its id.
+                    let secrets = s.vault()?.secrets()?;
+                    for field in svc.binding_fields.iter().filter(|f| f.secret_ref) {
+                        if let Some(name) = settings.get(field.key).cloned() {
+                            let found: Vec<&Secret> = secrets.iter().filter(|x| x.name == name).collect();
+                            let [one] = found.as_slice() else {
+                                return Err(CmdError::other(format!("There's no single shared secret named {name}.")));
+                            };
+                            settings.insert(field.key.to_string(), one.id.to_string());
+                        }
+                    }
+                    lookup = svc.id == "anthropic";
                     Some(ProviderLink { connection: id, settings })
                 }
                 None => None,
             };
             binding.updated = s.stamp()?;
             s.vault()?.put(Record::Binding(binding))?;
-            Ok(())
+            Ok(lookup)
         })
-        .await
+        .await?;
+    // Find which key the current value is, so the first revoke works. Off
+    // the session lock; failing just means revoking by hand later.
+    if lookup {
+        let (vault, device) = shared(&state).await?;
+        let _ = off_lock(move || rotate::adopt_current_key(&vault, &Client::new(), device, secret_id)).await;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -448,12 +501,22 @@ async fn off_lock<T: Send + 'static>(f: impl FnOnce() -> dotsafe_integrations::R
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
 }
 
-/// Gets a new key from the secret's provider and makes it live: saved,
-/// checked, promoted, pushed. With `leaked`, the old key is revoked at once.
+/// Gets a new key from the secret's provider (or takes the one pasted, for
+/// guided providers) and makes it live: saved, checked, promoted, pushed.
+/// With `leaked`, the old key is revoked at once.
 #[tauri::command]
-pub async fn rotate_with_provider(state: State<'_, AppState>, secret_id: Uuid, leaked: bool) -> CmdResult<RotationView> {
+pub async fn rotate_with_provider(
+    state: State<'_, AppState>,
+    secret_id: Uuid,
+    leaked: bool,
+    pasted: Option<String>,
+) -> CmdResult<RotationView> {
+    let pasted = pasted.map(Zeroizing::new);
     let (vault, device) = shared(&state).await?;
-    let out = off_lock(move || rotate::rotate(&vault, &Client::new(), device, secret_id, leaked)).await?;
+    let out = off_lock(move || {
+        rotate::rotate(&vault, &Client::new(), device, secret_id, pasted.as_deref().map(String::as_str), leaked)
+    })
+    .await?;
     Ok(RotationView {
         check_failed: out.staged,
         promoted: out.promoted,
@@ -469,11 +532,27 @@ pub async fn push_secret(state: State<'_, AppState>, secret_id: Uuid) -> CmdResu
     Ok(pushes(off_lock(move || rotate::push(&vault, &Client::new(), device, secret_id)).await?))
 }
 
-/// Revokes the previous key at the provider, then retires it.
+/// Revokes the previous key at the provider, then retires it. With
+/// `by_hand`, you revoked it in the provider's console; it's just retired.
 #[tauri::command]
-pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid) -> CmdResult<usize> {
+pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid, by_hand: bool) -> CmdResult<usize> {
     let (vault, device) = shared(&state).await?;
-    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id)).await
+    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id, by_hand)).await
+}
+
+/// Opens a provider's console in the browser, where guided keys are made and
+/// revoked. Only the addresses dotsafe knows, never one from the webview.
+#[tauri::command]
+pub async fn open_provider_console<R: tauri::Runtime>(app: tauri::AppHandle<R>, service_id: String) -> CmdResult<()> {
+    let url = service(&service_id)?.console_url.ok_or_else(|| CmdError::other("This service has no console link."))?;
+    #[cfg(not(test))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
+    }
+    #[cfg(test)]
+    let _ = (app, url);
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -523,7 +602,17 @@ pub async fn rotation_queue(state: State<'_, AppState>) -> CmdResult<Option<Queu
                         Record::Secret(secret) if secret.id == *id => Some(QueuedSecret {
                             id: *id,
                             name: secret.name.clone(),
-                            has_provider: bindings(&records).any(|b| b.secret == *id && b.provider.is_some()),
+                            // Guided providers need a pasted key, so they're rotated one by one.
+                            has_provider: bindings(&records).any(|b| {
+                                b.secret == *id
+                                    && b.provider.as_ref().is_some_and(|p| {
+                                        connections(&records)
+                                            .iter()
+                                            .find(|c| c.id == p.connection)
+                                            .and_then(|c| service(&c.service).ok())
+                                            .is_some_and(|svc| !svc.guided)
+                                    })
+                            }),
                             connection_token: tokens.contains(id),
                         }),
                         _ => None,
@@ -579,7 +668,7 @@ pub async fn rotate_queued_with_providers(state: State<'_, AppState>) -> CmdResu
         let client = Client::new();
         Ok(queued
             .into_iter()
-            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, false) {
+            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, None, false) {
                 Ok(out) if out.promoted => QueuedRotation { name, error: None, pushes: pushes(out.pushes) },
                 Ok(out) => QueuedRotation {
                     name,

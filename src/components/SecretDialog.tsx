@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Check, Copy, Eye, EyeOff, History, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
+import { Check, Copy, ExternalLink, Eye, EyeOff, History, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
 import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,8 @@ const STATE_LABEL: Record<VersionState, string> = {
   retired: "Retired",
 };
 
-type Mode = "idle" | "rotate" | "leaked";
+/** `guided`: pasting a key made in a guided provider's console. */
+type Mode = "idle" | "rotate" | "leaked" | "guided";
 
 /** One shared secret: its value, the rotation flow, where it's used, its
  * history and its settings. */
@@ -140,24 +141,28 @@ export function SecretDialog({
     }
   }
 
-  async function rotateWithProvider(leaked: boolean) {
+  async function rotateWithProvider(leaked: boolean, pasted: string | null = null) {
     if (!secret || !provider) return;
     setBusy(leaked ? "leaked" : "provider");
     try {
-      const out = await api.rotateWithProvider(secret.id, leaked);
+      const out = await api.rotateWithProvider(secret.id, leaked, pasted);
       if (!out.promoted) {
-        toast.error(`The new key from ${provider.connectionName} didn't pass its check`, {
+        toast.error(`The new key ${provider.guided ? "" : `from ${provider.connectionName} `}didn't pass its check`, {
           description: `${out.checkFailed} It's saved as staged; nothing uses it yet.`,
         });
       } else {
         toast.success(
           out.revokedOld
             ? `${secret.name} has a new key and the old one is revoked`
-            : `${secret.name} has a new key from ${provider.connectionName}`,
+            : provider.guided
+              ? `${secret.name} uses the new key`
+              : `${secret.name} has a new key from ${provider.connectionName}`,
           out.checkFailed ? { description: `The check failed (${out.checkFailed}), but the old key had already stopped working.` } : undefined,
         );
       }
       reportPushes(out.pushes);
+      if (leaked && provider.manualRevoke)
+        toast(`Revoke the leaked key in ${provider.serviceLabel} now`, { description: "Then mark it retired here." });
       setMode("idle");
       onChanged();
       load();
@@ -221,13 +226,13 @@ export function SecretDialog({
               busy={busy}
               onMode={setMode}
               onProviderRotate={rotateWithProvider}
-              onRevoke={() =>
+              onRevoke={(byHand) =>
                 act(
                   "retire",
                   async () => {
-                    await api.revokePreviousWithProvider(secret.id);
+                    await api.revokePreviousWithProvider(secret.id, byHand);
                   },
-                  `Revoked the old key at ${provider?.connectionName}`,
+                  byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`,
                 )
               }
               onStage={(value, note) =>
@@ -388,8 +393,8 @@ function RotationSection({
   mode: Mode;
   busy: string | null;
   onMode: (mode: Mode) => void;
-  onProviderRotate: (leaked: boolean) => void;
-  onRevoke: () => void;
+  onProviderRotate: (leaked: boolean, pasted?: string | null) => void;
+  onRevoke: (byHand: boolean) => void;
   onStage: (value: string | null, note: string | null) => void;
   onLeaked: (value: string | null) => void;
   onPromote: () => void;
@@ -397,6 +402,17 @@ function RotationSection({
   onRollBack: () => void;
   onRetire: () => void;
 }) {
+  if (provider?.guided && (mode === "guided" || mode === "leaked")) {
+    return (
+      <GuidedForm
+        provider={provider}
+        leaked={mode === "leaked"}
+        busy={busy}
+        onCancel={() => onMode("idle")}
+        onSubmit={(value) => onProviderRotate(mode === "leaked", value)}
+      />
+    );
+  }
   if (mode === "leaked" && provider) {
     return (
       <Banner
@@ -433,6 +449,27 @@ function RotationSection({
       </Banner>
     );
   }
+  if (secret.hasPrevious && provider?.manualRevoke) {
+    return (
+      <Banner
+        title="The previous key still works"
+        body={`${provider.serviceLabel} keys can only be revoked in its dashboard. Once nothing uses the old one, revoke it there and mark it retired here.`}
+      >
+        <Button variant="ghost" onClick={onRollBack} disabled={busy !== null}>
+          {busy === "rollback" && <Spinner />}
+          Roll back
+        </Button>
+        <Button variant="ghost" onClick={() => api.openProviderConsole(provider.serviceId)}>
+          <ExternalLink aria-hidden />
+          Open {provider.serviceLabel}
+        </Button>
+        <Button variant="outline" onClick={() => onRevoke(true)} disabled={busy !== null}>
+          {busy === "retire" && <Spinner />}
+          Mark retired
+        </Button>
+      </Banner>
+    );
+  }
   if (secret.hasPrevious) {
     return (
       <Banner
@@ -447,7 +484,12 @@ function RotationSection({
           {busy === "rollback" && <Spinner />}
           Roll back
         </Button>
-        <Button variant="outline" onClick={provider ? onRevoke : onRetire} disabled={busy !== null}>
+        {provider && (
+          <Button variant="ghost" onClick={() => onRevoke(true)} disabled={busy !== null}>
+            I revoked it
+          </Button>
+        )}
+        <Button variant="outline" onClick={provider ? () => onRevoke(false) : onRetire} disabled={busy !== null}>
           {busy === "retire" && <Spinner />}
           {provider ? "Revoke old key" : "Mark retired"}
         </Button>
@@ -460,7 +502,12 @@ function RotationSection({
         <ShieldAlert aria-hidden />
         It leaked…
       </Button>
-      {provider ? (
+      {provider?.guided ? (
+        <Button onClick={() => onMode("guided")} disabled={busy !== null}>
+          <RotateCcw aria-hidden />
+          New key from {provider.serviceLabel}…
+        </Button>
+      ) : provider ? (
         <>
           <Button variant="ghost" onClick={() => onMode("rotate")} disabled={busy !== null}>
             Type a value…
@@ -477,6 +524,71 @@ function RotationSection({
         </Button>
       )}
     </div>
+  );
+}
+
+/** Rotating with a guided provider: make the key in its console, paste it
+ * here, and dotsafe checks it, makes it live and pushes it. */
+function GuidedForm({
+  provider,
+  leaked,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  provider: NonNullable<SecretIntegrations["provider"]>;
+  leaked: boolean;
+  busy: string | null;
+  onCancel: () => void;
+  onSubmit: (value: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) onSubmit(value);
+      }}
+      className="flex flex-col gap-3 rounded-2xl bg-muted/60 p-3.5"
+    >
+      <div>
+        <p className="font-medium">{leaked ? "Replace a leaked key" : `New key from ${provider.serviceLabel}`}</p>
+        <p className="mt-0.5 text-[13px] text-muted-foreground">
+          {provider.serviceLabel} keys are made in its console. Make one there and paste it here. dotsafe checks it works
+          before anything uses it
+          {leaked && !provider.manualRevoke ? ", then switches the leaked one off." : "."}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="self-start bg-card"
+        onClick={() => api.openProviderConsole(provider.serviceId).catch((e) => toast.error(message(e)))}
+      >
+        <ExternalLink aria-hidden />
+        Open {provider.serviceLabel}
+      </Button>
+      <Field label="New key" htmlFor="guided-key">
+        <Input
+          id="guided-key"
+          type="password"
+          autoComplete="off"
+          className="h-9 bg-card"
+          placeholder="Paste the key you made"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </Field>
+      <SurfaceFooter className="pt-0">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy !== null}>
+          Cancel
+        </Button>
+        <Button type="submit" variant={leaked ? "destructive" : "default"} disabled={busy !== null || !value.trim()}>
+          {busy !== null && <Spinner />}
+          {leaked ? "Replace now" : "Check and use it"}
+        </Button>
+      </SurfaceFooter>
+    </form>
   );
 }
 

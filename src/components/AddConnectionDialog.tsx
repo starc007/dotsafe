@@ -64,7 +64,8 @@ export function AddConnectionDialog({
     }
   }
 
-  const ready = service && name.trim() && token.trim() && fieldsComplete(service.connectionFields, settings);
+  const ready =
+    service && name.trim() && (token.trim() || !service.needsToken) && fieldsComplete(service.connectionFields, settings);
   return (
     <SurfaceDialog
       open={open}
@@ -90,7 +91,7 @@ export function AddConnectionDialog({
             >
               <span className="font-medium">{s.label}</span>
               <span className="text-xs text-muted-foreground">
-                {s.kind === "provider" ? "Issues new keys" : "Gets every rotation"}
+                {s.kind === "target" ? "Gets every rotation" : s.guided ? "Checks keys you make" : "Issues new keys"}
               </span>
             </button>
           ))}
@@ -106,17 +107,21 @@ export function AddConnectionDialog({
               idPrefix="connection"
               onChange={setSettings}
             />
-            <Field label="Admin token" htmlFor="connection-token" hint={service.tokenHelp} error={error}>
-              <Input
-                id="connection-token"
-                type="password"
-                autoComplete="off"
-                className="h-9"
-                value={token}
-                aria-invalid={!!error}
-                onChange={(e) => setToken(e.target.value)}
-              />
-            </Field>
+            {service.needsToken ? (
+              <Field label="Admin token" htmlFor="connection-token" hint={service.tokenHelp} error={error}>
+                <Input
+                  id="connection-token"
+                  type="password"
+                  autoComplete="off"
+                  className="h-9"
+                  value={token}
+                  aria-invalid={!!error}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+              </Field>
+            ) : (
+              <p className="text-[13px] text-muted-foreground">{error ?? service.tokenHelp}</p>
+            )}
           </>
         )}
         <SurfaceFooter className="pt-1">

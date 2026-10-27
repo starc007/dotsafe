@@ -84,42 +84,79 @@ const SERVICES = [
     label: "OpenAI",
     kind: "provider",
     tokenHelp: "An admin key from platform.openai.com → Organization → Admin keys.",
-    connectionFields: [{ key: "project_id", label: "Project ID", hint: "proj_…, from the project's settings.", required: true }],
+    connectionFields: [{ key: "project_id", label: "Project ID", hint: "proj_…, from the project's settings.", required: true, secretRef: false }],
     bindingFields: [],
     overlap: true,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: "https://platform.openai.com/api-keys",
   },
   {
     id: "cloudflare_token",
     label: "Cloudflare API token",
     kind: "provider",
     tokenHelp: 'A Cloudflare API token with the "API Tokens: Edit" permission.',
-    connectionFields: [{ key: "account_id", label: "Account ID", hint: "Only for account-owned tokens.", required: false }],
-    bindingFields: [{ key: "token_id", label: "Token ID", hint: "The ID of the token this secret holds.", required: true }],
+    connectionFields: [{ key: "account_id", label: "Account ID", hint: "Only for account-owned tokens.", required: false, secretRef: false }],
+    bindingFields: [{ key: "token_id", label: "Token ID", hint: "The ID of the token this secret holds.", required: true, secretRef: false }],
     overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: "https://dash.cloudflare.com/profile/api-tokens",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    kind: "provider",
+    tokenHelp: "An Admin key (sk-ant-admin…). dotsafe uses it to switch old keys off.",
+    connectionFields: [],
+    bindingFields: [],
+    overlap: true,
+    guided: true, manualRevoke: false, needsToken: true, consoleUrl: "https://console.anthropic.com/settings/keys",
+  },
+  {
+    id: "stripe",
+    label: "Stripe",
+    kind: "provider",
+    tokenHelp: "No token needed: Stripe has no API for managing keys. dotsafe checks each new key with itself.",
+    connectionFields: [],
+    bindingFields: [],
+    overlap: true,
+    guided: true, manualRevoke: true, needsToken: false, consoleUrl: "https://dashboard.stripe.com/apikeys",
+  },
+  {
+    id: "aws_iam",
+    label: "AWS IAM access key",
+    kind: "provider",
+    tokenHelp: "The secret access key of an IAM user allowed to create and delete access keys.",
+    connectionFields: [{ key: "access_key_id", label: "Admin access key ID", hint: "AKIA…", required: true, secretRef: false }],
+    bindingFields: [
+      { key: "user_name", label: "IAM user", hint: "The user whose access key this secret holds.", required: true, secretRef: false },
+      { key: "access_key_id_secret", label: "Shared secret for the key ID", hint: "Optional: the shared secret that holds AWS_ACCESS_KEY_ID.", required: false, secretRef: true },
+    ],
+    overlap: true,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: "https://console.aws.amazon.com/iam/home#/users",
   },
   {
     id: "vercel",
     label: "Vercel",
     kind: "target",
     tokenHelp: "A Vercel access token from vercel.com/account/tokens.",
-    connectionFields: [{ key: "team_id", label: "Team ID", hint: "team_…, for team projects.", required: false }],
+    connectionFields: [{ key: "team_id", label: "Team ID", hint: "team_…, for team projects.", required: false, secretRef: false }],
     bindingFields: [
-      { key: "project", label: "Project", hint: "The project's name or ID.", required: true },
-      { key: "environments", label: "Environments", hint: "Comma-separated. Defaults to all three.", required: false },
+      { key: "project", label: "Project", hint: "The project's name or ID.", required: true, secretRef: false },
+      { key: "environments", label: "Environments", hint: "Comma-separated. Defaults to all three.", required: false, secretRef: false },
     ],
     overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
   },
   {
     id: "cloudflare_workers",
     label: "Cloudflare Workers",
     kind: "target",
     tokenHelp: 'A Cloudflare API token with the "Workers Scripts: Edit" permission.',
-    connectionFields: [{ key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true }],
-    bindingFields: [{ key: "script", label: "Worker", hint: "The Worker's name.", required: true }],
+    connectionFields: [{ key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true, secretRef: false }],
+    bindingFields: [{ key: "script", label: "Worker", hint: "The Worker's name.", required: true, secretRef: false }],
     overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
   },
 ];
-type MockConnection = { id: string; service: string; name: string; settings: Record<string, string>; credential: string };
+type MockConnection = { id: string; service: string; name: string; settings: Record<string, string>; credential: string | null };
 type MockTarget = { id: string; connectionId: string; name: string; settings: Record<string, string>; pushedValue: string | null; pushedAt: number | null };
 const connections = new Map<string, MockConnection>();
 const bindings = new Map<string, { provider: { connectionId: string; settings: Record<string, string> } | null; targets: MockTarget[] }>();
@@ -128,7 +165,8 @@ function bindingOf(secretId: string) {
   return bindings.get(secretId)!;
 }
 function addConnection(service: string, name: string, settings: Record<string, string>) {
-  const credential = addSecret(`${name} admin token`, "mock-admin-token", 0);
+  const needsToken = SERVICES.find((x) => x.id === service)?.needsToken ?? true;
+  const credential = needsToken ? addSecret(`${name} admin token`, "mock-admin-token", 0) : null;
   const c = { id: id(), service, name, settings, credential };
   connections.set(c.id, c);
   return c;
@@ -166,7 +204,11 @@ function queueView() {
     device: q.device,
     secrets: [...secrets.values()]
       .filter((s) => (currentOf(s)?.createdAt ?? Infinity) < q.since)
-      .map((s) => ({ id: s.id, name: s.name, hasProvider: !!bindings.get(s.id)?.provider, connectionToken: tokens.has(s.id) }))
+      .map((s) => {
+        const p = bindings.get(s.id)?.provider;
+        const svc = SERVICES.find((x) => x.id === (p && connections.get(p.connectionId)?.service));
+        return { id: s.id, name: s.name, hasProvider: !!svc && !svc.guided, connectionToken: tokens.has(s.id) };
+      })
       .sort((x, y) => Number(y.hasProvider) - Number(x.hasProvider) || x.name.localeCompare(y.name)),
     variables: [...envs.values()].flatMap((e) =>
       [...e.vars]
@@ -501,7 +543,7 @@ export function installMockBackend() {
         case "add_connection": {
           const svc = SERVICES.find((x) => x.id === a.serviceId) ?? fail("other", `dotsafe doesn't know ${a.serviceId}`);
           for (const f of svc.connectionFields) if (f.required && !settings[f.key]?.trim()) fail("other", `${f.label} is required.`);
-          if (!a.token.trim()) fail("other", "Paste the admin token.");
+          if (!a.token.trim() && svc.needsToken) fail("other", "Paste the admin token.");
           if ([...connections.values()].some((c) => c.name.toLowerCase() === a.name.trim().toLowerCase()))
             fail("other", `A connection named ${a.name.trim()} already exists.`);
           await delay(300);
@@ -511,7 +553,8 @@ export function installMockBackend() {
         case "replace_connection_token": {
           const c = connections.get(a.id) ?? fail("other", "That connection was removed.");
           if (!a.token.trim()) fail("other", "Paste the new admin token.");
-          const s = secret(c.credential);
+          if (!c.credential) fail("other", `${c.name} doesn't use a token.`);
+          const s = secret(c.credential!);
           const now = Date.now();
           s.versions.push({ id: id(), value: a.token.trim(), state: "pending", createdAt: now, changedAt: now, note: "Replaced" });
           promote(s, now);
@@ -523,7 +566,7 @@ export function installMockBackend() {
           const used = [...bindings.values()].some((b) => b.provider?.connectionId === c.id || b.targets.some((t) => t.connectionId === c.id));
           if (used) fail("other", `Secrets still use ${c.name}. Remove it from them first.`);
           connections.delete(c.id);
-          secrets.delete(c.credential);
+          if (c.credential) secrets.delete(c.credential);
           return null;
         }
         case "secret_integrations": {
@@ -533,7 +576,13 @@ export function installMockBackend() {
           const pc = b.provider ? connections.get(b.provider.connectionId) : undefined;
           return {
             provider: b.provider && pc
-              ? { connectionId: pc.id, connectionName: pc.name, serviceLabel: label(pc), settings: b.provider.settings, overlap: SERVICES.find((x) => x.id === pc.service)!.overlap }
+              ? (() => {
+                  const svc = SERVICES.find((x) => x.id === pc.service)!;
+                  return {
+                    connectionId: pc.id, connectionName: pc.name, serviceId: pc.service, serviceLabel: label(pc),
+                    settings: b.provider.settings, overlap: svc.overlap, guided: svc.guided, manualRevoke: svc.manualRevoke,
+                  };
+                })()
               : null,
             targets: b.targets.map((t) => {
               const c = connections.get(t.connectionId);
@@ -569,20 +618,27 @@ export function installMockBackend() {
           const b = bindingOf(a.secretId);
           const c = (b.provider && connections.get(b.provider.connectionId)) ?? fail("other", `${s.name} has no provider.`);
           if (s.versions.some((v) => v.state === "pending")) fail("other", `${s.name} already has a staged value; promote or cancel it first.`);
+          const svc = SERVICES.find((x) => x.id === c.service)!;
+          if (svc.guided && !a.pasted?.trim()) fail("other", `Paste the new key you made in ${svc.label}.`);
           await delay(900);
           const now = Date.now();
-          s.versions.push({ id: id(), value: `sk-mock-${now}`, state: "pending", createdAt: now, changedAt: now, note: `Issued by ${c.name}` });
+          const value = svc.guided ? a.pasted.trim() : `sk-mock-${now}`;
+          s.versions.push({ id: id(), value, state: "pending", createdAt: now, changedAt: now, note: svc.guided ? `Made in ${svc.label}` : `Issued by ${c.name}` });
           promote(s, now);
-          const overlap = SERVICES.find((x) => x.id === c.service)!.overlap;
-          const revokedOld = a.leaked || !overlap;
+          const revokedOld = (Boolean(a.leaked) || !svc.overlap) && !svc.manualRevoke;
           if (revokedOld) for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: now });
           return { checkFailed: null, promoted: true, revokedOld, pushes: pushAll(s.id) };
         }
+        case "open_provider_console":
+          return null;
         case "push_secret":
           await delay(500);
           return pushAll(a.secretId);
         case "revoke_previous_with_provider": {
           const s = secret(a.secretId);
+          const b = bindingOf(a.secretId);
+          const svc = SERVICES.find((x) => x.id === (b.provider && connections.get(b.provider.connectionId)?.service));
+          if (svc?.manualRevoke && !a.byHand) fail("other", `${svc.label} keys can only be revoked in its dashboard.`);
           await delay(500);
           let n = 0;
           for (const v of s.versions) if (v.state === "previous") (Object.assign(v, { state: "retired", changedAt: Date.now() }), n++);

@@ -89,8 +89,12 @@ export function SecretIntegrationsSection({
           <span className="min-w-0 flex-1 truncate">
             {provider ? (
               <>
-                New keys from <span className="font-medium">{provider.connectionName}</span>
-                <span className="text-muted-foreground"> · {provider.serviceLabel}</span>
+                {provider.guided ? "Keys you make in " : "New keys from "}
+                <span className="font-medium">{provider.connectionName}</span>
+                <span className="text-muted-foreground">
+                  {provider.connectionName !== provider.serviceLabel && ` · ${provider.serviceLabel}`}
+                  {provider.guided && " · checked by dotsafe"}
+                </span>
               </>
             ) : (
               <span className="text-muted-foreground">You type or generate new values.</span>
