@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::{Error, Vault};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::state::{AppState, SyncStatus};
 
@@ -14,7 +14,7 @@ const INTERVAL: Duration = Duration::from_secs(60);
 
 /// Syncs the unlocked vault, if it lives in a bucket, and records the result.
 /// Returns whether anything came in. Emits `vault-synced` when it did.
-pub fn sync_once(state: &AppState, app: Option<&AppHandle>) -> Result<bool, Error> {
+pub fn sync_once<R: Runtime>(state: &AppState, app: Option<&AppHandle<R>>) -> Result<bool, Error> {
     let Some(vault) = shared_vault(state) else { return Ok(false) };
     let result = vault.sync();
     if let Ok(mut session) = state.0.lock() {
