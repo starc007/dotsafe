@@ -298,6 +298,12 @@ impl Vault {
         self.store.location()
     }
 
+    /// The store underneath, holding only encrypted objects. For copying the
+    /// vault whole (backups, moving it) without opening the store twice.
+    pub fn store(&self) -> &dyn Store {
+        &*self.store
+    }
+
     /// A stamp for a new change, ordered after every change this vault has seen.
     pub fn stamp(&self, device: Uuid) -> Stamp {
         self.clock.stamp(device)

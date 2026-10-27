@@ -192,7 +192,7 @@ impl Store for FolderStore {
     }
 }
 
-pub(crate) fn etag(bytes: &[u8]) -> ETag {
+pub fn etag(bytes: &[u8]) -> ETag {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
