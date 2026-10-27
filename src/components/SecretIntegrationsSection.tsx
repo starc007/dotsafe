@@ -117,7 +117,7 @@ export function SecretIntegrationsSection({
               title={providers.length ? undefined : "Connect a provider in Settings → Integrations first."}
               onClick={() => setForm("provider")}
             >
-              Set a provider…
+              Set a provider
             </Button>
           )}
         </div>
@@ -177,7 +177,7 @@ export function SecretIntegrationsSection({
             onClick={() => setForm("target")}
           >
             <Plus aria-hidden />
-            Add a target…
+            Add a target
           </Button>
           {!!integrations?.targets.length && (
             <Button variant="outline" onClick={pushNow} disabled={busy !== null}>
