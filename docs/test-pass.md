@@ -23,21 +23,21 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Setup and unlock
 
-- [ ] **D1** Create a vault in `~/dotsafe-test/vault`. The recovery key is shown once and can be copied. A weak password is refused.
-- [ ] **D2** Quit and relaunch. Unlock with the password. A wrong password says "Wrong password."
-- [ ] **D3** Unlock with the recovery key, then set a new password.
-- [ ] **D4** Turn on Touch ID unlock in Settings. Relaunch: Touch ID is **not** prompted until you click the button (earlier feedback). Cancelling Touch ID falls back to the password.
-- [ ] **D5** Change the password. Generate a new recovery key: the old one stops working.
-- [ ] **D6** Auto-lock: leave the app idle past the timeout and it locks. Locking clears what's on screen.
+- [x] **D1** Create a vault in `~/dotsafe-test/vault`. The recovery key is shown once and can be copied. A weak password is refused.
+- [x] **D2** Quit and relaunch. Unlock with the password. A wrong password says "Wrong password."
+- [x] **D3** Unlock with the recovery key, then set a new password.
+- [x] **D4** Turn on Touch ID unlock in Settings. Relaunch: Touch ID is **not** prompted until you click the button (earlier feedback). Cancelling Touch ID falls back to the password.
+- [x] **D5** Change the password. Generate a new recovery key: the old one stops working.
+- [x] **D6** Auto-lock: leave the app idle past the timeout and it locks. Locking clears what's on screen.
 
 ### Projects, environments, variables
 
-- [ ] **D7** Create a project and environments. Delete an environment, then a project (confirmation dialog, solid red button).
-- [ ] **D8** Add, edit and delete variables. Reveal a value; copy one, then paste somewhere and check it's cleared from the clipboard after 30 seconds (unless you copied something else meanwhile).
-- [ ] **D9** Inheritance: set `staging`'s parent to `development`. Inherited rows are greyed out with a green "From development" badge; editing one gives staging its own value, shown with an amber "Own value" badge, and values stay lined up; hiding one removes it in the child only, and restoring brings it back.
-- [ ] **D10** References: `DB_URL = postgres://${{ DB_HOST }}/app`. Override `DB_HOST` in a child: the child's resolved `DB_URL` changes. Editing `DB_URL` shows the `${{ }}` text, not the resolved value. A broken reference shows an error, never the raw text.
-- [ ] **D11** Import a `.env` by drag-and-drop and with the file picker. The preview shows names and changes only.
-- [ ] **D12** Keyboard: every action has a shortcut or a keyboard path. Shortcuts listed in Settings work, and do nothing while a dialog is open.
+- [x] **D7** Create a project and environments. Delete an environment, then a project (confirmation dialog, solid red button).
+- [x] **D8** Add, edit and delete variables. Reveal a value; copy one, then paste somewhere and check it's cleared from the clipboard after 30 seconds (unless you copied something else meanwhile).
+- [x] **D9** Inheritance: set `staging`'s parent to `development`. Inherited rows are greyed out with a green "From development" badge; editing one gives staging its own value, shown with an amber "Own value" badge, and values stay lined up; hiding one removes it in the child only, and restoring brings it back.
+- [x] **D10** References: `DB_URL = postgres://${{ DB_HOST }}/app`. Override `DB_HOST` in a child: the child's resolved `DB_URL` changes. Editing `DB_URL` shows the `${{ }}` text, not the resolved value. A broken reference shows an error, never the raw text.
+- [x] **D11** Import a `.env` by drag-and-drop and with the file picker. The preview shows names and changes only.
+- [x] **D12** Keyboard: every action has a shortcut or a keyboard path. Shortcuts listed in Settings work, and do nothing while a dialog is open.
 
 ### Shared secrets and rotation
 
