@@ -41,7 +41,8 @@ export function SettingsNav({
 
   return (
     <>
-      <div className="px-2 pb-2">
+      {/* The slide container clips its edges, so leave room for the focus ring. */}
+      <div className="px-2 pt-1 pb-2">
         <button
           type="button"
           onClick={onBack}
@@ -56,7 +57,7 @@ export function SettingsNav({
         </button>
       </div>
       <h2 className="px-4 pb-1 text-xs font-medium text-muted-foreground">Settings</h2>
-      <nav ref={list} aria-label="Settings" onKeyDown={onKeyDown} className="flex-1 overflow-y-auto px-2 pb-2">
+      <nav ref={list} aria-label="Settings" onKeyDown={onKeyDown} className="flex-1 overflow-y-auto px-2 pt-0.5 pb-2">
         {SETTINGS_SECTIONS.map(({ id, label, icon: Icon }) => {
           const current = id === section;
           return (
