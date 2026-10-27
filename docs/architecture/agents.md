@@ -1,6 +1,8 @@
 # Agent access
 
-**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret` and the audit log. Approvals ask for Touch ID (or the login password) on macOS. Still proposed: custom proxy profiles, `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
+**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret`, the audit log and custom proxy profiles. Approvals ask for Touch ID (or the login password) on macOS. Still proposed: `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
+
+**Custom proxy profiles** add keys beyond OpenAI and Anthropic: the key's variable, its SDK's base URL variable, the one `https://` upstream, and the header. They're vault records (`proxy_profile`), not config or repo files, because a profile decides where a key is sent: agents can edit files but not the vault. The proxy checks each one before use (`Profile::custom`: plain https host with no credentials, query or fragment; valid variable names; a plain header that isn't `host`, `cookie` and the like; no built-in variable taken over) and skips any that fail. Manage them in Settings → Agents or with `dotsafe proxy`.
 
 ## The problem
 
@@ -157,4 +159,4 @@ The setup screen also offers a snippet for the project's `AGENTS.md`: "Secrets a
 4. ✅ Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
 5. ✅ `generate_secret` and the audit log.
 6. ✅ Touch ID on approval (macOS).
-7. Windows named pipes, a headless `dotsafe daemon`, custom proxy profiles.
+7. Windows named pipes, a headless `dotsafe daemon`. (✅ custom proxy profiles.)

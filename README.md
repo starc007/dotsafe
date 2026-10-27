@@ -18,6 +18,7 @@ api           # licensing and checkout API (Cloudflare Worker), see api/README.m
 ```bash
 dotsafe init                      # create a vault (iCloud Drive by default) or connect to one
 dotsafe import                    # import ./.env into this project's development env
+dotsafe import --from doppler     # or --from infisical, or --from 1password --item NAME (or a JSON export file)
 dotsafe set API_KEY               # prompts for the value, so it stays out of shell history
 dotsafe set -e production A=1 B=2
 dotsafe get API_KEY
@@ -50,9 +51,9 @@ dotsafe connect aws_iam --set access_key_id=AKIA…   # rotate IAM users' access
 
 **AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
 
-`dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key.
+`dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key. Add more keys with `dotsafe proxy add Mistral --key-var MISTRAL_API_KEY --base-url-var MISTRAL_BASE_URL --upstream https://api.mistral.ai --base-path /v1` (or in Settings → Agents); profiles are stored in the vault, so an agent can't redirect a key.
 
-**In the app.** Press ⌘K anywhere to find a variable in any project and copy it, or jump to an environment. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
+**In the app.** Press ⌘K to find a variable in any project and copy it, or jump to an environment, and ⌥⌘K (or the menu bar icon) to do it from any other app. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
 
 **Provider rotation.** Connect OpenAI, a Cloudflare API token or AWS IAM, and rotating a secret asks the provider for a new key. Anthropic and Stripe keys are made in their own console: paste the new one and dotsafe checks it, makes it live and pushes it, then switches the old Anthropic key off (Stripe's is revoked in its dashboard). The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you revoke it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, which are stored in the vault. Set it up in Settings → Integrations, or with `dotsafe connect`.
 

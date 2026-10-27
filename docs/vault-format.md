@@ -113,6 +113,7 @@ On a synced folder the conditional write can't be atomic, so two devices changin
 
   - `connection`: `{ id, service, name, credential?, settings: { k: v }, deleted, updated }`. An account at a provider or deploy service. `credential` is the id of the shared secret holding its admin token, absent for services that need none (Stripe).
   - `binding`: `{ id, secret, provider?: { connection, settings }, updated, keys: { <version uuid>: key_id }, targets: { <uuid>: { connection, name, settings, pushed?: { sha256, at }, deleted, changed } } }`. Where one secret's values come from and where they're pushed. id = UUIDv5(secret id, "binding").
+  - `proxy_profile`: `{ id, name, key_var, base_url_var, upstream, base_path?, header, bearer, deleted, updated }`. A custom secret-proxy profile; record v4.
   - `audit`: `{ id, device, day, deleted, updated, events: { <uuid>: { at, actor, action, outcome, summary, environment, variables, detail? } } }`. One per device per day, id = UUIDv5(device, "audit:<day>"), where `day` counts days since the Unix epoch. Events merge by id. A deleted (pruned after 90 days) record has no events and wins over copies that have them.
 
 ### Record version 3 (shared secrets and newer kinds)
@@ -125,7 +126,7 @@ A client that predates shared secrets would read a linked variable as a tombston
 
 ### Record version 4 (integrations)
 
-`connection` and `binding` records, and `audit` days that log a `rotate`, `push` or `revoke` action, are written with `"version": 4` and AAD `"dotsafe/v4/record" ‖ vault_id ‖ epoch ‖ id`. Clients that predate integrations refuse them ("unsupported record version 4") instead of failing to parse an unknown record type, and relabelling one as v3 or v2 fails authentication. Every other record keeps the oldest version that can hold it.
+`connection`, `binding` and `proxy_profile` records, and `audit` days that log a `rotate`, `push` or `revoke` action, are written with `"version": 4` and AAD `"dotsafe/v4/record" ‖ vault_id ‖ epoch ‖ id`. Clients that predate integrations refuse them ("unsupported record version 4") instead of failing to parse an unknown record type, and relabelling one as v3 or v2 fails authentication. Every other record keeps the oldest version that can hold it.
 
 **Merging bindings:** `provider` merges on `updated`. Targets merge by id on their own `changed` stamp. `keys` is the union of both sides; each version's key id is set once, when the provider issues it.
 
