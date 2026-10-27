@@ -311,3 +311,88 @@ fn device_list_starts_empty_and_remove_needs_a_known_name() {
     let out = m.run(&api, &["device", "remove", "Ghost"]);
     assert!(!out.status.success() && stderr(&out).contains("no device named"));
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = Command::new("git")
+        .current_dir(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+#[test]
+fn export_prints_and_writes_env_files() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "PLAIN=abc", "SPACED=two words", "DOLLAR=pa$$"]);
+    let printed = m.ok(&project, &["export"]);
+    assert_eq!(printed, "DOLLAR='pa$$'\nPLAIN=abc\nSPACED='two words'\n");
+
+    // In a checkout, the file must be ignored first.
+    git(&project, &["init", "-q"]);
+    let out = m.run(&project, &["export", "-o", ".env"]);
+    assert!(!out.status.success() && stderr(&out).contains(".gitignore"), "{}", stderr(&out));
+    fs::write(project.join(".gitignore"), ".env\n").unwrap();
+    m.ok(&project, &["export", "-o", ".env"]);
+    let written = fs::read_to_string(project.join(".env")).unwrap();
+    assert!(written.starts_with("# Written by `dotsafe export` from my-api/development."));
+    assert!(written.ends_with(&printed));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(project.join(".env")).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    // Its own file is refreshed; anyone else's is left alone.
+    m.ok(&project, &["set", "PLAIN=changed"]);
+    m.ok(&project, &["export", "-o", ".env"]);
+    assert!(fs::read_to_string(project.join(".env")).unwrap().contains("PLAIN=changed"));
+    fs::write(project.join(".env.local"), "MINE=1\n").unwrap();
+    fs::write(project.join(".gitignore"), ".env*\n").unwrap();
+    let out = m.run(&project, &["export", "-o", ".env.local"]);
+    assert!(!out.status.success() && stderr(&out).contains("didn't write it"));
+    assert_eq!(fs::read_to_string(project.join(".env.local")).unwrap(), "MINE=1\n");
+}
+
+#[test]
+fn scan_finds_vault_values_without_printing_them() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "STRIPE_KEY=sk_live_scanme123", "PORT=3000"]);
+    m.ok(&project, &["set", "SHARED=tok_shared_987654"]);
+    m.ok(&project, &["secret", "share", "SHARED"]);
+    fs::write(project.join("clean.js"), "listen(3000)\n").unwrap();
+    assert!(m.run(&project, &["scan"]).status.success());
+
+    fs::create_dir(project.join("src")).unwrap();
+    fs::write(project.join("src/config.js"), "const a = 1;\n  key: 'sk_live_scanme123',\n").unwrap();
+    fs::write(project.join("notes.txt"), "dG9rX3NoYXJlZF85ODc2NTQ=\n").unwrap();
+    let out = m.run(&project, &["scan"]);
+    assert_eq!(out.status.code(), Some(1));
+    let report = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(report.contains("config.js:2:9\tmy-api/development/STRIPE_KEY"), "{report}");
+    assert!(report.contains("notes.txt:1:1\tsecret SHARED"), "base64 is caught too: {report}");
+    assert!(!report.contains("sk_live") && !stderr(&out).contains("sk_live"), "values are never printed");
+}
+
+#[test]
+fn scan_staged_and_the_pre_commit_hook() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "API_KEY=sk_live_hooked42"]);
+    git(&project, &["init", "-q"]);
+    m.ok(&project, &["scan", "--install-hook"]);
+    let hook = fs::read_to_string(project.join(".git/hooks/pre-commit")).unwrap();
+    assert!(hook.contains("dotsafe scan --staged"));
+
+    fs::write(project.join("a.txt"), "API_KEY=sk_live_hooked42\n").unwrap();
+    fs::write(project.join("b.txt"), "fine\n").unwrap();
+    git(&project, &["add", "b.txt"]);
+    assert!(m.run(&project, &["scan", "--staged"]).status.success(), "unstaged files aren't checked");
+    git(&project, &["add", "a.txt"]);
+    let out = m.run(&project, &["scan", "--staged"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("a.txt:1:9\tmy-api/development/API_KEY"));
+}
