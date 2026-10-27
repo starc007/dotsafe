@@ -56,12 +56,20 @@ pub enum SecretCmd {
         /// The old value leaked: retire it right away instead of keeping it as previous
         #[arg(long)]
         leaked: bool,
+        /// Read the new key from stdin (for providers whose keys you make in their console)
+        #[arg(long)]
+        stdin: bool,
         /// Why it was rotated, kept in the history
         #[arg(long)]
         note: Option<String>,
     },
     /// Revoke the previous value (at its provider, if it has one) and mark it retired
-    Retire { secret: String },
+    Retire {
+        secret: String,
+        /// You revoked the old key in the provider's console; just mark it retired
+        #[arg(long)]
+        by_hand: bool,
+    },
     /// Set the provider that issues this secret's values, so `rotate` gets new keys from it
     Provider {
         secret: String,
@@ -217,24 +225,50 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             eprintln!("{key} in {} has its own value now; rotating the secret won't change it.", target.label());
             ctx.vault.put(Record::Environment(target.env))?;
         }
-        SecretCmd::Rotate { secret, generate, manual, leaked, note } => {
+        SecretCmd::Rotate { secret, generate, manual, leaked, stdin, note } => {
             let mut secret = find(&ctx.vault.secrets()?, &secret)?.clone();
             let binding = connect::binding(&ctx, secret.id)?;
-            if binding.provider.is_some() && !generate && !manual {
-                let out = provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, leaked)?;
+            if let Some(link) = binding.provider.as_ref().filter(|_| !generate && !manual) {
+                let svc = service(&connect::by_id(&ctx, link.connection)?.service)?;
+                let pasted = if svc.guided {
+                    eprintln!(
+                        "{} keys are made in its console: {}. Make a new one there, then paste it here.",
+                        svc.label,
+                        svc.console_url.unwrap_or("")
+                    );
+                    Some(read_value(&format!("New key for {}: ", secret.name), stdin)?)
+                } else {
+                    None
+                };
+                let out = provider::rotate(
+                    &ctx.vault,
+                    &Client::new(),
+                    ctx.device_id,
+                    secret.id,
+                    pasted.as_deref().map(String::as_str),
+                    leaked,
+                )?;
                 if let (false, Some(why)) = (out.promoted, &out.staged) {
                     eprintln!("Got a new key for {}, but it didn't pass the check: {why}", secret.name);
                     eprintln!("It's saved as staged; nothing uses it yet. Try `dotsafe secret rotate {}` again later.", secret.name);
                     return Ok(());
                 }
                 let uses = usages(&ctx.vault.list()?, secret.id).len();
-                eprintln!("Rotated {} with a new key from its provider; {} use it.", secret.name, plural(uses, "environment"));
+                let from = if svc.guided { "the new key" } else { "a new key from its provider" };
+                eprintln!("Rotated {} with {from}; {} use it.", secret.name, plural(uses, "environment"));
                 if let Some(why) = &out.staged {
                     eprintln!("The provider's check failed ({why}), but the old key was already ended, so the new one is live.");
                 }
                 report_pushes(&out.pushes);
                 if out.revoked_old {
                     eprintln!("The old key is revoked.");
+                } else if svc.manual_revoke {
+                    eprintln!(
+                        "Revoke the old key in {} ({}), then run `dotsafe secret retire {} --by-hand`.",
+                        svc.label,
+                        svc.console_url.unwrap_or(""),
+                        secret.name
+                    );
                 } else {
                     eprintln!("The old key still works. Once nothing uses it, run `dotsafe secret retire {}` to revoke it.", secret.name);
                 }
@@ -272,13 +306,14 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 );
             }
         }
-        SecretCmd::Retire { secret } => {
+        SecretCmd::Retire { secret, by_hand } => {
             let mut secret = find(&ctx.vault.secrets()?, &secret)?.clone();
             if connect::binding(&ctx, secret.id)?.provider.is_some() {
-                let retired = provider::retire(&ctx.vault, &Client::new(), ctx.device_id, secret.id)?;
-                match retired {
-                    0 => eprintln!("{} has no previous value to retire.", secret.name),
-                    _ => eprintln!("Revoked the previous key of {} at its provider and retired it.", secret.name),
+                let retired = provider::retire(&ctx.vault, &Client::new(), ctx.device_id, secret.id, by_hand)?;
+                match (retired, by_hand) {
+                    (0, _) => eprintln!("{} has no previous value to retire.", secret.name),
+                    (_, true) => eprintln!("Marked the previous key of {} retired.", secret.name),
+                    (_, false) => eprintln!("Revoked the previous key of {} at its provider and retired it.", secret.name),
                 }
                 return Ok(());
             }
@@ -330,15 +365,30 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             if svc.kind != Kind::Provider {
                 bail!("{} is a deploy target, not a provider; use `dotsafe secret target add`", connection.name);
             }
-            let settings = connect::settings(&set)?;
+            let mut settings = connect::settings(&set)?;
             check_settings(svc.binding_fields, &settings)?;
+            // Settings that name another shared secret are stored as its id.
+            let secrets = ctx.vault.secrets()?;
+            for field in svc.binding_fields.iter().filter(|f| f.secret_ref) {
+                if let Some(name) = settings.get(field.key).cloned() {
+                    settings.insert(field.key.to_string(), find(&secrets, &name)?.id.to_string());
+                }
+            }
             binding.provider = Some(ProviderLink { connection: connection.id, settings });
             binding.updated = ctx.stamp();
             if let (Some(key_id), Some((current, _))) = (key_id, secret.current()) {
                 binding.keys.insert(current, key_id);
             }
             ctx.vault.put(Record::Binding(binding))?;
-            eprintln!("{} now gets new keys from {}. Rotate it with `dotsafe secret rotate {}`.", secret.name, connection.name, secret.name);
+            let how = if svc.guided { "uses keys you make in" } else { "now gets new keys from" };
+            eprintln!("{} {how} {}. Rotate it with `dotsafe secret rotate {}`.", secret.name, connection.name, secret.name);
+            // So the first revoke knows which key the current value is.
+            if svc.id == "anthropic" {
+                match provider::adopt_current_key(&ctx.vault, &Client::new(), ctx.device_id, secret.id) {
+                    Ok(true) => eprintln!("Found the current key at Anthropic; it can be switched off after the next rotation."),
+                    _ => eprintln!("Couldn't find the current key at Anthropic; switch it off there by hand after the next rotation."),
+                }
+            }
         }
         SecretCmd::Target(TargetCmd::Add { secret, connection, name, set }) => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
@@ -430,7 +480,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                     eprintln!("No queued secret has a provider; rotate them with `dotsafe secret rotate`.");
                 }
                 for secret in queued {
-                    match provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, false) {
+                    match provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, None, false) {
                         Ok(out) if out.promoted => {
                             eprintln!("Rotated {}.", secret.name);
                             report_pushes(&out.pushes);
@@ -488,6 +538,22 @@ fn env_labels(records: &[Record]) -> std::collections::HashMap<Uuid, String> {
             _ => None,
         })
         .collect()
+}
+
+/// A value typed privately, or read from stdin.
+fn read_value(prompt: &str, from_stdin: bool) -> Result<Zeroizing<String>> {
+    let value = if from_stdin {
+        let mut value = Zeroizing::new(String::new());
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut value)?;
+        Zeroizing::new(value.trim().to_string())
+    } else {
+        // Not session::password: DOTSAFE_PASSWORD is the master password.
+        Zeroizing::new(rpassword::prompt_password(prompt)?)
+    };
+    if value.is_empty() {
+        bail!("nothing entered");
+    }
+    Ok(value)
 }
 
 /// Prints each push's outcome. Returns how many failed.
