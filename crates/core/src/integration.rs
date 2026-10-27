@@ -21,7 +21,7 @@ pub fn credentials(records: &[Record]) -> HashSet<Uuid> {
     records
         .iter()
         .filter_map(|r| match r {
-            Record::Connection(c) if !c.deleted => Some(c.credential),
+            Record::Connection(c) if !c.deleted => c.credential,
             _ => None,
         })
         .collect()
@@ -75,8 +75,10 @@ pub struct Connection {
     pub service: String,
     /// Shown in lists, e.g. "Acme on Vercel".
     pub name: String,
-    /// The shared secret holding the admin token.
-    pub credential: Uuid,
+    /// The shared secret holding the admin token. `None` for services that
+    /// need none (Stripe: dotsafe only checks new keys with themselves).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<Uuid>,
     /// What the service needs besides the token: a project or account id.
     #[serde(default)]
     pub settings: BTreeMap<String, String>,
@@ -85,7 +87,13 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(service: &str, name: &str, credential: Uuid, settings: BTreeMap<String, String>, stamp: Stamp) -> Self {
+    pub fn new(
+        service: &str,
+        name: &str,
+        credential: Option<Uuid>,
+        settings: BTreeMap<String, String>,
+        stamp: Stamp,
+    ) -> Self {
         Connection {
             id: Uuid::new_v4(),
             service: service.into(),

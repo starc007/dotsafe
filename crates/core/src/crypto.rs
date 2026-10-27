@@ -122,8 +122,22 @@ pub(crate) fn verify_mac(key: &SecretKey, data: &[u8], tag: &[u8]) -> bool {
 /// SHA-256 of a value, in hex: what was last pushed to a deploy target, for
 /// spotting changes made outside dotsafe. Only stored inside sealed records.
 pub fn fingerprint(value: &str) -> String {
+    sha256_hex(value.as_bytes())
+}
+
+/// SHA-256 in lowercase hex. For request signing (AWS SigV4) and
+/// fingerprints, never for keys.
+pub fn sha256_hex(data: &[u8]) -> String {
     use sha2::Digest;
-    Sha256::digest(value.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// HMAC-SHA256 with an arbitrary key. For request signing (AWS SigV4),
+/// where the key is derived from a provider's secret, not one of ours.
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut m = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC accepts any key length");
+    m.update(data);
+    m.finalize().into_bytes().into()
 }
 
 /// Argon2id cost settings used when creating a password slot.

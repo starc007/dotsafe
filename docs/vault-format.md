@@ -111,7 +111,7 @@ On a synced folder the conditional write can't be atomic, so two devices changin
   - `environment`: `{ id, project_id, name, deleted, updated, vars: { KEY: { value, secret?, stamp } } }`. A variable holds its own `value`, or links to a shared secret by its id in `secret`. Neither set is a tombstone.
   - `secret`: `{ id, name, deleted, updated, policy: { rotate_every_days?, generator? }, versions: { <uuid>: { value | null, state, created, changed, note? } } }`. `state` is `pending`, `current`, `previous` or `retired`. A `null` value has been wiped.
 
-  - `connection`: `{ id, service, name, credential, settings: { k: v }, deleted, updated }`. An account at a provider or deploy service. `credential` is the id of the shared secret holding its admin token.
+  - `connection`: `{ id, service, name, credential?, settings: { k: v }, deleted, updated }`. An account at a provider or deploy service. `credential` is the id of the shared secret holding its admin token, absent for services that need none (Stripe).
   - `binding`: `{ id, secret, provider?: { connection, settings }, updated, keys: { <version uuid>: key_id }, targets: { <uuid>: { connection, name, settings, pushed?: { sha256, at }, deleted, changed } } }`. Where one secret's values come from and where they're pushed. id = UUIDv5(secret id, "binding").
   - `audit`: `{ id, device, day, deleted, updated, events: { <uuid>: { at, actor, action, outcome, summary, environment, variables, detail? } } }`. One per device per day, id = UUIDv5(device, "audit:<day>"), where `day` counts days since the Unix epoch. Events merge by id. A deleted (pruned after 90 days) record has no events and wins over copies that have them.
 
