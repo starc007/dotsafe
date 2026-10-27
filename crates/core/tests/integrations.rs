@@ -100,3 +100,42 @@ fn targets_and_keys_from_two_devices_merge() {
     let Some(Record::Binding(latest)) = b.get(binding.id).unwrap() else { panic!() };
     assert_eq!(latest.targets[&shared].pushed.as_ref().map(|p| p.sha256.as_str()), Some("ab"));
 }
+
+#[test]
+fn values_older_than_a_removal_are_exposed_until_rotated() {
+    use dotsafe_core::integration::exposed_since;
+    use dotsafe_core::{Environment, Project};
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::create(FolderStore::new(dir.path()), "pw", FAST).unwrap();
+    let device = Uuid::new_v4();
+    let project = Project::new("api", vault.stamp(device));
+    vault.put(Record::Project(project.clone())).unwrap();
+    let secret = Secret::new("STRIPE", "sk_old", vault.stamp(device));
+    vault.put(Record::Secret(secret.clone())).unwrap();
+    let mut env = Environment::new(project.id, "production", vault.stamp(device));
+    env.set("DB_URL", "postgres://old", vault.stamp(device));
+    env.set("PORT", "3000", vault.stamp(device));
+    env.link("STRIPE", secret.id, vault.stamp(device));
+    vault.put(Record::Environment(env.clone())).unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let removed_at = vault.stamp(device).at_ms;
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    let exposed = exposed_since(&vault.list().unwrap(), removed_at);
+    assert_eq!(exposed.secrets, [secret.id]);
+    let mut vars: Vec<&str> = exposed.variables.iter().map(|(_, k)| k.as_str()).collect();
+    vars.sort();
+    assert_eq!(vars, ["DB_URL", "PORT"], "linked variables are covered by their secret");
+
+    // Rotating takes things off the list.
+    let Some(Record::Secret(mut stored)) = vault.get(secret.id).unwrap() else { panic!() };
+    stored.rotate("sk_new", None, vault.stamp(device)).unwrap();
+    vault.put(Record::Secret(stored)).unwrap();
+    let Some(Record::Environment(mut stored)) = vault.get(env.id).unwrap() else { panic!() };
+    stored.set("DB_URL", "postgres://new", vault.stamp(device));
+    vault.put(Record::Environment(stored)).unwrap();
+    let exposed = exposed_since(&vault.list().unwrap(), removed_at);
+    assert!(exposed.secrets.is_empty());
+    assert_eq!(exposed.variables.iter().map(|(_, k)| k.as_str()).collect::<Vec<_>>(), ["PORT"]);
+}

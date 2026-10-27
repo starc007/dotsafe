@@ -34,6 +34,20 @@ pub struct Config {
     /// it isn't forgotten.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_password_unlock: Option<u64>,
+    /// Set after removing a device from this machine: everything that device
+    /// could read should be rotated. See [`crate::integration::exposed_since`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation_queue: Option<RotationQueue>,
+}
+
+/// What to rotate after a device was removed: every value it could have
+/// read, which is every value older than the removal.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RotationQueue {
+    /// Unix milliseconds of the removal.
+    pub since: u64,
+    /// The removed device's name, for display.
+    pub device: String,
 }
 
 impl Config {
@@ -50,7 +64,8 @@ impl Config {
     /// license from any existing config.
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
-            Ok(Some(existing)) => Config { vault_path, s3: None, ..existing },
+            // A queue belongs to the vault it was made for.
+            Ok(Some(existing)) => Config { vault_path, s3: None, rotation_queue: None, ..existing },
             _ => Config {
                 vault_path,
                 s3: None,
@@ -59,6 +74,7 @@ impl Config {
                 agent_approvals_without_auth: false,
                 device_unlock: false,
                 last_password_unlock: None,
+                rotation_queue: None,
             },
         }
     }
