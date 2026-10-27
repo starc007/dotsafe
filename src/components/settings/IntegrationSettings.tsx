@@ -78,8 +78,8 @@ export function IntegrationSettings() {
             <Skeleton aria-hidden className="h-5 w-2/3" />
           ) : connections.length === 0 ? (
             <p className="text-muted-foreground">
-              No connections yet. Connect OpenAI or a Cloudflare token to rotate keys in one click, and Vercel or
-              Cloudflare Workers to push every rotation.
+              No connections yet. Connect OpenAI, Anthropic, Stripe, Cloudflare or AWS to rotate keys from dotsafe, and
+              Vercel or Cloudflare Workers to push every rotation.
             </p>
           ) : (
             <ul className="divide-y">

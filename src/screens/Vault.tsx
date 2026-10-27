@@ -123,6 +123,18 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     setFocusEnvironment(environmentId);
   }, []);
 
+  // A secret's Integrations tab asks to connect an account.
+  useEffect(() => {
+    const onOpen = () => {
+      setBadgeSecret((b) => b && { ...b, open: false });
+      setOpenSecretId(null);
+      setSecretsOpen(false);
+      setSettingsSection("integrations");
+    };
+    window.addEventListener("dotsafe:open-integrations", onOpen);
+    return () => window.removeEventListener("dotsafe:open-integrations", onOpen);
+  }, []);
+
   // A linked variable's badge asks to open its secret: in place, over the project.
   useEffect(() => {
     const onOpen = (e: Event) => setBadgeSecret({ id: (e as CustomEvent<string>).detail, open: true });
