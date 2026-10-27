@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dotsafe_core::license::unix_now;
+use dotsafe_core::resolve::{Effective, Raw};
 use dotsafe_core::{
-    CachedStore, Config, Entry, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey,
+    CachedStore, Config, Entry, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Resolver,
     S3Location, Store, Vault, config, is_valid_var_name,
 };
 use dotsafe_stores::{S3Credentials, S3Store};
@@ -55,12 +56,15 @@ pub struct ProjectView {
 pub struct EnvironmentView {
     id: Uuid,
     name: String,
+    /// Its own variables (inherited ones aren't counted).
     var_count: usize,
+    /// The environment it inherits from.
+    parent: Option<Uuid>,
 }
 
 impl From<&Environment> for EnvironmentView {
     fn from(e: &Environment) -> Self {
-        EnvironmentView { id: e.id, name: e.name.clone(), var_count: e.entries().count() }
+        EnvironmentView { id: e.id, name: e.name.clone(), var_count: e.entries().count(), parent: e.parent }
     }
 }
 
@@ -468,6 +472,15 @@ pub struct VariableView {
     key: String,
     /// The shared secret it's linked to, if any.
     secret: Option<SecretRef>,
+    /// Its value uses `${{ NAME }}` references.
+    references: bool,
+    /// Set by an ancestor, not this environment: the ancestor's name.
+    inherited_from: Option<String>,
+    /// Set here, replacing what the named ancestor has.
+    overrides: Option<String>,
+    /// Removed here: the ancestor named in `inherited_from` has it, but it
+    /// doesn't apply.
+    removed: bool,
 }
 
 #[derive(Serialize)]
@@ -477,27 +490,121 @@ pub struct SecretRef {
     name: String,
 }
 
-/// Variable names in an environment, and which are linked to shared secrets.
-/// Values stay in Rust until revealed.
+/// Variable names in an environment, own and inherited, which are linked to
+/// shared secrets, and inherited ones removed here. Values stay in Rust
+/// until revealed.
 #[tauri::command]
 pub async fn list_variables(state: State<'_, AppState>, environment_id: Uuid) -> CmdResult<Vec<VariableView>> {
     state
         .run(move |s| {
             let env = s.environment(environment_id)?;
-            let secrets = s.vault()?.secrets()?;
-            Ok(env
-                .entries()
-                .map(|(key, entry)| VariableView {
-                    key: key.to_string(),
-                    secret: match entry {
-                        Entry::Secret(id) => Some(SecretRef {
-                            id,
-                            name: secrets.get(id).map_or_else(|| "Deleted secret".into(), |s| s.name.clone()),
-                        }),
-                        Entry::Value(_) => None,
-                    },
+            let records = s.vault()?.list()?;
+            let resolver = Resolver::from_records(&records);
+            let name_of = |id: Uuid| {
+                records.iter().find_map(|r| match r {
+                    Record::Environment(e) if e.id == id => Some(e.name.clone()),
+                    _ => None,
                 })
-                .collect())
+            };
+            // What the parent chain provides, to mark overrides and removals.
+            let inherited: Vec<Effective> = match env.parent {
+                Some(parent) => resolver.entries(parent)?,
+                None => Vec::new(),
+            };
+            let from_parent = |key: &str| inherited.iter().find(|e| e.key == key).and_then(|e| name_of(e.from));
+            let mut views: Vec<VariableView> = resolver
+                .entries(environment_id)?
+                .into_iter()
+                .map(|e| {
+                    let own = e.from == environment_id;
+                    VariableView {
+                        secret: match e.entry {
+                            Raw::Secret(id) => Some(SecretRef {
+                                id,
+                                name: resolver
+                                    .secrets()
+                                    .get(id)
+                                    .map_or_else(|| "Deleted secret".into(), |s| s.name.clone()),
+                            }),
+                            Raw::Value(_) => None,
+                        },
+                        references: matches!(&e.entry, Raw::Value(v) if v.contains("${{")),
+                        inherited_from: if own { None } else { name_of(e.from) },
+                        overrides: if own { from_parent(&e.key) } else { None },
+                        removed: false,
+                        key: e.key,
+                    }
+                })
+                .collect();
+            for key in env.hidden() {
+                if let Some(parent) = from_parent(key) {
+                    views.push(VariableView {
+                        key: key.to_string(),
+                        secret: None,
+                        references: false,
+                        inherited_from: Some(parent),
+                        overrides: None,
+                        removed: true,
+                    });
+                }
+            }
+            views.sort_by(|a, b| a.key.cmp(&b.key));
+            Ok(views)
+        })
+        .await
+}
+
+/// Removes an inherited variable here, so the parent's value doesn't apply.
+#[tauri::command]
+pub async fn hide_variable(state: State<'_, AppState>, environment_id: Uuid, key: String) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let mut env = s.environment(environment_id)?;
+            env.hide(&key, s.stamp()?);
+            s.vault()?.put(Record::Environment(env))?;
+            Ok(())
+        })
+        .await
+}
+
+/// Undoes [`hide_variable`]: the inherited value applies again.
+#[tauri::command]
+pub async fn restore_variable(state: State<'_, AppState>, environment_id: Uuid, key: String) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let mut env = s.environment(environment_id)?;
+            env.remove(&key, s.stamp()?);
+            s.vault()?.put(Record::Environment(env))?;
+            Ok(())
+        })
+        .await
+}
+
+/// Makes an environment inherit another in its project (`parent: null`
+/// stops it). Refused if that would make a loop.
+#[tauri::command]
+pub async fn set_environment_parent(
+    state: State<'_, AppState>,
+    environment_id: Uuid,
+    parent: Option<Uuid>,
+) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let mut env = s.environment(environment_id)?;
+            if let Some(parent) = parent {
+                let p = s.environment(parent)?;
+                if p.project_id != env.project_id || p.id == env.id {
+                    return Err(CmdError::other("Pick another environment in this project."));
+                }
+            }
+            env.parent = parent;
+            env.updated = s.stamp()?;
+            let mut records = s.vault()?.list()?;
+            records.retain(|r| r.id() != environment_id);
+            records.push(Record::Environment(env.clone()));
+            Resolver::from_records(&records).chain(environment_id)?;
+            s.vault()?.put(Record::Environment(env))?;
+            Ok(())
         })
         .await
 }
@@ -527,20 +634,23 @@ pub async fn all_variables(state: State<'_, AppState>) -> CmdResult<Vec<Variable
                     _ => None,
                 })
                 .collect();
+            let resolver = Resolver::from_records(&records);
             let mut hits = Vec::new();
             for r in &records {
                 if let Record::Environment(e) = r
                     && !e.deleted
                     && let Some(project) = projects.get(&e.project_id)
+                    // A broken parent chain just leaves that environment out.
+                    && let Ok(entries) = resolver.entries(e.id)
                 {
-                    for (key, entry) in e.entries() {
+                    for entry in entries {
                         hits.push(VariableHit {
                             project_id: e.project_id,
                             project: project.to_string(),
                             environment_id: e.id,
                             environment: e.name.clone(),
-                            key: key.to_string(),
-                            linked: matches!(entry, Entry::Secret(_)),
+                            linked: matches!(entry.entry, Raw::Secret(_)),
+                            key: entry.key,
                         });
                     }
                 }
@@ -576,24 +686,46 @@ pub async fn vault_health(state: State<'_, AppState>) -> CmdResult<VaultHealth> 
         .await
 }
 
-/// The variable's value, with a linked secret resolved to its current value.
+/// The variable's final value: inherited, with a linked secret's current
+/// value and `${{ NAME }}` references worked out.
 fn resolved_value(s: &crate::state::Session, env: &Environment, key: &str) -> CmdResult<String> {
-    let entry = env.entry(key).ok_or_else(|| CmdError::other(format!("{key} isn't set.")))?;
-    let secrets = s.vault()?.secrets()?;
-    secrets
-        .value(entry)
-        .map(str::to_string)
+    let resolver = Resolver::from_records(&s.vault()?.list()?);
+    if !resolver.entries(env.id)?.iter().any(|e| e.key == key) {
+        return Err(CmdError::other(format!("{key} isn't set.")));
+    }
+    resolver
+        .value(env.id, key)?
         .ok_or_else(|| CmdError::other(format!("{key} is linked to a shared secret that has no value.")))
 }
 
 #[tauri::command]
-pub async fn reveal_variable(state: State<'_, AppState>, environment_id: Uuid, key: String) -> CmdResult<String> {
+pub async fn reveal_variable(
+    state: State<'_, AppState>,
+    environment_id: Uuid,
+    key: String,
+    raw: Option<bool>,
+) -> CmdResult<String> {
     state
         .run(move |s| {
             let env = s.environment(environment_id)?;
+            if raw == Some(true) {
+                return raw_value(s, &env, &key);
+            }
             resolved_value(s, &env, &key)
         })
         .await
+}
+
+/// The value as written, `${{ NAME }}` references and all, for editing. An
+/// inherited variable's comes from the ancestor that sets it.
+fn raw_value(s: &crate::state::Session, env: &Environment, key: &str) -> CmdResult<String> {
+    let resolver = Resolver::from_records(&s.vault()?.list()?);
+    let found = resolver.entries(env.id)?.into_iter().find(|e| e.key == key);
+    match found.map(|e| e.entry) {
+        Some(Raw::Value(value)) => Ok(value),
+        Some(Raw::Secret(_)) => resolved_value(s, env, key),
+        None => Err(CmdError::other(format!("{key} isn't set."))),
+    }
 }
 
 /// Copies a value to the clipboard and clears it again after 30 seconds,

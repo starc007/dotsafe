@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { Ellipsis, Plus, Trash2 } from "lucide-react";
+import { CornerDownRight, Ellipsis, Plus, Trash2 } from "lucide-react";
 import { api, message, type ProjectView } from "@/lib/api";
 import { SHORTCUTS, useShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
@@ -49,6 +55,18 @@ export function ProjectPane({
     await onChanged();
     setEnvId(created.id);
     setCreating(false);
+  }
+
+  async function setParent(parent: string | null) {
+    if (!env) return;
+    try {
+      await api.setEnvironmentParent(env.id, parent);
+      const name = project.environments.find((e) => e.id === parent)?.name;
+      toast(name ? `${env.name} inherits from ${name}` : `${env.name} doesn't inherit anymore`);
+      await onChanged();
+    } catch (e) {
+      toast.error(message(e));
+    }
   }
 
   async function deleteConfirmed() {
@@ -111,6 +129,29 @@ export function ProjectPane({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-auto min-w-44 *:whitespace-nowrap">
+            {env && project.environments.length > 1 && (
+              <>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <CornerDownRight aria-hidden />
+                    {env.name} inherits from
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup value={env.parent ?? ""} onValueChange={(v) => setParent(v || null)}>
+                      <DropdownMenuRadioItem value="">Nothing</DropdownMenuRadioItem>
+                      {project.environments
+                        .filter((e) => e.id !== env.id)
+                        .map((e) => (
+                          <DropdownMenuRadioItem key={e.id} value={e.id}>
+                            {e.name}
+                          </DropdownMenuRadioItem>
+                        ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
+              </>
+            )}
             {env && (
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirm("environment")}>
                 <Trash2 aria-hidden />
@@ -126,7 +167,8 @@ export function ProjectPane({
       </header>
 
       {env ? (
-        <VariableList key={env.id} environment={env} projectName={project.name} onChanged={onChanged} />
+        // Remounts when the parent changes, so inherited rows reload.
+        <VariableList key={`${env.id}:${env.parent ?? ""}`} environment={env} projectName={project.name} onChanged={onChanged} />
       ) : (
         <div className="relative flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <DragRegion className="absolute inset-x-0 top-0 h-12" />

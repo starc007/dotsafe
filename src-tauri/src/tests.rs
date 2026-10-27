@@ -70,6 +70,9 @@ impl Desktop {
                 devices::copy_enrollment_code,
                 commands::set_variable,
                 commands::delete_variable,
+                commands::hide_variable,
+                commands::restore_variable,
+                commands::set_environment_parent,
                 commands::clear_import_files,
                 commands::preview_import,
                 commands::import_variables,
@@ -677,4 +680,41 @@ fn custom_proxy_profiles_are_checked_and_stored_in_the_vault() {
     let id = list[2]["id"].clone();
     desktop.ok("remove_proxy_profile", json!({ "id": id }));
     assert_eq!(desktop.ok("list_proxy_profiles", json!({})).as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn inherited_variables_show_where_they_come_from() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (project, production) = desktop.project("api");
+    let staging = desktop.ok("create_environment", json!({ "projectId": project, "name": "staging" }))["id"].as_str().unwrap().to_string();
+    desktop.set(&production, "DB_HOST", "db.prod");
+    desktop.set(&production, "DB_URL", "postgres://${{ DB_HOST }}/app");
+    desktop.set(&production, "SENTRY", "https://s");
+    desktop.set(&staging, "DB_HOST", "db.staging");
+
+    desktop.ok("set_environment_parent", json!({ "environmentId": staging, "parent": production }));
+    let looped = desktop.err("set_environment_parent", json!({ "environmentId": production, "parent": staging }));
+    assert!(looped["message"].as_str().unwrap().contains("loop"), "{looped}");
+    let projects = desktop.ok("list_projects", json!({}));
+    let env = projects[0]["environments"].as_array().unwrap().iter().find(|e| e["id"] == json!(staging)).unwrap().clone();
+    assert_eq!(env["parent"], json!(production));
+
+    desktop.ok("hide_variable", json!({ "environmentId": staging, "key": "SENTRY" }));
+    let rows = desktop.ok("list_variables", json!({ "environmentId": staging }));
+    let row = |key: &str| rows.as_array().unwrap().iter().find(|r| r["key"] == key).unwrap().clone();
+    assert_eq!(row("DB_HOST")["overrides"], "development");
+    assert_eq!((row("DB_URL")["inheritedFrom"].clone(), row("DB_URL")["references"].clone()), (json!("development"), json!(true)));
+    assert_eq!(row("SENTRY")["removed"], true);
+    // Reveal and quick copy see the final values and names.
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": staging, "key": "DB_URL" })), "postgres://db.staging/app");
+    // Editing gets the value as written, so references survive.
+    let raw = desktop.ok("reveal_variable", json!({ "environmentId": staging, "key": "DB_URL", "raw": true }));
+    assert_eq!(raw, "postgres://${{ DB_HOST }}/app");
+    assert_eq!(desktop.err("reveal_variable", json!({ "environmentId": staging, "key": "SENTRY" }))["message"], "SENTRY isn't set.");
+    let hits = desktop.ok("all_variables", json!({}));
+    assert!(hits.as_array().unwrap().iter().any(|h| h["environmentId"] == json!(staging) && h["key"] == "DB_URL"));
+
+    desktop.ok("restore_variable", json!({ "environmentId": staging, "key": "SENTRY" }));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": staging, "key": "SENTRY" })), "https://s");
 }

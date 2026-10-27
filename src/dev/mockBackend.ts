@@ -4,7 +4,7 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 
-type Env = { id: string; projectId: string; name: string; vars: Map<string, string> };
+type Env = { id: string; projectId: string; name: string; vars: Map<string, string>; parent?: string | null; hidden?: Set<string> };
 
 const PASSWORD = "password123";
 let configured = new URLSearchParams(location.search).get("setup") === null;
@@ -277,6 +277,28 @@ const resolve = (v: string | undefined) => {
   const sid = linkOf(v);
   return sid ? (secrets.get(sid) && currentOf(secrets.get(sid)!)?.value) ?? undefined : v;
 };
+/** An environment's variables with inheritance applied: key → [raw, env it comes from]. */
+function effective(e: Env): Map<string, [string, Env]> {
+  const chain: Env[] = [];
+  for (let cur: Env | undefined = e; cur && !chain.includes(cur); cur = cur.parent ? envs.get(cur.parent) : undefined) chain.push(cur);
+  const out = new Map<string, [string, Env]>();
+  for (const layer of chain.reverse()) {
+    for (const k of layer.hidden ?? []) out.delete(k);
+    for (const [k, v] of layer.vars) out.set(k, [v, layer]);
+  }
+  return out;
+}
+/** The final value: links resolved, `${{ NAME }}` expanded (one level is plenty for the mock). */
+function finalValue(e: Env, key: string, depth = 0): string | undefined {
+  const raw = effective(e).get(key)?.[0];
+  const value = resolve(raw);
+  if (value === undefined || depth > 8) return value;
+  return value.replace(/(?<!\$)\$\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_, name: string) => {
+    const inner = finalValue(e, name, depth + 1);
+    if (inner === undefined) fail("other", `${key} refers to ${name}, which isn't set`);
+    return inner!;
+  });
+}
 function secretView(s: MockSecret) {
   const current = currentOf(s);
   const age = current ? Date.now() - current.createdAt : 0;
@@ -489,7 +511,7 @@ export function installMockBackend() {
               environments: [...envs.values()]
                 .filter((e) => e.projectId === pid)
                 .sort((x, y) => rank(x.name) - rank(y.name))
-                .map((e) => ({ id: e.id, name: e.name, varCount: e.vars.size })),
+                .map((e) => ({ id: e.id, name: e.name, varCount: e.vars.size, parent: e.parent ?? null })),
             }))
             .sort((x, y) => x.name.localeCompare(y.name));
         case "create_project": {
@@ -497,7 +519,7 @@ export function installMockBackend() {
             fail("other", `A project named ${a.name} already exists.`);
           const pid = addProject(a.name, { development: {} });
           const e = [...envs.values()].find((x) => x.projectId === pid)!;
-          return { id: pid, name: a.name, environments: [{ id: e.id, name: e.name, varCount: 0 }] };
+          return { id: pid, name: a.name, environments: [{ id: e.id, name: e.name, varCount: 0, parent: null }] };
         }
         case "delete_project":
           projects.delete(a.projectId);
@@ -506,18 +528,48 @@ export function installMockBackend() {
         case "create_environment": {
           const eid = id();
           envs.set(eid, { id: eid, projectId: a.projectId, name: a.name, vars: new Map() });
-          return { id: eid, name: a.name, varCount: 0 };
+          return { id: eid, name: a.name, varCount: 0, parent: null };
         }
         case "delete_environment":
           envs.delete(a.environmentId);
           return null;
-        case "list_variables":
-          return [...env(a.environmentId).vars]
-            .sort(([x], [y]) => x.localeCompare(y))
-            .map(([key, v]) => {
-              const sid = linkOf(v);
-              return { key, secret: sid ? { id: sid, name: secrets.get(sid)?.name ?? "Deleted secret" } : null };
-            });
+        case "list_variables": {
+          const e = env(a.environmentId);
+          const parent = e.parent ? envs.get(e.parent) : undefined;
+          const fromParent = parent ? effective(parent) : new Map<string, [string, Env]>();
+          const rows = [...effective(e)].map(([key, [v, layer]]) => {
+            const sid = linkOf(v);
+            const own = layer.id === e.id;
+            return {
+              key,
+              secret: sid ? { id: sid, name: secrets.get(sid)?.name ?? "Deleted secret" } : null,
+              references: !sid && v.includes("${{"),
+              inheritedFrom: own ? null : layer.name,
+              overrides: own ? (fromParent.get(key)?.[1].name ?? null) : null,
+              removed: false,
+            };
+          });
+          for (const key of e.hidden ?? [])
+            if (fromParent.has(key))
+              rows.push({ key, secret: null, references: false, inheritedFrom: fromParent.get(key)![1].name, overrides: null, removed: true });
+          return rows.sort((x, y) => x.key.localeCompare(y.key));
+        }
+        case "hide_variable": {
+          const e = env(a.environmentId);
+          e.vars.delete(a.key);
+          (e.hidden ??= new Set()).add(a.key);
+          return null;
+        }
+        case "restore_variable":
+          env(a.environmentId).hidden?.delete(a.key);
+          return null;
+        case "set_environment_parent": {
+          const e = env(a.environmentId);
+          for (let cur = a.parent ? envs.get(a.parent) : undefined; cur; cur = cur.parent ? envs.get(cur.parent) : undefined)
+            if (cur.id === e.id) fail("other", `${e.name} is part of a loop of environments inheriting from each other`);
+          e.parent = a.parent || null;
+          return null;
+        }
         case "all_variables":
           return [...envs.values()]
             .flatMap((e) =>
@@ -683,8 +735,12 @@ export function installMockBackend() {
           return null;
         case "vault_health":
           return integrity ? { stale: 1, unreadable: 2 } : { stale: 0, unreadable: 0 };
-        case "reveal_variable":
-          return resolve(env(a.environmentId).vars.get(a.key)) ?? fail("other", `${a.key} isn't set.`);
+        case "reveal_variable": {
+          const e = env(a.environmentId);
+          if (!effective(e).has(a.key)) fail("other", `${a.key} isn't set.`);
+          const asWritten = (raw as { raw?: boolean } | undefined)?.raw;
+          return asWritten ? resolve(effective(e).get(a.key)![0]) : finalValue(e, a.key);
+        }
         case "list_secrets": {
           const tokens = new Set([...connections.values()].map((c) => c.credential));
           return [...secrets.values()].filter((x) => !tokens.has(x.id)).map(secretView).sort((x, y) => x.name.localeCompare(y.name));
