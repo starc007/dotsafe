@@ -271,7 +271,7 @@ fn listing_commands_never_return_values() {
         json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "link": [web] }),
     );
     let id = secret["id"].clone();
-    desktop.ok("stage_secret", json!({ "id": id, "value": "staged-value-must-not-leak-3", "note": "next" }));
+    desktop.ok("stage_secret", json!({ "id": id, "value": "staged-value-must-not-leak-3", "note": "next", "live": false }));
     desktop.ok(
         "add_connection",
         json!({ "serviceId": "vercel", "name": "Web", "settings": {}, "token": "token-must-not-leak-5" }),
@@ -405,7 +405,7 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     assert!(generated.chars().all(|c| c.is_ascii_alphanumeric()));
     assert_ne!(desktop.ok("generate_secret_value", json!({ "id": id })), generated);
     assert_eq!(desktop.ok("get_secret", json!({ "id": id }))["staged"], false);
-    let staged = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_new", "note": "quarterly" }));
+    let staged = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_new", "note": "quarterly", "live": false }));
     assert_eq!(staged["staged"], true);
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" })), "sk_old");
     let promoted = desktop.ok("promote_secret", json!({ "id": id }));
@@ -416,8 +416,10 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     }
     desktop.ok("roll_back_secret", json!({ "id": id }));
     assert_eq!(desktop.ok("reveal_secret", json!({ "id": id })), "sk_old");
-    desktop.ok("stage_secret", json!({ "id": id, "value": "sk_newer", "note": null }));
-    desktop.ok("promote_secret", json!({ "id": id }));
+    // Going live skips staging and keeps the old value as previous.
+    let live = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_newer", "note": null, "live": true }));
+    assert_eq!((live["staged"].clone(), live["hasPrevious"].clone()), (json!(false), json!(true)));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": api, "key": "STRIPE_KEY" })), "sk_newer");
     let retired = desktop.ok("retire_previous_secret", json!({ "id": id }));
     assert_eq!(retired["hasPrevious"], false);
 

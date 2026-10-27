@@ -5,6 +5,7 @@ import { api, message, type SecretDetail, type SecretIntegrations, type VersionS
 import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -317,10 +318,16 @@ export function SecretDialog({
                       byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`,
                     )
                   }
-                  onStage={(value, note) =>
-                    act("stage", () => api.stageSecret(secret.id, value, note), "New value staged").then(
-                      (ok) => ok && setMode("idle"),
-                    )
+                  onStage={(value, note, live) =>
+                    act(
+                      "stage",
+                      () => api.stageSecret(secret.id, value, note, live),
+                      live ? `${secret.name} now uses the new value` : "New value staged",
+                    ).then((ok) => {
+                      if (!ok) return;
+                      setMode("idle");
+                      if (live) pushIfTargets();
+                    })
                   }
                   onLeaked={(value) =>
                     act(
@@ -496,7 +503,7 @@ function RotationSection({
   onMode: (mode: Mode) => void;
   onProviderRotate: (leaked: boolean, pasted?: string | null) => void;
   onRevoke: (byHand: boolean) => void;
-  onStage: (value: string | null, note: string | null) => void;
+  onStage: (value: string | null, note: string | null, live: boolean) => void;
   onLeaked: (value: string | null) => void;
   onPromote: () => void;
   onCancel: () => void;
@@ -726,11 +733,14 @@ function RotateForm({
   leaked: boolean;
   busy: string | null;
   onCancel: () => void;
-  onStage: (value: string | null, note: string | null) => void;
+  onStage: (value: string | null, note: string | null, live: boolean) => void;
   onLeaked: (value: string | null) => void;
 }) {
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
+  // Staging is for values a service needs first, like a database password:
+  // linked variables switch over only when it's promoted.
+  const [stageFirst, setStageFirst] = useState(false);
   // A generated value is shown in the field, so it's visible until edited away.
   const [visible, setVisible] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -750,7 +760,7 @@ function RotateForm({
   function submit(e: FormEvent) {
     e.preventDefault();
     if (leaked) onLeaked(value);
-    else onStage(value, note.trim() || null);
+    else onStage(value, note.trim() || null, !stageFirst);
   }
 
   return (
@@ -760,7 +770,9 @@ function RotateForm({
         <p className="mt-0.5 text-[13px] text-muted-foreground">
           {leaked
             ? "The new value goes live everywhere at once, and the old one is retired with no overlap."
-            : "The new value is staged first. Linked variables switch over when you promote it."}
+            : stageFirst
+              ? "Linked variables keep the current value until you promote the new one."
+              : "The new value goes live everywhere it's linked. The old one stays until you retire it."}
         </p>
       </div>
       <Field
@@ -797,13 +809,19 @@ function RotateForm({
           />
         </Field>
       )}
+      {!leaked && (
+        <Label className="flex w-fit cursor-pointer items-center gap-2 font-normal">
+          <Checkbox checked={stageFirst} onCheckedChange={(checked) => setStageFirst(checked === true)} />
+          Stage it first, to update the service before it goes live
+        </Label>
+      )}
       <SurfaceFooter className="pt-0">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy !== null}>
           Cancel
         </Button>
         <Button type="submit" variant={leaked ? "destructive" : "default"} disabled={busy !== null || !value}>
           {busy !== null && <Spinner />}
-          {leaked ? "Replace now" : "Stage new value"}
+          {leaked ? "Replace now" : stageFirst ? "Stage new value" : "Rotate"}
         </Button>
       </SurfaceFooter>
     </form>

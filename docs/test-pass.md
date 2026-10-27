@@ -41,9 +41,9 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Secrets and rotation
 
-- [ ] **D13** Make a variable a secret. The dialog lists copies with the same value (tick which to link) and ones with a different value (never linked); the name gets the environment in brackets when the name is taken. Leave a copy unticked: the secret's Overview warns about it, and Link fixes it.
-- [ ] **D14** Rotate by hand: stage → promote → retire the previous version. Roll back. Restore an old version from history.
-- [ ] **D15** Leaked fast path: rotate a leaked secret in one step.
+- [x] **D13** Make a variable a secret. The dialog lists copies with the same value (tick which to link) and ones with a different value (never linked); the name gets the environment in brackets when the name is taken. Leave a copy unticked: the secret's Overview warns about it, and Link fixes it.
+- [ ] **D14** Rotate by hand: Rotate goes live at once; with "Stage it first" ticked, stage → promote. Retire the previous version. Roll back. Restore an old version from history.
+- [x] **D15** Leaked fast path: rotate a leaked secret in one step.
 - [ ] **D16** Rotation reminders: set a short policy and check that the macOS **notification** appears when the secret is due.
 
 ### Menu bar and quick copy

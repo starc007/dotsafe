@@ -800,6 +800,7 @@ export function installMockBackend() {
           if (s.versions.some((v) => v.state === "pending")) fail("other", "a new value is already staged; promote or cancel it first");
           const now = Date.now();
           s.versions.push({ id: id(), value: newValue(a.value), state: "pending", createdAt: now, changedAt: now, note: a.note ?? null });
+          if ((raw as { live: boolean }).live) promote(s, now);
           return secretDetail(s);
         }
         case "promote_secret": {
