@@ -119,6 +119,13 @@ pub(crate) fn verify_mac(key: &SecretKey, data: &[u8], tag: &[u8]) -> bool {
     m.verify_slice(tag).is_ok()
 }
 
+/// SHA-256 of a value, in hex: what was last pushed to a deploy target, for
+/// spotting changes made outside dotsafe. Only stored inside sealed records.
+pub fn fingerprint(value: &str) -> String {
+    use sha2::Digest;
+    Sha256::digest(value.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Argon2id cost settings used when creating a password slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KdfParams {
