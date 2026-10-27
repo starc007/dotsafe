@@ -79,7 +79,7 @@ mod tests {
         let mut token = Secret::new("Acme admin token", "y", old);
         token.set_policy(Policy { rotate_every_days: Some(30), ..Policy::default() }, old);
         let fresh = Secret::new("NEW", "z", Stamp::new(100 * DAY_MS, device));
-        let connection = dotsafe_core::Connection::new("openai", "Acme", token.id, Default::default(), old);
+        let connection = dotsafe_core::Connection::new("openai", "Acme", Some(token.id), Default::default(), old);
         let records = vec![Record::Secret(due), Record::Secret(token), Record::Secret(fresh), Record::Connection(connection)];
         assert_eq!(due_count(&records, 100 * DAY_MS), 1);
     }

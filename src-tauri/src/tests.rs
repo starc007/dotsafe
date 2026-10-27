@@ -97,6 +97,7 @@ impl Desktop {
                 integrations::set_secret_provider,
                 integrations::add_secret_target,
                 integrations::remove_secret_target,
+                integrations::open_provider_console,
                 integrations::rotation_queue,
                 integrations::dismiss_rotation_queue,
             ])
@@ -481,7 +482,7 @@ fn connections_providers_and_targets() {
 
     let services = desktop.ok("list_services", json!({}));
     let ids: Vec<&str> = services.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["openai", "cloudflare_token", "vercel", "cloudflare_workers"]);
+    assert_eq!(ids, ["openai", "cloudflare_token", "anthropic", "stripe", "aws_iam", "vercel", "cloudflare_workers"]);
 
     // Settings are checked; the token is required.
     let add = |service: &str, name: &str, settings: Value, token: &str| {
@@ -602,4 +603,52 @@ fn syncing_a_folder_vault_is_a_no_op() {
     let dir = tempfile::tempdir().unwrap();
     let desktop = Desktop::with_vault(dir.path());
     assert_eq!(desktop.ok("sync_now", json!({})), json!({ "lastSyncedAt": null, "error": null }));
+}
+
+#[test]
+fn guided_and_aws_providers_are_set_up_like_the_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "STRIPE_KEY", "sk_live_1");
+    desktop.set(&dev, "AWS_SECRET_ACCESS_KEY", "secret-1");
+    desktop.set(&dev, "AWS_ACCESS_KEY_ID", "AKIA1");
+    let share = |key: &str| {
+        desktop.ok("share_variable", json!({ "environmentId": dev, "key": key, "name": key, "linkCopies": false }))["id"].clone()
+    };
+    let (stripe_secret, aws_secret) = (share("STRIPE_KEY"), share("AWS_SECRET_ACCESS_KEY"));
+    share("AWS_ACCESS_KEY_ID");
+
+    // Stripe needs no token, so none is stored.
+    let add = |service: &str, name: &str, settings: Value, token: &str| {
+        desktop.ok("add_connection", json!({ "serviceId": service, "name": name, "settings": settings, "token": token }))
+    };
+    add("stripe", "Stripe", json!({}), "");
+    add("aws_iam", "AWS", json!({ "access_key_id": "AKIAADMIN" }), "admin-secret");
+    let conns = desktop.ok("list_connections", json!({}));
+    let id_of = |name: &str| conns.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap()["id"].clone();
+    let secrets: Vec<String> = desktop.ok("list_secrets", json!({})).as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().to_string()).collect();
+    assert_eq!(secrets.len(), 3, "no token stored for Stripe, and AWS's is hidden: {secrets:?}");
+
+    desktop.ok("set_secret_provider", json!({ "secretId": stripe_secret, "connectionId": id_of("Stripe"), "settings": {} }));
+    let info = desktop.ok("secret_integrations", json!({ "secretId": stripe_secret }));
+    assert_eq!((info["provider"]["guided"].clone(), info["provider"]["manualRevoke"].clone()), (json!(true), json!(true)));
+
+    // AWS's key-ID setting names a shared secret; it's stored as that secret's id.
+    let missing = desktop.err(
+        "set_secret_provider",
+        json!({ "secretId": aws_secret, "connectionId": id_of("AWS"), "settings": { "user_name": "ci", "access_key_id_secret": "NOPE" } }),
+    );
+    assert_eq!(missing["message"], "There's no single shared secret named NOPE.");
+    desktop.ok(
+        "set_secret_provider",
+        json!({ "secretId": aws_secret, "connectionId": id_of("AWS"), "settings": { "user_name": "ci", "access_key_id_secret": "AWS_ACCESS_KEY_ID" } }),
+    );
+    let info = desktop.ok("secret_integrations", json!({ "secretId": aws_secret }));
+    let stored = info["provider"]["settings"]["access_key_id_secret"].as_str().unwrap();
+    assert!(uuid::Uuid::parse_str(stored).is_ok(), "stored as an id: {stored}");
+    assert_eq!(info["provider"]["guided"], false);
+
+    desktop.ok("open_provider_console", json!({ "serviceId": "stripe" }));
+    assert!(desktop.err("open_provider_console", json!({ "serviceId": "vercel" }))["message"].as_str().unwrap().contains("no console link"));
 }

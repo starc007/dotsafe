@@ -47,7 +47,14 @@ export type VaultHealth = {
 };
 
 /** A setting a service needs. */
-export type ServiceField = { key: string; label: string; hint: string; required: boolean };
+export type ServiceField = {
+  key: string;
+  label: string;
+  hint: string;
+  required: boolean;
+  /** The value is the name of another shared secret. */
+  secretRef: boolean;
+};
 /** Something dotsafe can connect to: a provider that issues keys, or a deploy target. */
 export type ServiceView = {
   id: string;
@@ -58,6 +65,12 @@ export type ServiceView = {
   bindingFields: ServiceField[];
   /** Providers: the old key keeps working until it's revoked. */
   overlap: boolean;
+  /** Providers: you make keys in the console and paste them. */
+  guided: boolean;
+  /** Providers: old keys are revoked in the console, then marked retired. */
+  manualRevoke: boolean;
+  needsToken: boolean;
+  consoleUrl: string | null;
 };
 /** A connected account. Its admin token never leaves Rust. */
 export type ConnectionView = {
@@ -73,9 +86,14 @@ export type SecretIntegrations = {
   provider: {
     connectionId: string;
     connectionName: string;
+    serviceId: string;
     serviceLabel: string;
     settings: Record<string, string>;
     overlap: boolean;
+    /** You make new keys in the console and paste them. */
+    guided: boolean;
+    /** Old keys are revoked in the console. */
+    manualRevoke: boolean;
   } | null;
   targets: {
     id: string;
@@ -337,10 +355,15 @@ export const api = {
   addSecretTarget: (secretId: string, connectionId: string, name: string, settings: Record<string, string>) =>
     call<void>("add_secret_target", { secretId, connectionId, name, settings }),
   removeSecretTarget: (secretId: string, targetId: string) => call<void>("remove_secret_target", { secretId, targetId }),
-  rotateWithProvider: (secretId: string, leaked: boolean) => call<RotationView>("rotate_with_provider", { secretId, leaked }),
+  /** `pasted`: the key made in a guided provider's console. */
+  rotateWithProvider: (secretId: string, leaked: boolean, pasted: string | null = null) =>
+    call<RotationView>("rotate_with_provider", { secretId, leaked, pasted }),
+  openProviderConsole: (serviceId: string) => call<void>("open_provider_console", { serviceId }),
   pushSecret: (secretId: string) => call<PushView[]>("push_secret", { secretId }),
   /** Revokes the previous key at the provider, then retires it. */
-  revokePreviousWithProvider: (secretId: string) => call<number>("revoke_previous_with_provider", { secretId }),
+  /** `byHand`: you revoked it in the provider's console; it's just retired. */
+  revokePreviousWithProvider: (secretId: string, byHand = false) =>
+    call<number>("revoke_previous_with_provider", { secretId, byHand }),
   /** `null` when nothing is queued. */
   rotationQueue: () => call<QueueView | null>("rotation_queue"),
   rotateQueuedWithProviders: () =>

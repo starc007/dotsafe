@@ -22,6 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
         .manage(broker::Approvals::default())
         .setup(|app| {
@@ -110,6 +111,7 @@ pub fn run() {
             integrations::rotate_with_provider,
             integrations::push_secret,
             integrations::revoke_previous_with_provider,
+            integrations::open_provider_console,
             integrations::rotation_queue,
             integrations::rotate_queued_with_providers,
             integrations::dismiss_rotation_queue,
