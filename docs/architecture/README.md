@@ -63,7 +63,7 @@ Every design choice here serves one of these. Where they conflict, security wins
 - **Plaintext lives in as few processes as possible,** for as short a time as possible. The webview gets one value at a time. Agents get none.
 - **Storage is dumb.** Backends store and list opaque objects. Merging, integrity and access control live in core.
 - **Offline first.** Every feature works offline against the local cache. Sync, licensing and rotation plugins are best effort.
-- **No new crypto without a decision.** We reuse XChaCha20-Poly1305, Argon2id, HKDF-SHA256 and HMAC-SHA256. The one known exception, public-key crypto for team sharing, is an open decision ([devices-and-keys.md](devices-and-keys.md#teams-open-decision)).
+- **No new crypto without a decision.** We reuse XChaCha20-Poly1305, Argon2id, HKDF-SHA256 and HMAC-SHA256. The one known exception, public-key crypto for team sharing, waits for the team feature ([devices-and-keys.md](devices-and-keys.md#teams-future)).
 - **Honest claims.** Marketing says only what the threat model supports.
 
 ## Format v2
@@ -98,6 +98,14 @@ M6 Agents: MCP (refs only) ──▶ broker + approvals ──▶ redaction ─�
   - **M3 done:** `secret` records with versions, linked variables, record version 3 for records that use them, generators, rotation policies, and the stage → promote → retire flow in the CLI and desktop app.
   - **Left to the milestones that use them:** device and enrollment slots (M4), `audit` records (M6). They add new slot kinds and record types inside v2, so every client must be updated before a vault uses them.
 - **M6** can start in parallel: the MCP server with names and references only needs no format change.
+
+## Future features
+
+Designed, or partly designed, but not being built now.
+
+- **Teams.** Shared team vaults next to each person's own, per-member X25519 keys so members join with an invite code and leave with a re-key, access decided by which vault someone is in, and seats on the license. Needs an explicit decision to add X25519. See [devices-and-keys.md](devices-and-keys.md#teams-future).
+- **Windows and Linux** device unlock (Windows Hello, Secret Service) and the desktop app on Windows.
+- **GitHub Actions secrets** as a push target (needs libsodium sealed boxes). See [rotation.md](rotation.md).
 
 ## Decision log
 
