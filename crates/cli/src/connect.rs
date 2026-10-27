@@ -64,17 +64,7 @@ pub fn connect(service_id: &str, name: Option<String>, set: &[String], token_std
     }
 
     eprintln!("{}", svc.token_help);
-    let token = if token_stdin {
-        let mut token = Zeroizing::new(String::new());
-        std::io::stdin().read_to_string(&mut token).context("reading the token from stdin")?;
-        Zeroizing::new(token.trim().to_string())
-    } else {
-        // Not session::password: DOTSAFE_PASSWORD is the master password.
-        Zeroizing::new(rpassword::prompt_password(format!("{} admin token: ", svc.label))?)
-    };
-    if token.is_empty() {
-        bail!("no token given");
-    }
+    let token = read_token(&format!("{} admin token: ", svc.label), token_stdin)?;
 
     let credential = Secret::new(format!("{name} admin token"), token.as_str(), ctx.stamp());
     ctx.vault.put(Record::Secret(credential.clone()))?;
@@ -86,6 +76,37 @@ pub fn connect(service_id: &str, name: Option<String>, set: &[String], token_std
     };
     eprintln!("Connected {name}. The token is kept as the shared secret \"{}\". Next: {next}.", credential.name);
     Ok(())
+}
+
+/// Replaces a connection's admin token, keeping the old one retired in its
+/// history.
+pub fn reconnect(name: &str, token_stdin: bool) -> Result<()> {
+    let ctx = Ctx::open()?;
+    let connection = find(&ctx, name)?;
+    let token = read_token(&format!("New admin token for {name}: "), token_stdin)?;
+    let Some(Record::Secret(mut secret)) = ctx.vault.get(connection.credential)? else {
+        bail!("{name}'s stored token is missing; disconnect and connect again");
+    };
+    secret.rotate(token.as_str(), Some("Replaced".into()), ctx.stamp())?;
+    secret.retire_previous(ctx.stamp());
+    ctx.vault.put(Record::Secret(secret))?;
+    eprintln!("{name} uses the new token now.");
+    Ok(())
+}
+
+fn read_token(prompt: &str, from_stdin: bool) -> Result<Zeroizing<String>> {
+    let token = if from_stdin {
+        let mut token = Zeroizing::new(String::new());
+        std::io::stdin().read_to_string(&mut token).context("reading the token from stdin")?;
+        Zeroizing::new(token.trim().to_string())
+    } else {
+        // Not session::password: DOTSAFE_PASSWORD is the master password.
+        Zeroizing::new(rpassword::prompt_password(prompt)?)
+    };
+    if token.is_empty() {
+        bail!("no token given");
+    }
+    Ok(token)
 }
 
 pub fn list() -> Result<()> {

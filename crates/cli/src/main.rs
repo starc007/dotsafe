@@ -128,6 +128,13 @@ enum Cmd {
     Connections,
     /// Remove a connection and its stored token
     Disconnect { name: String },
+    /// Give a connection a new admin token
+    Reconnect {
+        name: String,
+        /// Read the token from stdin instead of asking
+        #[arg(long)]
+        token_stdin: bool,
+    },
     /// Shared secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
@@ -392,6 +399,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Connect { service, name, set, token_stdin } => connect::connect(&service, name, &set, token_stdin)?,
         Cmd::Connections => connect::list()?,
         Cmd::Disconnect { name } => connect::disconnect(&name)?,
+        Cmd::Reconnect { name, token_stdin } => connect::reconnect(&name, token_stdin)?,
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
@@ -449,6 +457,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let recovery = ctx.vault.revoke_device(device.device_id, &password, KdfParams::default()).map_err(session::friendly)?;
             eprintln!("Removed {name}. The vault has a new key and everything was re-encrypted.");
             eprintln!("Other devices using Touch ID will ask for the password once.");
+            let mut config = load_config()?;
+            let since = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            config.rotation_queue = Some(dotsafe_core::RotationQueue { since, device: name.clone() });
+            config.save()?;
+            eprintln!("It can still use what it already knew. See what to rotate with `dotsafe secret queue`.");
             show_recovery_key(&recovery);
         }
         Cmd::Audit { limit } => {
@@ -687,7 +703,7 @@ impl Ctx {
     }
 }
 
-fn load_config() -> Result<Config> {
+pub(crate) fn load_config() -> Result<Config> {
     Config::load()?.context("no vault set up yet; run `dotsafe init` first")
 }
 
