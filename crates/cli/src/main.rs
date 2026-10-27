@@ -1,4 +1,6 @@
 mod connect;
+#[cfg(unix)]
+mod daemon;
 mod export;
 mod link;
 mod mcp;
@@ -34,13 +36,39 @@ enum Cmd {
     /// Create a vault, or connect this machine to an existing one
     Init {
         /// Vault folder [default: iCloud Drive/dotsafe if available]
-        #[arg(long, conflicts_with = "bucket")]
+        #[arg(long, conflicts_with_all = ["bucket", "webdav"])]
         path: Option<PathBuf>,
         #[command(flatten)]
         s3: S3Args,
+        /// A WebDAV folder (Nextcloud, ownCloud, a NAS) instead, e.g. https://cloud.example.com/remote.php/dav/files/me/dotsafe/
+        #[arg(long, requires = "user", conflicts_with = "bucket")]
+        webdav: Option<String>,
+        /// The WebDAV username. The password is asked for, or read from DOTSAFE_WEBDAV_PASSWORD
+        #[arg(long, requires = "webdav")]
+        user: Option<String>,
     },
     /// Exchange changes with the bucket now (vaults in S3 or R2)
     Sync,
+    /// Save a dated, still-encrypted copy of the vault (the last 10 are kept)
+    Backup {
+        /// Where backups go; remembered for next time
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
+    /// Move the vault to another folder, bucket or WebDAV folder. The old copy stays until you delete it
+    Move {
+        /// The new folder (must not hold a vault yet)
+        #[arg(long, conflicts_with_all = ["bucket", "webdav"])]
+        path: Option<PathBuf>,
+        #[command(flatten)]
+        s3: S3Args,
+        /// A WebDAV folder instead
+        #[arg(long, requires = "user", conflicts_with = "bucket")]
+        webdav: Option<String>,
+        /// The WebDAV username
+        #[arg(long, requires = "webdav")]
+        user: Option<String>,
+    },
     /// Remember the vault key in the OS keychain for a while
     Unlock {
         /// How long to stay unlocked, e.g. 30m, 8h, 7d
@@ -162,6 +190,12 @@ enum Cmd {
     /// Shared secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
+    /// Serve agents without the desktop app: approvals are asked in this terminal
+    Daemon {
+        /// Stop after this long, e.g. 8h (default: until stopped)
+        #[arg(long = "for", value_parser = session::parse_duration)]
+        stop_after: Option<Duration>,
+    },
     /// Serve the MCP tools AI agents use to run commands with secrets they never see
     Mcp {
         #[command(subcommand)]
@@ -314,16 +348,17 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> Result<ExitCode> {
     match cli.command {
-        Cmd::Init { path, s3 } => match (s3.bucket, s3.endpoint) {
-            (Some(bucket), Some(endpoint)) => {
+        Cmd::Init { path, s3, webdav, user } => match (s3.bucket, s3.endpoint, webdav, user) {
+            (Some(bucket), Some(endpoint), _, _) => {
                 let prefix = s3.prefix.trim_matches('/').to_owned();
                 init_s3(S3Location { endpoint, region: s3.region, bucket, prefix })?
             }
+            (_, _, Some(url), Some(username)) => init_webdav(dotsafe_core::WebDavLocation { url, username })?,
             _ => init(path)?,
         },
         Cmd::Sync => {
             let config = load_config()?;
-            if config.s3.is_none() {
+            if !config.is_remote() {
                 eprintln!("Nothing to sync: this vault is a folder, and your sync client keeps it up to date.");
                 return Ok(ExitCode::SUCCESS);
             }
@@ -334,6 +369,24 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 Err(e) => return Err(e.into()),
             }
         }
+        Cmd::Backup { to } => {
+            let mut config = load_config()?;
+            let dir = match to.or_else(|| config.backup_dir.clone()) {
+                Some(dir) => dir,
+                None => bail!("say where backups go once with `dotsafe backup --to <folder>`"),
+            };
+            let vault = session::open(&config)?;
+            if config.is_remote() && let Err(e) = vault.sync() {
+                eprintln!("Couldn't sync first ({e}); backing up what this machine has.");
+            }
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let path = dotsafe_core::backup::snapshot(vault.store(), &dir, &dotsafe_core::backup::stamp(now))?;
+            config.backup_dir = Some(dir);
+            config.last_backup = Some(now);
+            config.save()?;
+            eprintln!("Backed up to {}. It's encrypted like the vault; restore by connecting dotsafe to that folder.", path.display());
+        }
+        Cmd::Move { path, s3, webdav, user } => move_vault(path, s3, webdav, user)?,
         Cmd::Unlock { ttl } => {
             let config = load_config()?;
             let password = session::password("Master password: ")?;
@@ -553,6 +606,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Disconnect { name } => connect::disconnect(&name)?,
         Cmd::Reconnect { name, token_stdin } => connect::reconnect(&name, token_stdin)?,
         Cmd::Secret(cmd) => secrets::run(cmd)?,
+        #[cfg(unix)]
+        Cmd::Daemon { stop_after } => daemon::run(stop_after)?,
+        #[cfg(not(unix))]
+        Cmd::Daemon { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
         Cmd::Run { env, proxy, command } => {
@@ -747,6 +804,100 @@ fn init_s3(s3: S3Location) -> Result<()> {
     save_key()?;
     config.save()?;
     eprintln!("Created a vault in {}.", s3.describe());
+    show_recovery_key(&recovery);
+    Ok(())
+}
+
+/// Saves the new location's credentials, once the move has worked.
+type SaveCredentials = Box<dyn FnOnce() -> Result<()>>;
+
+/// Copies the vault to a new, empty place, checks it opens there, and points
+/// this machine at it. The old copy is left alone.
+fn move_vault(path: Option<PathBuf>, s3: S3Args, webdav: Option<String>, user: Option<String>) -> Result<()> {
+    let old = load_config()?;
+    let vault = session::open(&old)?;
+    if old.is_remote() {
+        vault.sync().map_err(|e| anyhow::anyhow!("sync first so nothing is left behind: {e}"))?;
+    }
+    // The destination is written directly (not through a cache), then a
+    // fresh cache fills from it on the next open.
+    let (dst, new_config, save): (Box<dyn Store>, Config, SaveCredentials) =
+        match (path, s3.bucket, s3.endpoint, webdav, user) {
+            (Some(path), _, _, _, _) => {
+                let path = std::path::absolute(&path)?;
+                std::fs::create_dir_all(&path)?;
+                (Box::new(FolderStore::new(&path)), Config::for_vault(path), Box::new(|| Ok(())))
+            }
+            (_, Some(bucket), Some(endpoint), _, _) => {
+                let location = S3Location { endpoint, region: s3.region, bucket, prefix: s3.prefix.trim_matches('/').to_owned() };
+                let credentials = match dotsafe_stores::credentials(&location).ok().flatten() {
+                    Some(c) => c,
+                    None => S3Credentials {
+                        access_key_id: prompt_line("Access key ID: ")?,
+                        secret_access_key: Zeroizing::new(rpassword::prompt_password("Secret access key: ")?),
+                    },
+                };
+                let store = S3Store::new(&location, &credentials)?;
+                let config = Config::for_s3(location.clone())?;
+                (Box::new(store), config, Box::new(move || Ok(dotsafe_stores::save_credentials(&location, &credentials)?)))
+            }
+            (_, _, _, Some(url), Some(username)) => {
+                let location = dotsafe_core::WebDavLocation { url, username };
+                let password = match dotsafe_stores::webdav_password(&location).ok().flatten() {
+                    Some(p) => p,
+                    None => Zeroizing::new(rpassword::prompt_password(format!("Password for {}: ", location.username))?),
+                };
+                let store = dotsafe_stores::WebDavStore::new(&location, &password)?;
+                let config = Config::for_webdav(location.clone())?;
+                (Box::new(store), config, Box::new(move || Ok(dotsafe_stores::save_webdav_password(&location, &password)?)))
+            }
+            _ => bail!("say where to move it: --path, --bucket with --endpoint, or --webdav with --user"),
+        };
+    let copied = dotsafe_core::backup::copy_to_empty(vault.store(), &*dst).map_err(|e| match e {
+        Error::AlreadyExists(at) => anyhow::anyhow!("{at} already holds a vault; pick an empty place"),
+        e => e.into(),
+    })?;
+    // Check the copy opens with this vault's key before switching.
+    let moved = Vault::unlock_with_session_key(dst, &vault.session_key()).map_err(|e| anyhow::anyhow!("the copy doesn't open ({e}); nothing was switched"))?;
+    moved.list()?;
+    save()?;
+    let from = old.describe_location();
+    new_config.save()?;
+    eprintln!("Moved {copied} files to {}. This machine uses it now.", new_config.describe_location());
+    eprintln!("The old copy at {from} is untouched. Connect your other devices to the new place, then delete it.");
+    Ok(())
+}
+
+fn init_webdav(webdav: dotsafe_core::WebDavLocation) -> Result<()> {
+    let password = match dotsafe_stores::webdav_password(&webdav).ok().flatten() {
+        Some(password) => password,
+        // Not session::password: DOTSAFE_PASSWORD is the master password.
+        None => Zeroizing::new(rpassword::prompt_password(format!("Password for {} (an app password is best): ", webdav.username))?),
+    };
+    let remote = dotsafe_stores::WebDavStore::new(&webdav, &password)?;
+    let store = CachedStore::open(remote, config::cache_dir_for(&webdav.id())?).map_err(session::friendly)?;
+    let config = Config::for_webdav(webdav.clone())?;
+    let save_password = || -> Result<()> {
+        if std::env::var_os("DOTSAFE_WEBDAV_PASSWORD").is_none() {
+            dotsafe_stores::save_webdav_password(&webdav, &password)?;
+        }
+        Ok(())
+    };
+    if store.get("vault.json")?.is_some() {
+        eprintln!("Found an existing vault at {}.", webdav.describe());
+        let master = session::password("Master password: ")?;
+        Vault::unlock(store, &master).map_err(session::friendly)?;
+        save_password()?;
+        config.save()?;
+        eprintln!("This machine is now connected to it.");
+        return Ok(());
+    }
+    let master = new_password()?;
+    let mut vault = Vault::create(store, &master, KdfParams::default())?;
+    let recovery = vault.reset_recovery_key()?;
+    save_password()?;
+    config.save()?;
+    eprintln!("Created a vault at {}.", webdav.describe());
     show_recovery_key(&recovery);
     Ok(())
 }

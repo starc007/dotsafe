@@ -609,3 +609,29 @@ fn environments_inherit_and_values_reference_each_other() {
     m.ok(&project, &["unset", "-e", "staging", "API"]);
     assert_eq!(m.ok(&project, &["list", "-e", "staging"]), "");
 }
+
+#[test]
+fn backups_and_moving_the_vault() {
+    let (root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "API_KEY=sk_move"]);
+    assert!(stderr(&m.run(&project, &["backup"])).contains("--to"), "a folder is needed once");
+    let backups = root.path().join("backups");
+    let out = m.run(&project, &["backup", "--to", backups.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    m.ok(&project, &["backup"]); // remembered
+    let snapshots: Vec<_> = fs::read_dir(&backups).unwrap().collect();
+    assert!(!snapshots.is_empty());
+
+    // Moving into a folder that already holds a vault is refused.
+    let refused = m.run(&project, &["move", "--path", m.vault.to_str().unwrap()]);
+    assert!(stderr(&refused).contains("already holds a vault"), "{}", stderr(&refused));
+    let new_home = root.path().join("new-home");
+    let out = m.run(&project, &["move", "--path", new_home.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(new_home.join("vault.json").exists());
+    assert!(m.vault.join("vault.json").exists(), "the old copy is left alone");
+    let config = fs::read_to_string(m.config.path().join("config.json")).unwrap();
+    assert!(config.contains("new-home"), "this machine points at the new place: {config}");
+    assert_eq!(m.ok(&project, &["get", "API_KEY"]), "sk_move\n");
+}

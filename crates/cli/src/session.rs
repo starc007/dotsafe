@@ -65,8 +65,8 @@ fn entry(config: &Config) -> Result<keyring::Entry> {
     if std::env::var_os("DOTSAFE_NO_KEYCHAIN").is_some() {
         bail!("the OS keychain is disabled (DOTSAFE_NO_KEYCHAIN is set)");
     }
-    let account = match &config.s3 {
-        Some(s3) => s3.id(),
+    let account = match config.remote_id() {
+        Some(id) => id,
         None => {
             let path = &config.vault_path;
             path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
