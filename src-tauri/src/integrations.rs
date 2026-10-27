@@ -711,3 +711,106 @@ fn capitalized(s: &str) -> String {
     }
     out
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProfileView {
+    /// `None` for built-in profiles.
+    id: Option<Uuid>,
+    name: String,
+    key_var: String,
+    base_url_var: String,
+    upstream: String,
+    /// Why a custom profile isn't used, if it isn't.
+    problem: Option<String>,
+}
+
+/// Built-in and custom proxy profiles.
+#[tauri::command]
+pub async fn list_proxy_profiles(state: State<'_, AppState>) -> CmdResult<Vec<ProxyProfileView>> {
+    use dotsafe_agent::proxy::{Profile, builtin_profiles};
+    state
+        .run(|s| {
+            let records = s.vault()?.list()?;
+            let mut views: Vec<ProxyProfileView> = builtin_profiles()
+                .into_iter()
+                .map(|p| ProxyProfileView {
+                    id: None,
+                    name: p.name,
+                    key_var: p.key_var,
+                    base_url_var: p.base_url_var,
+                    upstream: p.upstream,
+                    problem: None,
+                })
+                .collect();
+            views.extend(dotsafe_core::integration::proxy_profiles(&records).into_iter().map(|p| ProxyProfileView {
+                problem: Profile::custom(&p).err(),
+                id: Some(p.id),
+                name: p.name,
+                key_var: p.key_var,
+                base_url_var: p.base_url_var,
+                upstream: p.upstream,
+            }));
+            Ok(views)
+        })
+        .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProfileInput {
+    name: String,
+    key_var: String,
+    base_url_var: String,
+    upstream: String,
+    base_path: String,
+    header: String,
+    bearer: bool,
+}
+
+/// Adds a custom proxy profile, after the proxy's own checks.
+#[tauri::command]
+pub async fn add_proxy_profile(state: State<'_, AppState>, profile: ProxyProfileInput) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let vault = s.vault()?;
+            let records = vault.list()?;
+            let key_var = profile.key_var.trim().to_string();
+            if dotsafe_core::integration::proxy_profiles(&records).iter().any(|p| p.key_var == key_var) {
+                return Err(CmdError::other(format!("{key_var} already has a profile.")));
+            }
+            let record = dotsafe_core::ProxyProfile {
+                id: Uuid::new_v4(),
+                name: profile.name.trim().to_string(),
+                key_var,
+                base_url_var: profile.base_url_var.trim().to_string(),
+                upstream: profile.upstream.trim().to_string(),
+                base_path: profile.base_path.trim().to_string(),
+                header: profile.header.trim().to_string(),
+                bearer: profile.bearer,
+                deleted: false,
+                updated: s.stamp()?,
+            };
+            dotsafe_agent::proxy::Profile::custom(&record).map_err(CmdError::other)?;
+            vault.put(Record::ProxyProfile(record))?;
+            Ok(())
+        })
+        .await
+}
+
+#[tauri::command]
+pub async fn remove_proxy_profile(state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let vault = s.vault()?;
+            let mut profile = match vault.get(id)? {
+                Some(Record::ProxyProfile(p)) if !p.deleted => p,
+                _ => return Err(CmdError::other("That profile was already removed.")),
+            };
+            profile.deleted = true;
+            profile.updated = s.stamp()?;
+            vault.put(Record::ProxyProfile(profile))?;
+            Ok(())
+        })
+        .await
+}

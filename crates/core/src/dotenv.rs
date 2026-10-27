@@ -1,5 +1,6 @@
 //! A small `.env` parser, shared by `dotsafe import` and the desktop app's
-//! import, and the writer behind `dotsafe export`.
+//! import, and the writer behind `dotsafe export`. [`parse_any`] also reads
+//! the JSON other secret managers export (Doppler, Infisical, 1Password).
 //!
 //! Supports `KEY=value`, `export KEY=value`, comments, single quotes (literal),
 //! double quotes (with `\n`, `\t`, `\"`, `\\` escapes, and values spanning
@@ -52,6 +53,61 @@ pub fn parse(input: &str) -> Result<Vec<(String, String)>, String> {
         vars.push((key.to_string(), value));
     }
     Ok(vars)
+}
+
+/// Parses `.env` text, or the JSON other managers export, telling them apart
+/// by the first character:
+/// - an object of names to values (`doppler secrets download --format json`);
+/// - an array of `{ key | name, value }` (`infisical export --format json`);
+/// - a 1Password item (`op item get --format json`): its fields, by label.
+///
+/// Numbers and booleans become text. Names that aren't valid variable names
+/// are refused, like in `.env` files.
+pub fn parse_any(input: &str) -> Result<Vec<(String, String)>, String> {
+    let trimmed = input.trim_start();
+    if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
+        return parse(input);
+    }
+    let json: serde_json::Value = serde_json::from_str(trimmed).map_err(|e| format!("not valid JSON: {e}"))?;
+    let pairs: Vec<(String, &serde_json::Value)> = match &json {
+        serde_json::Value::Object(map) if map.get("fields").is_some_and(|f| f.is_array()) => map["fields"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            // The item's own notes field isn't a variable; nor is an empty field.
+            .filter(|f| f.get("purpose").and_then(|p| p.as_str()) != Some("NOTES") && f.get("id") != Some(&"notesPlain".into()))
+            .filter_map(|f| Some((f.get("label")?.as_str()?.to_string(), f.get("value")?)))
+            .filter(|(label, value)| is_valid_var_name(label) && value.as_str() != Some(""))
+            .collect(),
+        serde_json::Value::Object(map) => map.iter().map(|(k, v)| (k.clone(), v)).collect(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                let key = item.get("key").or_else(|| item.get("name")).and_then(|k| k.as_str());
+                match (key, item.get("value")) {
+                    (Some(key), Some(value)) => Ok((key.to_string(), value)),
+                    _ => Err("expected a list of { key, value } items".to_string()),
+                }
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err("expected a JSON object or list".into()),
+    };
+    pairs
+        .into_iter()
+        .map(|(key, value)| {
+            if !is_valid_var_name(&key) {
+                return Err(format!("invalid variable name {key:?}"));
+            }
+            let value = match value {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Null => String::new(),
+                _ => return Err(format!("{key} isn't a plain value")),
+            };
+            Ok((key, value))
+        })
+        .collect()
 }
 
 /// Writes variables as `.env` lines that [`parse`] (and dotenv, Docker
@@ -177,6 +233,25 @@ DOUBLE="line\nbreak \"quoted\""
         assert!(text.contains("PLAIN=abc-123_x.y/z:8080\n"));
         assert!(text.contains("DOLLAR='pa$$word ${HOME}'\n"));
         assert_eq!(parse(&text).unwrap(), vars);
+    }
+
+    #[test]
+    fn reads_other_managers_exports() {
+        let doppler = r#"{"DATABASE_URL": "postgres://x", "PORT": 3000, "DEBUG": false}"#;
+        assert_eq!(parse_any(doppler).unwrap(), kv(&[("DATABASE_URL", "postgres://x"), ("DEBUG", "false"), ("PORT", "3000")]));
+        let infisical = r#"[{"key": "API_KEY", "value": "sk", "type": "shared"}, {"name": "B", "value": "2"}]"#;
+        assert_eq!(parse_any(infisical).unwrap(), kv(&[("API_KEY", "sk"), ("B", "2")]));
+        let onepassword = r#"{"title": "api", "fields": [
+            {"id": "notesPlain", "label": "notesPlain", "value": ""},
+            {"label": "STRIPE_KEY", "value": "sk_live"},
+            {"label": "web site", "value": "https://x"},
+            {"label": "NO_VALUE"}
+        ]}"#;
+        assert_eq!(parse_any(onepassword).unwrap(), kv(&[("STRIPE_KEY", "sk_live")]));
+        assert_eq!(parse_any("A=1\n").unwrap(), kv(&[("A", "1")]), ".env still works");
+        assert!(parse_any(r#"{"bad name": "x"}"#).unwrap_err().contains("invalid variable name"));
+        assert!(parse_any(r#"{"NESTED": {"a": 1}}"#).unwrap_err().contains("isn't a plain value"));
+        assert!(parse_any("[1, 2]").is_err());
     }
 
     #[test]

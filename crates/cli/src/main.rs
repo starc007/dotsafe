@@ -82,10 +82,17 @@ enum Cmd {
         #[command(flatten)]
         env: EnvArg,
     },
-    /// Import variables from a .env file
+    /// Import variables from a .env or JSON file, or straight from another secret manager
     Import {
-        #[arg(default_value = ".env")]
+        /// A .env file, or JSON exported by Doppler, Infisical or 1Password
+        #[arg(default_value = ".env", conflicts_with = "from")]
         file: PathBuf,
+        /// Read from another manager's CLI instead (it must be installed and signed in)
+        #[arg(long, value_enum)]
+        from: Option<ImportFrom>,
+        /// The 1Password item to read, with --from 1password
+        #[arg(long, required_if_eq("from", "1password"))]
+        item: Option<String>,
         #[command(flatten)]
         env: EnvArg,
     },
@@ -124,6 +131,9 @@ enum Cmd {
         #[arg(long)]
         token_stdin: bool,
     },
+    /// Proxy profiles: more API keys that `run --proxy` and agents keep out of processes
+    #[command(subcommand)]
+    Proxy(ProxyCmd),
     /// List connected accounts
     Connections,
     /// Remove a connection and its stored token
@@ -147,7 +157,7 @@ enum Cmd {
     Run {
         #[command(flatten)]
         env: EnvArg,
-        /// Keep OpenAI and Anthropic keys out of the process: it gets a local proxy URL that adds the key
+        /// Keep API keys out of the process (OpenAI, Anthropic, and `dotsafe proxy` profiles): it gets a local URL that adds the key
         #[arg(long)]
         proxy: bool,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true, value_name = "COMMAND")]
@@ -198,6 +208,77 @@ enum DeviceCmd {
 enum McpAction {
     /// Show how to add dotsafe to Claude Code, Cursor and other agents
     Setup,
+}
+
+#[derive(Subcommand)]
+enum ProxyCmd {
+    /// List built-in and custom proxy profiles
+    List,
+    /// Add a profile: which variable holds the key, and the one place it may go
+    Add {
+        /// Shown in lists, e.g. Mistral
+        name: String,
+        /// The variable holding the key, e.g. MISTRAL_API_KEY
+        #[arg(long)]
+        key_var: String,
+        /// The variable the SDK reads its base URL from, e.g. MISTRAL_BASE_URL
+        #[arg(long)]
+        base_url_var: String,
+        /// Where requests go, https:// only, e.g. https://api.mistral.ai
+        #[arg(long)]
+        upstream: String,
+        /// Appended to the proxy URL given to the SDK, e.g. /v1
+        #[arg(long, default_value = "")]
+        base_path: String,
+        /// The header the key goes in
+        #[arg(long, default_value = "authorization")]
+        header: String,
+        /// Send the key as is, not as `Bearer <key>`
+        #[arg(long)]
+        raw: bool,
+    },
+    /// Remove a custom profile
+    Remove { name: String },
+}
+
+/// Other secret managers `dotsafe import --from` can read through their CLIs.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ImportFrom {
+    /// `doppler secrets download`, for the project and config set up in this directory
+    Doppler,
+    /// `infisical export`, for the project linked in this directory
+    Infisical,
+    /// `op item get`, one item's fields by label
+    #[value(name = "1password")]
+    OnePassword,
+}
+
+impl ImportFrom {
+    fn label(self) -> &'static str {
+        match self {
+            ImportFrom::Doppler => "Doppler",
+            ImportFrom::Infisical => "Infisical",
+            ImportFrom::OnePassword => "1Password",
+        }
+    }
+
+    /// Runs the manager's CLI and returns its JSON output.
+    fn read(self, item: Option<&str>) -> Result<Zeroizing<String>> {
+        let (program, args): (&str, Vec<&str>) = match self {
+            ImportFrom::Doppler => ("doppler", vec!["secrets", "download", "--no-file", "--format", "json"]),
+            ImportFrom::Infisical => ("infisical", vec!["export", "--format", "json"]),
+            ImportFrom::OnePassword => ("op", vec!["item", "get", item.unwrap_or_default(), "--format", "json"]),
+        };
+        let out = Command::new(program).args(&args).output().map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => anyhow::anyhow!("{program} isn't installed; install {}'s CLI and sign in first", self.label()),
+            _ => anyhow::anyhow!("couldn't run {program}: {e}"),
+        })?;
+        if !out.status.success() {
+            let why = String::from_utf8_lossy(&out.stderr);
+            bail!("{program} failed: {}", why.trim());
+        }
+        Ok(Zeroizing::new(String::from_utf8(out.stdout).context("the output isn't text")?))
+    }
 }
 
 #[derive(Args)]
@@ -324,9 +405,19 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 println!("{key}");
             }
         }
-        Cmd::Import { file, env } => {
-            let text = std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?;
-            let vars = dotenv::parse(&text).map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+        Cmd::Import { file, from, item, env } => {
+            let (text, source) = match from {
+                Some(from) => (from.read(item.as_deref())?, from.label().to_string()),
+                None => (
+                    Zeroizing::new(std::fs::read_to_string(&file).with_context(|| format!("reading {}", file.display()))?),
+                    file.display().to_string(),
+                ),
+            };
+            let mut vars = dotenv::parse_any(&text).map_err(|e| anyhow::anyhow!("{source}: {e}"))?;
+            // Doppler adds its own bookkeeping variables.
+            if matches!(from, Some(ImportFrom::Doppler)) {
+                vars.retain(|(k, _)| !k.starts_with("DOPPLER_"));
+            }
             let ctx = Ctx::open()?;
             let mut target = ctx.target(env.env, true)?;
             let stamp = ctx.stamp();
@@ -341,8 +432,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             let label = target.label();
             ctx.vault.put(Record::Environment(target.env))?;
-            eprintln!("Imported {imported} variables from {} into {label}.", file.display());
-            eprintln!("You can delete {} and use `dotsafe run -- <command>` instead.", file.display());
+            eprintln!("Imported {imported} variables from {source} into {label}.");
+            if from.is_none() {
+                eprintln!("You can delete {source} and use `dotsafe run -- <command>` instead.");
+            }
         }
         Cmd::Export { env, output, force } => {
             let ctx = Ctx::open()?;
@@ -397,6 +490,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             return Ok(ExitCode::FAILURE);
         }
         Cmd::Connect { service, name, set, token_stdin } => connect::connect(&service, name, &set, token_stdin)?,
+        Cmd::Proxy(cmd) => proxy_profiles(cmd)?,
         Cmd::Connections => connect::list()?,
         Cmd::Disconnect { name } => connect::disconnect(&name)?,
         Cmd::Reconnect { name, token_stdin } => connect::reconnect(&name, token_stdin)?,
@@ -409,6 +503,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let secrets = ctx.vault.secrets()?;
             let vars: Vec<(String, String)> =
                 secrets.resolve(&target.env).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let profiles = if proxy { dotsafe_agent::proxy::profiles(&ctx.vault.list()?) } else { Vec::new() };
             drop(ctx);
             let mut cmd = Command::new(&command[0]);
             cmd.args(&command[1..]);
@@ -419,9 +514,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             // The proxy lives in this process, so wait for the command instead
             // of replacing ourselves with it.
             let server = dotsafe_agent::proxy::ProxyServer::start().context("couldn't start the secret proxy")?;
-            let proxied = dotsafe_agent::proxy::apply(&server, vars);
+            let proxied = dotsafe_agent::proxy::apply(&server, vars, &profiles);
             if proxied.names.is_empty() {
-                eprintln!("dotsafe: no OPENAI_API_KEY or ANTHROPIC_API_KEY to proxy; running normally.");
+                eprintln!("dotsafe: no API key with a proxy profile here; running normally.");
             } else {
                 eprintln!("dotsafe: {} go through a local proxy; the process never has the key.", proxied.names.join(", "));
             }
@@ -481,6 +576,60 @@ fn run(cli: Cli) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn proxy_profiles(cmd: ProxyCmd) -> Result<()> {
+    use dotsafe_agent::proxy::{Profile, builtin_profiles};
+    use dotsafe_core::integration::proxy_profiles;
+    let ctx = Ctx::open()?;
+    match cmd {
+        ProxyCmd::List => {
+            for p in builtin_profiles() {
+                println!("{}\t{}\t{}\tbuilt in", p.name, p.key_var, p.upstream);
+            }
+            for p in proxy_profiles(&ctx.vault.list()?) {
+                let status = match Profile::custom(&p) {
+                    Ok(_) => "custom".to_string(),
+                    Err(why) => format!("not used: {why}"),
+                };
+                println!("{}\t{}\t{}\t{status}", p.name, p.key_var, p.upstream);
+            }
+        }
+        ProxyCmd::Add { name, key_var, base_url_var, upstream, base_path, header, raw } => {
+            let records = ctx.vault.list()?;
+            if proxy_profiles(&records).iter().any(|p| p.name == name || p.key_var == key_var) {
+                bail!("there's already a profile named {name:?} or for {key_var}");
+            }
+            let profile = dotsafe_core::ProxyProfile {
+                id: Uuid::new_v4(),
+                name,
+                key_var,
+                base_url_var,
+                upstream,
+                base_path,
+                header,
+                bearer: !raw,
+                deleted: false,
+                updated: ctx.stamp(),
+            };
+            let checked = Profile::custom(&profile).map_err(|e| anyhow::anyhow!(e))?;
+            ctx.vault.put(Record::ProxyProfile(profile))?;
+            eprintln!(
+                "Added {}. With --proxy, {} gets a placeholder and {} points at a local URL that sends the key to {}.",
+                checked.name, checked.key_var, checked.base_url_var, checked.upstream
+            );
+        }
+        ProxyCmd::Remove { name } => {
+            let Some(mut profile) = proxy_profiles(&ctx.vault.list()?).into_iter().find(|p| p.name == name) else {
+                bail!("no custom proxy profile named {name:?}; see `dotsafe proxy list`");
+            };
+            profile.deleted = true;
+            profile.updated = ctx.stamp();
+            ctx.vault.put(Record::ProxyProfile(profile))?;
+            eprintln!("Removed {name}.");
+        }
+    }
+    Ok(())
 }
 
 fn init(path: Option<PathBuf>) -> Result<()> {

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::audit::AuditDay;
 use crate::error::{Error, Result};
-use crate::integration::{Binding, Connection};
+use crate::integration::{Binding, Connection, ProxyProfile};
 use crate::secret::Secret;
 
 /// When and where a change was made: a hybrid logical clock reading. Ordered
@@ -85,6 +85,7 @@ pub enum Record {
     Audit(AuditDay),
     Connection(Connection),
     Binding(Binding),
+    ProxyProfile(ProxyProfile),
 }
 
 impl Record {
@@ -96,6 +97,7 @@ impl Record {
             Record::Audit(a) => a.id,
             Record::Connection(c) => c.id,
             Record::Binding(b) => b.id,
+            Record::ProxyProfile(p) => p.id,
         }
     }
 
@@ -110,7 +112,7 @@ impl Record {
             Record::Environment(_) => 2,
             Record::Audit(a) if a.needs_v4() => 4,
             Record::Secret(_) | Record::Audit(_) => 3,
-            Record::Connection(_) | Record::Binding(_) => 4,
+            Record::Connection(_) | Record::Binding(_) | Record::ProxyProfile(_) => 4,
         }
     }
 
@@ -124,6 +126,7 @@ impl Record {
             Record::Audit(a) => a.updated,
             Record::Connection(c) => c.updated,
             Record::Binding(b) => b.max_stamp(),
+            Record::ProxyProfile(p) => p.updated,
         }
     }
 
@@ -140,6 +143,7 @@ impl Record {
             (Record::Audit(a), Record::Audit(b)) if a.id == b.id => Ok(Record::Audit(a.merge(b))),
             (Record::Connection(a), Record::Connection(b)) if a.id == b.id => Ok(Record::Connection(a.merge(b))),
             (Record::Binding(a), Record::Binding(b)) if a.id == b.id => Ok(Record::Binding(a.merge(b))),
+            (Record::ProxyProfile(a), Record::ProxyProfile(b)) if a.id == b.id => Ok(Record::ProxyProfile(a.merge(b))),
             (a, _) => Err(Error::Format(format!("cannot merge different records into {}", a.id()))),
         }
     }

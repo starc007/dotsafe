@@ -78,8 +78,11 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     const unlisten = listen("vault-synced", load);
     // A device was removed, or something queued was rotated.
     window.addEventListener("dotsafe:vault-changed", load);
+    // The menu bar icon or the global shortcut (⌥⌘K) asked for quick copy.
+    const unlistenQuick = listen("open-quick-copy", () => setQuickCopyOpen(true));
     return () => {
       unlisten.then((f) => f());
+      unlistenQuick.then((f) => f());
       window.removeEventListener("dotsafe:vault-changed", load);
     };
   }, [load]);

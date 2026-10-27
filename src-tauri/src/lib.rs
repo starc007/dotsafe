@@ -9,6 +9,7 @@ mod reminders;
 mod secrets;
 mod state;
 mod sync;
+mod tray;
 #[cfg(test)]
 mod tests;
 
@@ -23,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tray::shortcut_plugin())
         .manage(AppState::default())
         .manage(broker::Approvals::default())
         .setup(|app| {
@@ -31,6 +33,7 @@ pub fn run() {
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
+            tray::setup(app)?;
             let approvals = app.state::<broker::Approvals>().inner().clone();
             broker::spawn(state.inner().clone(), approvals, app.handle().clone());
             Ok(())
@@ -112,6 +115,9 @@ pub fn run() {
             integrations::push_secret,
             integrations::revoke_previous_with_provider,
             integrations::open_provider_console,
+            integrations::list_proxy_profiles,
+            integrations::add_proxy_profile,
+            integrations::remove_proxy_profile,
             integrations::rotation_queue,
             integrations::rotate_queued_with_providers,
             integrations::dismiss_rotation_queue,

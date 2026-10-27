@@ -19,7 +19,8 @@ type Mode = "files" | "paste";
 
 const CHANGE_LABEL = { new: "New", update: "Changes", unchanged: "Same", linked: "Shared, skipped" } as const;
 
-/** Imports many variables at once from .env files (picked or dropped) or pasted text. */
+/** Imports many variables at once from .env files (picked or dropped) or
+ * pasted text, including JSON exported by Doppler, Infisical or 1Password. */
 export function ImportDialog({
   open,
   onOpenChange,
@@ -153,7 +154,7 @@ export function ImportForm({
       autoCorrect="off"
       autoCapitalize="off"
       spellCheck={false}
-      placeholder={"DATABASE_URL=postgres://localhost/app\nSTRIPE_SECRET_KEY=sk_test_…\n# comments and export are fine"}
+      placeholder={"DATABASE_URL=postgres://localhost/app\nSTRIPE_SECRET_KEY=sk_test_…\n\n.env lines, or JSON from Doppler, Infisical or 1Password"}
       value={text}
       onChange={(e) => setText(e.target.value)}
       className="max-h-56 min-h-32 resize-none font-mono text-[12.5px] md:text-[12.5px]"

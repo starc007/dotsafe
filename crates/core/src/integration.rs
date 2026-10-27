@@ -27,6 +27,51 @@ pub fn credentials(records: &[Record]) -> HashSet<Uuid> {
         .collect()
 }
 
+/// A custom profile for the secret proxy: which variable holds an API key,
+/// where requests with it go, and how the key is sent. Kept in the vault, not
+/// in config or the repo, because whoever can change a profile decides where
+/// a key is sent, and agents can edit files but not the vault. Validated by
+/// the proxy (`dotsafe_agent::proxy`) before use.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProxyProfile {
+    pub id: Uuid,
+    pub name: String,
+    /// The variable holding the key, e.g. `MISTRAL_API_KEY`.
+    pub key_var: String,
+    /// The variable the SDK reads its base URL from, e.g. `MISTRAL_BASE_URL`.
+    pub base_url_var: String,
+    /// The one place requests go, `https://` only.
+    pub upstream: String,
+    /// Appended to the proxy URL given to the SDK, e.g. `/v1`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub base_path: String,
+    /// The request header the key goes in, e.g. `authorization`.
+    pub header: String,
+    /// Send the key as `Bearer <key>`.
+    pub bearer: bool,
+    pub deleted: bool,
+    pub updated: Stamp,
+}
+
+impl ProxyProfile {
+    pub(crate) fn merge(self, other: ProxyProfile) -> ProxyProfile {
+        if other.updated > self.updated { other } else { self }
+    }
+}
+
+/// Live custom proxy profiles.
+pub fn proxy_profiles(records: &[Record]) -> Vec<ProxyProfile> {
+    let mut profiles: Vec<ProxyProfile> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::ProxyProfile(p) if !p.deleted => Some(p.clone()),
+            _ => None,
+        })
+        .collect();
+    profiles.sort_by_key(|p| p.name.to_lowercase());
+    profiles
+}
+
 /// Values a removed device could still know: shared secrets whose current
 /// value is older than `since`, and variables with their own value last set
 /// before it. Rotating one takes it off the list.
