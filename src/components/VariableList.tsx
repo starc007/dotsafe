@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
-import { Braces, Check, Copy, CornerDownRight, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, RotateCcw, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
+import { Braces, Check, Copy, Eye, EyeOff, FileUp, KeyRound, Link2, Pencil, Plus, RotateCcw, Search, Share2, Trash2, Unlink, Upload } from "lucide-react";
 import { api, message, type EnvironmentView, type ImportResult, type SecretRef, type VariableView } from "@/lib/api";
 import { base, fast } from "@/lib/motion";
 import { SHORTCUTS, ariaShortcut, useShortcut, type Shortcut } from "@/lib/shortcuts";
@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { IconButton } from "@/components/IconButton";
 import { ImportDialog } from "@/components/ImportDialog";
+import { OriginBadge } from "@/components/OriginBadge";
 import { ShareDialog } from "@/components/ShareDialog";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
@@ -389,11 +390,27 @@ export function VariableList({
                         </Tooltip>
                       )}
                     </span>
-                    {(from || view?.overrides) && (
-                      <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                        <CornerDownRight aria-hidden className="size-3" />
-                        {from ? `from ${from}` : `overrides ${view?.overrides}`}
-                      </span>
+                    {/* Revealing rolls the mask away and the value up into place. */}
+                    <span className="min-w-28 flex-1">
+                      <ActionSwapText
+                        value={key in revealed ? "value" : "mask"}
+                        animation="roll"
+                        className="font-mono text-[12.5px]"
+                      >
+                        <span
+                          className={key in revealed ? "selectable" : "tracking-widest text-muted-foreground"}
+                          title={key in revealed ? revealed[key] : undefined}
+                        >
+                          {key in revealed
+                            ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
+                            : MASK}
+                        </span>
+                      </ActionSwapText>
+                    </span>
+                    {from ? (
+                      <OriginBadge kind="inherited" parent={from} env={environment.name} />
+                    ) : (
+                      view?.overrides && <OriginBadge kind="own" parent={view.overrides} env={environment.name} />
                     )}
                     {links[key] && (
                       <Tooltip>
@@ -410,23 +427,6 @@ export function VariableList({
                         <TooltipContent>Shared secret. Open it to rotate or see where it's used.</TooltipContent>
                       </Tooltip>
                     )}
-                    {/* Revealing rolls the mask away and the value up into place. */}
-                    <span className="min-w-0 flex-1">
-                      <ActionSwapText
-                        value={key in revealed ? "value" : "mask"}
-                        animation="roll"
-                        className="font-mono text-[12.5px]"
-                      >
-                        <span
-                          className={key in revealed ? "selectable" : "tracking-widest text-muted-foreground"}
-                          title={key in revealed ? revealed[key] : undefined}
-                        >
-                          {key in revealed
-                            ? revealed[key] || <em className="font-sans text-muted-foreground">empty</em>
-                            : MASK}
-                        </span>
-                      </ActionSwapText>
-                    </span>
                     {/* Kept on its own compositing layer (will-change): WebKit otherwise
                         fails to repaint plain icons when the fade ends next to the
                         animated swap icons, leaving stale buttons visible. */}
