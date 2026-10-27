@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, Lock, Plus, Settings as SettingsIcon, Share2 } from "lucide-react";
-import { api, message, type ProjectView } from "@/lib/api";
+import { FolderLock, Lock, Plus, Search, Settings as SettingsIcon, Share2, TriangleAlert } from "lucide-react";
+import { api, message, type ProjectView, type VaultHealth } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
 import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
@@ -13,6 +13,7 @@ import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
+import { QuickCopy } from "@/components/QuickCopy";
 import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SecretsPage } from "@/screens/Secrets";
@@ -36,6 +37,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [quickCopyOpen, setQuickCopyOpen] = useState(false);
+  const [health, setHealth] = useState<VaultHealth | null>(null);
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
@@ -62,6 +65,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     } catch (e) {
       setError(message(e));
     }
+    api.vaultHealth().then(setHealth, () => {});
   }, []);
 
   useEffect(() => {
@@ -98,12 +102,13 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     setOpenSecretId(secretId);
   }
 
-  function openEnvironment(projectId: string, environmentId: string) {
+  const openEnvironment = useCallback((projectId: string, environmentId: string) => {
+    setSettingsSection(null);
     setOpenSecretId(null);
     setSecretsOpen(false);
     setSelectedId(projectId);
     setFocusEnvironment(environmentId);
-  }
+  }, []);
 
   // A linked variable's badge asks to open its secret.
   useEffect(() => {
@@ -130,6 +135,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     selectProject(projects[(at + delta + projects.length) % projects.length].id);
   }
 
+  useShortcut(SHORTCUTS.quickCopy, () => setQuickCopyOpen(true));
   useShortcut(SHORTCUTS.lock, lock);
   useShortcut(SHORTCUTS.settings, () => {
     setSecretsOpen(false);
@@ -216,6 +222,25 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           </AnimatePresence>
         </div>
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
+          {health && (health.stale > 0 || health.unreadable > 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSecretsOpen(false);
+                setSettingsSection("security");
+              }}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left font-medium text-destructive outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <TriangleAlert aria-hidden />
+              <span className="flex-1 truncate">Vault needs a look</span>
+            </button>
+          )}
+          <SidebarAction
+            icon={<Search aria-hidden />}
+            label="Find"
+            shortcut={SHORTCUTS.quickCopy}
+            onClick={() => setQuickCopyOpen(true)}
+          />
           <SidebarAction
             icon={<Share2 aria-hidden />}
             label="Secrets"
@@ -285,6 +310,12 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           )}
         </AnimatePresence>
       </section>
+      <QuickCopy
+        open={quickCopyOpen}
+        onOpenChange={setQuickCopyOpen}
+        projects={projects ?? []}
+        onOpenEnvironment={openEnvironment}
+      />
     </div>
   );
 }

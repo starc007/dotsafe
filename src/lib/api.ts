@@ -29,6 +29,23 @@ export type SecretRef = { id: string; name: string };
 /** A variable's name, and the shared secret it links to, if any. */
 export type VariableView = { key: string; secret: SecretRef | null };
 
+/** A variable anywhere in the vault, for the quick-copy palette. Names only. */
+export type VariableHit = {
+  projectId: string;
+  project: string;
+  environmentId: string;
+  environment: string;
+  key: string;
+  linked: boolean;
+};
+/** What the integrity checks found. */
+export type VaultHealth = {
+  /** Records storage served an older copy of than one already seen. */
+  stale: number;
+  /** Records sealed with a key the vault no longer has. */
+  unreadable: number;
+};
+
 export type Due = "no_policy" | "ok" | "soon" | "overdue";
 export type Usage = { projectId: string; project: string; environmentId: string; environment: string; key: string };
 export type SecretView = {
@@ -181,6 +198,8 @@ export const api = {
   deleteEnvironment: (environmentId: string) => call<void>("delete_environment", { environmentId }),
 
   listVariables: (environmentId: string) => call<VariableView[]>("list_variables", { environmentId }),
+  allVariables: () => call<VariableHit[]>("all_variables"),
+  vaultHealth: () => call<VaultHealth>("vault_health"),
   listSecrets: () => call<SecretView[]>("list_secrets"),
   getSecret: (id: string) => call<SecretDetail>("get_secret", { id }),
   revealSecret: (id: string) => call<string>("reveal_secret", { id }),

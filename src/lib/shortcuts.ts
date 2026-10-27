@@ -15,6 +15,7 @@ export type Shortcut = {
 
 /** All shortcuts use ⌘ (Ctrl outside macOS), so they work while typing. */
 export const SHORTCUTS = {
+  quickCopy: { key: "k", label: "Find and copy a variable", group: "General" },
   lock: { key: "l", label: "Lock the vault", group: "General" },
   settings: { key: ",", label: "Open or close settings", group: "General" },
   secrets: { key: "s", shift: true, label: "Open shared secrets", group: "General" },

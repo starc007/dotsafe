@@ -504,6 +504,80 @@ pub async fn list_variables(state: State<'_, AppState>, environment_id: Uuid) ->
         .await
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariableHit {
+    project_id: Uuid,
+    project: String,
+    environment_id: Uuid,
+    environment: String,
+    key: String,
+    linked: bool,
+}
+
+/// Every variable name in the vault, for the quick-copy palette. Names only,
+/// like `list_variables`; copying goes through `copy_variable`.
+#[tauri::command]
+pub async fn all_variables(state: State<'_, AppState>) -> CmdResult<Vec<VariableHit>> {
+    state
+        .run(|s| {
+            let records = s.vault()?.list()?;
+            let projects: std::collections::HashMap<Uuid, &str> = records
+                .iter()
+                .filter_map(|r| match r {
+                    Record::Project(p) if !p.deleted => Some((p.id, p.name.as_str())),
+                    _ => None,
+                })
+                .collect();
+            let mut hits = Vec::new();
+            for r in &records {
+                if let Record::Environment(e) = r
+                    && !e.deleted
+                    && let Some(project) = projects.get(&e.project_id)
+                {
+                    for (key, entry) in e.entries() {
+                        hits.push(VariableHit {
+                            project_id: e.project_id,
+                            project: project.to_string(),
+                            environment_id: e.id,
+                            environment: e.name.clone(),
+                            key: key.to_string(),
+                            linked: matches!(entry, Entry::Secret(_)),
+                        });
+                    }
+                }
+            }
+            hits.sort_by_cached_key(|h| {
+                (h.project.to_lowercase(), env_rank(&h.environment), h.environment.clone(), h.key.clone())
+            });
+            Ok(hits)
+        })
+        .await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultHealth {
+    /// Records storage served an older copy of than one already seen.
+    stale: usize,
+    /// Records sealed with a key this vault doesn't have (written by a
+    /// removed device after the re-key).
+    unreadable: usize,
+}
+
+/// What the integrity checks found while reading the vault this session.
+#[tauri::command]
+pub async fn vault_health(state: State<'_, AppState>) -> CmdResult<VaultHealth> {
+    state
+        .run(|s| {
+            let vault = s.vault()?;
+            // Reading everything runs the checks on every record.
+            vault.list()?;
+            Ok(VaultHealth { stale: vault.stale_records().len(), unreadable: vault.unreadable_records().len() })
+        })
+        .await
+}
+
 /// The variable's value, with a linked secret resolved to its current value.
 fn resolved_value(s: &crate::state::Session, env: &Environment, key: &str) -> CmdResult<String> {
     let entry = env.entry(key).ok_or_else(|| CmdError::other(format!("{key} isn't set.")))?;

@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { KeyRound, Lock, RefreshCw, ShieldCheck } from "lucide-react";
-import { api, message, type Settings } from "@/lib/api";
+import { api, message, type Settings, type VaultHealth } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { SHORTCUTS, ariaShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { IntegrityNotice } from "@/components/IntegrityNotice";
 import { NewRecoveryKeyDialog } from "@/components/NewRecoveryKeyDialog";
 import { SettingsRow } from "@/components/SettingsRow";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
@@ -23,7 +24,13 @@ export function SecuritySettings({
 }) {
   const [dialog, setDialog] = useState<"password" | "recovery" | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [health, setHealth] = useState<VaultHealth | null>(null);
   const inBucket = settings.storage === "s3";
+
+  useEffect(() => {
+    // Not being able to check isn't worth an error of its own.
+    api.vaultHealth().then(setHealth, () => {});
+  }, [settings]);
 
   async function syncNow() {
     setSyncing(true);
@@ -39,6 +46,7 @@ export function SecuritySettings({
   }
   return (
     <>
+      {health && <IntegrityNotice health={health} />}
       <Surface aria-labelledby="access-title">
         <SurfaceHeader icon={<KeyRound aria-hidden />}>
           <SurfaceTitle id="access-title">Access</SurfaceTitle>
