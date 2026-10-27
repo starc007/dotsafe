@@ -207,6 +207,9 @@ export type BucketInput = {
   secretAccessKey: string;
 };
 
+/** A WebDAV folder (Nextcloud, ownCloud, a NAS) and its login, as entered during setup. */
+export type WebDavInput = { url: string; username: string; password: string };
+
 export type SyncView = { lastSyncedAt: number | null; error: string | null };
 
 /** An agent asking to run a command with secrets, or to add a generated
@@ -251,9 +254,13 @@ export type AgentActivity = {
 };
 
 export type Settings = {
-  /** A folder path, or `s3://bucket/prefix` for a vault in a bucket. */
+  /** A folder path, `s3://bucket/prefix`, or a WebDAV URL. */
   vaultPath: string | null;
-  storage: "folder" | "s3";
+  storage: "folder" | "s3" | "webdav";
+  /** Where backup snapshots go, if set. */
+  backupDir: string | null;
+  /** When the last backup was taken (ms). */
+  lastBackup: number | null;
   /** Milliseconds since the epoch. Bucket vaults only. */
   lastSyncedAt: number | null;
   syncError: string | null;
@@ -362,6 +369,14 @@ export const api = {
   connectBucketVault: (bucket: BucketInput, password: string) =>
     call<void>("connect_bucket_vault", { bucket, password }),
   syncNow: () => call<SyncView>("sync_now"),
+  webdavHasVault: (webdav: WebDavInput) => call<boolean>("webdav_has_vault", { webdav }),
+  createWebdavVault: (webdav: WebDavInput, password: string) => call<string>("create_webdav_vault", { webdav, password }),
+  connectWebdavVault: (webdav: WebDavInput, password: string) => call<void>("connect_webdav_vault", { webdav, password }),
+  /** `null` turns backups off. */
+  setBackupDir: (path: string | null) => call<void>("set_backup_dir", { path }),
+  backUpNow: () => call<number>("back_up_now"),
+  /** Copies the vault to an empty folder and switches to it. Returns where it was. */
+  moveVaultToFolder: (path: string) => call<string>("move_vault_to_folder", { path }),
   unlockWithTouchId: () => call<void>("unlock_with_touch_id"),
   setTouchIdUnlock: (enabled: boolean) => call<void>("set_touch_id_unlock", { enabled }),
   listDevices: () => call<DevicesView>("list_devices"),

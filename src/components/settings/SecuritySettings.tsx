@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
-import { KeyRound, Lock, RefreshCw, ShieldCheck } from "lucide-react";
+import { Archive, FolderInput, KeyRound, Lock, RefreshCw, ShieldCheck } from "lucide-react";
 import { api, message, type Settings, type VaultHealth } from "@/lib/api";
 import { displayPath } from "@/lib/paths";
 import { SHORTCUTS, ariaShortcut } from "@/lib/shortcuts";
@@ -25,7 +26,53 @@ export function SecuritySettings({
   const [dialog, setDialog] = useState<"password" | "recovery" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [health, setHealth] = useState<VaultHealth | null>(null);
-  const inBucket = settings.storage === "s3";
+  const inBucket = settings.storage !== "folder";
+  const [backingUp, setBackingUp] = useState(false);
+  const [moving, setMoving] = useState(false);
+
+  async function chooseBackupFolder() {
+    const picked = await open({ directory: true, title: "Choose where backups go" });
+    if (typeof picked !== "string") return;
+    try {
+      await api.setBackupDir(picked);
+      await api.backUpNow();
+      toast.success("Backed up", { description: "dotsafe backs up to this folder once a day while unlocked." });
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      onChanged();
+    }
+  }
+
+  async function backUpNow() {
+    setBackingUp(true);
+    try {
+      await api.backUpNow();
+      toast.success("Backed up");
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setBackingUp(false);
+      onChanged();
+    }
+  }
+
+  async function moveVault() {
+    const picked = await open({ directory: true, title: "Choose an empty folder for the vault" });
+    if (typeof picked !== "string") return;
+    setMoving(true);
+    try {
+      const old = await api.moveVaultToFolder(picked);
+      toast.success("Vault moved", {
+        description: `The old copy at ${displayPath(old)} is untouched. Connect your other devices to the new folder, then delete it.`,
+      });
+    } catch (e) {
+      toast.error(message(e));
+    } finally {
+      setMoving(false);
+      onChanged();
+    }
+  }
 
   useEffect(() => {
     // Not being able to check isn't worth an error of its own.
@@ -99,6 +146,32 @@ export function SecuritySettings({
               </Button>
             </SettingsRow>
           )}
+          <SettingsRow
+            label="Backups"
+            detail={
+              settings.backupDir
+                ? `${displayPath(settings.backupDir)} · ${settings.lastBackup ? `last ${backupAge(settings.lastBackup)}` : "none yet"}. Daily while unlocked; the last 10 are kept, encrypted.`
+                : "Dated, encrypted copies in a folder you choose. Restore one by connecting to it."
+            }
+          >
+            {settings.backupDir ? (
+              <Button variant="outline" onClick={backUpNow} disabled={backingUp}>
+                {backingUp ? <Spinner /> : <Archive aria-hidden />}
+                Back up now
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={chooseBackupFolder}>
+                <Archive aria-hidden />
+                Choose folder…
+              </Button>
+            )}
+          </SettingsRow>
+          <SettingsRow label="Move vault" detail="Copy it to another folder and use that. The old copy stays until you delete it.">
+            <Button variant="outline" onClick={moveVault} disabled={moving}>
+              {moving ? <Spinner /> : <FolderInput aria-hidden />}
+              Move…
+            </Button>
+          </SettingsRow>
           <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while.">
             After {settings.autoLockMinutes} minutes
           </SettingsRow>
@@ -112,6 +185,13 @@ export function SecuritySettings({
       <NewRecoveryKeyDialog open={dialog === "recovery"} onOpenChange={(open) => !open && setDialog(null)} />
     </>
   );
+}
+
+function backupAge(at: number): string {
+  const hours = Math.round((Date.now() - at) / 3_600_000);
+  if (hours < 1) return "just now";
+  if (hours < 48) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  return `${Math.round(hours / 24)} days ago`;
 }
 
 function syncedLabel(at: number | null): string {

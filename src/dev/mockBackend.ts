@@ -20,6 +20,9 @@ let storage = new URLSearchParams(location.search).has("bucket")
   ? { kind: "s3", path: "s3://my-vaults/dotsafe" }
   : { kind: "folder", path: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
 let lastSyncedAt: number | null = Date.now() - 3 * 60_000;
+// Backups.
+let backupDir: string | null = null;
+let lastBackup: number | null = null;
 // `?offline` makes every license server call fail. Keys containing LIMIT or
 // REVOKED act out those answers.
 const licenseOffline = new URLSearchParams(location.search).has("offline");
@@ -891,6 +894,37 @@ export function installMockBackend() {
           importFiles = [];
           return r;
         }
+        case "webdav_has_vault": {
+          await delay(500);
+          const w = (raw as { webdav: { url: string; username: string; password: string } }).webdav;
+          if (!w.url.startsWith("https://")) fail("other", "a WebDAV address must start with https://");
+          if (w.password === "wrong") fail("other", `${w.url} refused the username or password`);
+          return w.url.includes("existing");
+        }
+        case "create_webdav_vault":
+        case "connect_webdav_vault": {
+          await delay(600);
+          const w = (raw as { webdav: { url: string } }).webdav;
+          if (cmd === "connect_webdav_vault" && a.password !== password) fail("invalid_password", "Wrong password.");
+          storage = { kind: "webdav", path: w.url.replace(/\/+$/, "") };
+          configured = true;
+          unlocked = true;
+          return cmd === "create_webdav_vault" ? recoveryKey : null;
+        }
+        case "set_backup_dir":
+          backupDir = (raw as { path: string | null }).path;
+          return null;
+        case "back_up_now":
+          if (!backupDir) fail("other", "Choose a backup folder first.");
+          await delay(400);
+          lastBackup = Date.now();
+          return lastBackup;
+        case "move_vault_to_folder": {
+          await delay(700);
+          const old = storage.path;
+          storage = { kind: "folder", path: (raw as { path: string }).path };
+          return old;
+        }
         case "bucket_has_vault": {
           await delay(500);
           const b = (raw as { bucket: { endpoint: string; bucket: string } }).bucket;
@@ -917,8 +951,10 @@ export function installMockBackend() {
           return {
             vaultPath: storage.path,
             storage: storage.kind,
-            lastSyncedAt: storage.kind === "s3" ? lastSyncedAt : null,
+            lastSyncedAt: storage.kind !== "folder" ? lastSyncedAt : null,
             syncError: null,
+            backupDir,
+            lastBackup,
             license,
             version: "0.1.0",
             autoLockMinutes: 15,
