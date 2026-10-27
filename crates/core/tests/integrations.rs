@@ -26,7 +26,7 @@ fn setup() -> (tempfile::TempDir, Vault, Connection, Binding) {
     let token = Secret::new("OpenAI admin key", "sk-admin-x", vault.stamp(device));
     vault.put(Record::Secret(token.clone())).unwrap();
     let settings = BTreeMap::from([("project_id".to_string(), "proj_1".to_string())]);
-    let connection = Connection::new("openai", "Acme", token.id, settings, vault.stamp(device));
+    let connection = Connection::new("openai", "Acme", Some(token.id), settings, vault.stamp(device));
     vault.put(Record::Connection(connection.clone())).unwrap();
     let secret = Secret::new("OPENAI_API_KEY", "sk-proj-1", vault.stamp(device));
     vault.put(Record::Secret(secret.clone())).unwrap();
