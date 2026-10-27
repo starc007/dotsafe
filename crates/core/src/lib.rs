@@ -4,6 +4,7 @@
 //! write the same vault on disk. See `docs/vault-format.md` for the format.
 
 pub mod audit;
+pub mod backup;
 pub mod cache;
 pub mod config;
 pub mod crypto;
@@ -18,7 +19,7 @@ pub mod secret;
 pub mod store;
 pub mod vault;
 
-pub use config::{Config, RotationQueue, S3Location};
+pub use config::{Config, RotationQueue, S3Location, WebDavLocation};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::{DeviceInfo, DeviceKey, EnrollmentCode, RecoveryKey};

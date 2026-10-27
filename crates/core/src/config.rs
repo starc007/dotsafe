@@ -17,6 +17,9 @@ pub struct Config {
     /// Set when the vault lives in an S3-compatible bucket.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3: Option<S3Location>,
+    /// Set when the vault lives on a WebDAV server (Nextcloud, ownCloud, a NAS).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webdav: Option<WebDavLocation>,
     /// Identifies this machine in change stamps.
     pub device_id: Uuid,
     /// The license activated on this machine, if any.
@@ -38,6 +41,12 @@ pub struct Config {
     /// could read should be rotated. See [`crate::integration::exposed_since`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation_queue: Option<RotationQueue>,
+    /// Where dated backup snapshots go. Not synced: each machine chooses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_dir: Option<PathBuf>,
+    /// Unix milliseconds of the last backup snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_backup: Option<u64>,
 }
 
 /// What to rotate after a device was removed: every value it could have
@@ -65,16 +74,19 @@ impl Config {
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
             // A queue belongs to the vault it was made for.
-            Ok(Some(existing)) => Config { vault_path, s3: None, rotation_queue: None, ..existing },
+            Ok(Some(existing)) => Config { vault_path, s3: None, webdav: None, rotation_queue: None, ..existing },
             _ => Config {
                 vault_path,
                 s3: None,
+                webdav: None,
                 device_id: Uuid::new_v4(),
                 license: None,
                 agent_approvals_without_auth: false,
                 device_unlock: false,
                 last_password_unlock: None,
                 rotation_queue: None,
+                backup_dir: None,
+                last_backup: None,
             },
         }
     }
@@ -87,11 +99,30 @@ impl Config {
         Ok(config)
     }
 
+    /// A config for a vault on a WebDAV server, cached locally.
+    pub fn for_webdav(webdav: WebDavLocation) -> Result<Config> {
+        let mut config = Config::for_vault(cache_dir_for(&webdav.id())?);
+        config.webdav = Some(webdav);
+        Ok(config)
+    }
+
+    /// The vault is on a server (S3 or WebDAV) behind a local cache, so it
+    /// syncs, rather than a folder a sync client keeps up to date.
+    pub fn is_remote(&self) -> bool {
+        self.s3.is_some() || self.webdav.is_some()
+    }
+
+    /// A stable name for a remote vault's location, for keychain entries.
+    pub fn remote_id(&self) -> Option<String> {
+        self.s3.as_ref().map(S3Location::id).or_else(|| self.webdav.as_ref().map(WebDavLocation::id))
+    }
+
     /// Where the vault lives, for display.
     pub fn describe_location(&self) -> String {
-        match &self.s3 {
-            Some(s3) => s3.describe(),
-            None => self.vault_path.display().to_string(),
+        match (&self.s3, &self.webdav) {
+            (Some(s3), _) => s3.describe(),
+            (None, Some(webdav)) => webdav.describe(),
+            (None, None) => self.vault_path.display().to_string(),
         }
     }
 
@@ -118,6 +149,27 @@ pub struct S3Location {
     pub prefix: String,
 }
 
+/// A folder on a WebDAV server. The password (an app password, ideally) is
+/// kept in the OS keychain, never here.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebDavLocation {
+    /// The folder's URL, for example
+    /// `https://cloud.example.com/remote.php/dav/files/me/dotsafe/`.
+    pub url: String,
+    pub username: String,
+}
+
+impl WebDavLocation {
+    pub fn describe(&self) -> String {
+        self.url.trim_end_matches('/').to_string()
+    }
+
+    /// A stable name for this location, for cache folders and keychain entries.
+    pub fn id(&self) -> String {
+        format!("webdav|{}|{}", self.url.trim_end_matches('/'), self.username)
+    }
+}
+
 impl S3Location {
     pub fn describe(&self) -> String {
         match self.prefix.as_str() {
@@ -134,8 +186,13 @@ impl S3Location {
 
 /// Where the local cache for a vault in `s3` goes.
 pub fn cache_dir(s3: &S3Location) -> Result<PathBuf> {
+    cache_dir_for(&s3.id())
+}
+
+/// The local cache folder for a remote location, by its id.
+pub fn cache_dir_for(id: &str) -> Result<PathBuf> {
     use sha2::{Digest, Sha256};
-    let hash: String = Sha256::digest(s3.id().as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let hash: String = Sha256::digest(id.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     Ok(dirs::data_dir()
         .ok_or_else(|| Error::Format("no data directory on this OS".into()))?
         .join("dotsafe")
