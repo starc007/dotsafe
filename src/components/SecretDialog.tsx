@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Check, Copy, ExternalLink, Eye, EyeOff, History, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
+import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
 import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { EnvironmentName } from "@/components/EnvironmentName";
 import { Field } from "@/components/Field";
 import { IconButton } from "@/components/IconButton";
 import { SecretIntegrationsSection, reportPushes } from "@/components/SecretIntegrationsSection";
@@ -36,9 +37,10 @@ const STATE_LABEL: Record<VersionState, string> = {
 
 /** `guided`: pasting a key made in a guided provider's console. */
 type Mode = "idle" | "rotate" | "leaked" | "guided";
+type Tab = "overview" | "used" | "history" | "integrations" | "settings";
 
-/** One shared secret: its value, the rotation flow, where it's used, its
- * history and its settings. */
+/** One shared secret, in tabs: its value and the rotation flow, where it's
+ * used, its history, its provider and targets, and its settings. */
 export function SecretDialog({
   secretId,
   open,
@@ -58,6 +60,7 @@ export function SecretDialog({
   const [revealed, setRevealed] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<Mode>("idle");
+  const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const hideTimer = useRef<number | undefined>(undefined);
@@ -80,6 +83,7 @@ export function SecretDialog({
     setIntegrations(null);
     setRevealed(null);
     setMode("idle");
+    setTab("overview");
     load();
     return () => window.clearTimeout(hideTimer.current);
   }, [open, load]);
@@ -196,159 +200,200 @@ export function SecretDialog({
             <Skeleton className="h-24 w-full rounded-2xl" />
           </div>
         ) : (
-          <div className="-mx-5 -my-5 flex max-h-[min(70vh,640px)] flex-col gap-5 overflow-y-auto p-5">
-            <section aria-label="Current value">
-              <div className="flex items-center gap-1 rounded-full bg-muted/60 py-1 pr-1 pl-3.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
-                  <ActionSwapText value={revealed !== null ? "value" : "mask"} animation="roll">
-                    <span className={revealed !== null ? "selectable" : "tracking-widest text-muted-foreground"}>
-                      {revealed ?? MASK}
-                    </span>
-                  </ActionSwapText>
-                </span>
-                <IconButton label={revealed !== null ? "Hide value" : "Reveal value"} onClick={toggleReveal}>
-                  <ActionSwapIcon value={revealed !== null ? "hide" : "show"} animation="blur" className="size-4">
-                    {revealed !== null ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-                  </ActionSwapIcon>
-                </IconButton>
-                <IconButton label="Copy value" onClick={copy}>
-                  <ActionSwapIcon value={copied ? "copied" : "copy"} animation="blur" className="size-4">
-                    {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-                  </ActionSwapIcon>
-                </IconButton>
-              </div>
-            </section>
-
-            <RotationSection
-              secret={secret}
-              provider={provider}
-              mode={mode}
-              busy={busy}
-              onMode={setMode}
-              onProviderRotate={rotateWithProvider}
-              onRevoke={(byHand) =>
-                act(
-                  "retire",
-                  async () => {
-                    await api.revokePreviousWithProvider(secret.id, byHand);
-                  },
-                  byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`,
-                )
-              }
-              onStage={(value, note) =>
-                act("stage", () => api.stageSecret(secret.id, value, note), "New value staged").then(
-                  (ok) => ok && setMode("idle"),
-                )
-              }
-              onLeaked={(value) =>
-                act(
-                  "leaked",
-                  () => api.rotateLeakedSecret(secret.id, value),
-                  `${secret.name} replaced everywhere. Revoke the leaked value with its provider now.`,
-                ).then((ok) => {
-                  if (!ok) return;
-                  setMode("idle");
-                  pushIfTargets();
-                })
-              }
-              onPromote={() =>
-                act("promote", () => api.promoteSecret(secret.id), `${secret.name} now uses the new value`).then((ok) => {
-                  if (ok) pushIfTargets();
-                })
-              }
-              onCancel={() => act("cancel", () => api.cancelStagedSecret(secret.id), "Staged value discarded")}
-              onRollBack={() => act("rollback", () => api.rollBackSecret(secret.id), "Back to the previous value")}
-              onRetire={() => act("retire", () => api.retirePreviousSecret(secret.id), "Previous value retired")}
-            />
-
-            <SecretIntegrationsSection
-              secretId={secret.id}
-              secretName={secret.name}
-              integrations={integrations}
-              onChanged={() => {
-                load();
-                onChanged();
-              }}
-            />
-
-            <section aria-labelledby="used-in-title" className="flex flex-col gap-2">
-              <h3 id="used-in-title" className="text-xs font-medium text-muted-foreground">
-                Used in
-              </h3>
-              {uses === 0 ? (
-                <p className="text-muted-foreground">Not linked anywhere yet.</p>
-              ) : (
-                <ul className="flex flex-col divide-y rounded-2xl bg-muted/40">
-                  {secret.usedIn.map((u) => (
-                    <li key={`${u.environmentId}/${u.key}`}>
-                      <button
-                        type="button"
-                        onClick={() => onOpenEnvironment(u.projectId, u.environmentId)}
-                        className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <span className="min-w-0 flex-1 truncate">
-                          {u.project}
-                          <span className="text-muted-foreground">/{u.environment}</span>
+          <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="-mx-5 -my-5 flex flex-col">
+            <div className="px-5 pt-5">
+              <TabsList aria-label={`${secret.name} sections`} wrapperClassName="w-full" className="w-full bg-muted p-0.5">
+                <TabsTrigger value="overview" className="flex-1 py-1 text-[13px]">
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger value="used" className="flex-1 py-1 text-[13px]">
+                  Used in {uses}
+                </TabsTrigger>
+                <TabsTrigger value="history" className="flex-1 py-1 text-[13px]">
+                  History
+                </TabsTrigger>
+                <TabsTrigger value="integrations" className="flex-1 py-1 text-[13px]">
+                  Integrations
+                </TabsTrigger>
+                <TabsTrigger value="settings" className="flex-1 py-1 text-[13px]">
+                  Settings
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <div className="max-h-[min(60vh,520px)] min-h-56 overflow-y-auto px-5 pb-5">
+              <TabsContent value="overview" className="flex flex-col gap-4">
+                <section aria-label="Current value">
+                  <div className="flex items-center gap-1 rounded-full bg-muted/60 py-1 pr-1 pl-3.5">
+                    <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
+                      <ActionSwapText value={revealed !== null ? "value" : "mask"} animation="roll">
+                        <span className={revealed !== null ? "selectable" : "tracking-widest text-muted-foreground"}>
+                          {revealed ?? MASK}
                         </span>
-                        <span className="truncate font-mono text-[12px] text-muted-foreground">{u.key}</span>
-                      </button>
+                      </ActionSwapText>
+                    </span>
+                    <IconButton label={revealed !== null ? "Hide value" : "Reveal value"} onClick={toggleReveal}>
+                      <ActionSwapIcon value={revealed !== null ? "hide" : "show"} animation="blur" className="size-4">
+                        {revealed !== null ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                      </ActionSwapIcon>
+                    </IconButton>
+                    <IconButton label="Copy value" onClick={copy}>
+                      <ActionSwapIcon value={copied ? "copied" : "copy"} animation="blur" className="size-4">
+                        {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
+                      </ActionSwapIcon>
+                    </IconButton>
+                  </div>
+                </section>
+
+                <dl className="flex flex-col divide-y rounded-2xl bg-muted/40 text-[13px]">
+                  <SummaryRow label="Last rotated">
+                    {secret.rotatedAt ? daysAgo(secret.rotatedAt) : "Never"}
+                    {secret.due === "overdue" && (
+                      <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">Overdue</span>
+                    )}
+                    {secret.due === "soon" && (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">Due soon</span>
+                    )}
+                  </SummaryRow>
+                  <SummaryRow label="Reminder">
+                    <button type="button" onClick={() => setTab("settings")} className="rounded-full outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                      {reminderLabel(secret.rotateEveryDays)}
+                    </button>
+                  </SummaryRow>
+                  <SummaryRow label="New values">
+                    <button type="button" onClick={() => setTab("integrations")} className="rounded-full outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+                      {provider ? `From ${provider.connectionName}` : "Typed or generated by you"}
+                    </button>
+                  </SummaryRow>
+                </dl>
+
+                <RotationSection
+                  secret={secret}
+                  provider={provider}
+                  mode={mode}
+                  busy={busy}
+                  onMode={setMode}
+                  onProviderRotate={rotateWithProvider}
+                  onRevoke={(byHand) =>
+                    act(
+                      "retire",
+                      async () => {
+                        await api.revokePreviousWithProvider(secret.id, byHand);
+                      },
+                      byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`,
+                    )
+                  }
+                  onStage={(value, note) =>
+                    act("stage", () => api.stageSecret(secret.id, value, note), "New value staged").then(
+                      (ok) => ok && setMode("idle"),
+                    )
+                  }
+                  onLeaked={(value) =>
+                    act(
+                      "leaked",
+                      () => api.rotateLeakedSecret(secret.id, value),
+                      `${secret.name} replaced everywhere. Revoke the leaked value with its provider now.`,
+                    ).then((ok) => {
+                      if (!ok) return;
+                      setMode("idle");
+                      pushIfTargets();
+                    })
+                  }
+                  onPromote={() =>
+                    act("promote", () => api.promoteSecret(secret.id), `${secret.name} now uses the new value`).then((ok) => {
+                      if (ok) pushIfTargets();
+                    })
+                  }
+                  onCancel={() => act("cancel", () => api.cancelStagedSecret(secret.id), "Staged value discarded")}
+                  onRollBack={() => act("rollback", () => api.rollBackSecret(secret.id), "Back to the previous value")}
+                  onRetire={() => act("retire", () => api.retirePreviousSecret(secret.id), "Previous value retired")}
+                />
+              </TabsContent>
+
+              <TabsContent value="used">
+                {uses === 0 ? (
+                  <p className="text-muted-foreground">Not linked anywhere yet.</p>
+                ) : (
+                  <ul className="flex flex-col divide-y rounded-2xl bg-muted/40">
+                    {secret.usedIn.map((u) => (
+                      <li key={`${u.environmentId}/${u.key}`}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenEnvironment(u.projectId, u.environmentId)}
+                          className="flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            <EnvironmentName usage={u} />
+                          </span>
+                          <span className="truncate font-mono text-[12px] text-muted-foreground">{u.key}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </TabsContent>
+
+              <TabsContent value="history">
+                <ol className="flex flex-col divide-y rounded-2xl bg-muted/40">
+                  {secret.versions.map((v) => (
+                    <li key={v.id} className="flex items-center gap-3 px-3 py-2">
+                      <span
+                        className={cn(
+                          "w-18 shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] font-medium",
+                          v.state === "current" && "bg-primary/10 text-primary",
+                          v.state === "pending" && "bg-foreground/10 text-foreground",
+                          v.state === "previous" && "bg-muted text-foreground",
+                          v.state === "retired" && "text-muted-foreground",
+                        )}
+                      >
+                        {STATE_LABEL[v.state]}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate" title={formatDate(v.createdAt)}>
+                        {daysAgo(v.createdAt)}
+                        {v.note && <span className="text-muted-foreground"> · {v.note}</span>}
+                        {v.wiped && <span className="text-muted-foreground"> · value wiped</span>}
+                      </span>
+                      {(v.state === "retired" || v.state === "previous") && !v.wiped && !secret.staged && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() =>
+                            act("restore", () => api.restoreSecretVersion(secret.id, v.id), "Earlier value restored")
+                          }
+                        >
+                          <RotateCcw aria-hidden />
+                          Restore
+                        </Button>
+                      )}
                     </li>
                   ))}
-                </ul>
-              )}
-            </section>
+                </ol>
+              </TabsContent>
 
-            <section aria-labelledby="history-title" className="flex flex-col gap-2">
-              <h3 id="history-title" className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <History aria-hidden className="size-3.5" />
-                History
-              </h3>
-              <ol className="flex flex-col divide-y rounded-2xl bg-muted/40">
-                {secret.versions.map((v) => (
-                  <li key={v.id} className="flex items-center gap-3 px-3 py-2">
-                    <span
-                      className={cn(
-                        "w-18 shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] font-medium",
-                        v.state === "current" && "bg-primary/10 text-primary",
-                        v.state === "pending" && "bg-foreground/10 text-foreground",
-                        v.state === "previous" && "bg-muted text-foreground",
-                        v.state === "retired" && "text-muted-foreground",
-                      )}
-                    >
-                      {STATE_LABEL[v.state]}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate" title={formatDate(v.createdAt)}>
-                      {daysAgo(v.createdAt)}
-                      {v.note && <span className="text-muted-foreground"> · {v.note}</span>}
-                      {v.wiped && <span className="text-muted-foreground"> · value wiped</span>}
-                    </span>
-                    {(v.state === "retired" || v.state === "previous") && !v.wiped && !secret.staged && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy !== null}
-                        onClick={() =>
-                          act("restore", () => api.restoreSecretVersion(secret.id, v.id), "Earlier value restored")
-                        }
-                      >
-                        <RotateCcw aria-hidden />
-                        Restore
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </section>
+              <TabsContent value="integrations">
+                <SecretIntegrationsSection
+                  secretId={secret.id}
+                  secretName={secret.name}
+                  integrations={integrations}
+                  onChanged={() => {
+                    load();
+                    onChanged();
+                  }}
+                />
+              </TabsContent>
 
-            <SettingsSection
-              secret={secret}
-              busy={busy}
-              onSave={(name, days) =>
-                act("settings", () => api.updateSecretSettings(secret.id, name, days), "Saved")
-              }
-              onDelete={() => setConfirmDelete(true)}
-            />
-          </div>
+              <TabsContent value="settings">
+                <SettingsSection
+                  secret={secret}
+                  busy={busy}
+                  onSave={(name, days) =>
+                    act("settings", () => api.updateSecretSettings(secret.id, name, days), "Saved")
+                  }
+                  onDelete={() => setConfirmDelete(true)}
+                />
+              </TabsContent>
+            </div>
+          </Tabs>
         )}
       </SurfaceDialog>
       <ConfirmDialog
@@ -370,6 +415,20 @@ export function SecretDialog({
         onCancel={() => setConfirmDelete(false)}
       />
     </>
+  );
+}
+
+function reminderLabel(days: number | null) {
+  if (days === null) return "Off";
+  return days === 365 ? "Every year" : `Every ${days} days`;
+}
+
+function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2">
+      <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="flex min-w-0 flex-1 items-center gap-2 truncate">{children}</dd>
+    </div>
   );
 }
 
@@ -500,17 +559,17 @@ function RotationSection({
     <div className="flex items-center justify-end gap-2">
       <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => onMode("leaked")}>
         <ShieldAlert aria-hidden />
-        It leaked…
+        It leaked
       </Button>
       {provider?.guided ? (
         <Button onClick={() => onMode("guided")} disabled={busy !== null}>
           <RotateCcw aria-hidden />
-          New key from {provider.serviceLabel}…
+          New key from {provider.serviceLabel}
         </Button>
       ) : provider ? (
         <>
           <Button variant="ghost" onClick={() => onMode("rotate")} disabled={busy !== null}>
-            Type a value…
+            Type a value
           </Button>
           <Button onClick={() => onProviderRotate(false)} disabled={busy !== null}>
             {busy === "provider" ? <Spinner /> : <RotateCcw aria-hidden />}
@@ -520,7 +579,7 @@ function RotationSection({
       ) : (
         <Button onClick={() => onMode("rotate")}>
           <RotateCcw aria-hidden />
-          Rotate…
+          Rotate
         </Button>
       )}
     </div>
@@ -703,10 +762,7 @@ function SettingsSection({
   const policy = POLICIES.find((p) => p.days === secret.rotateEveryDays)?.value ?? "off";
 
   return (
-    <section aria-labelledby="secret-settings-title" className="flex flex-col gap-3">
-      <h3 id="secret-settings-title" className="text-xs font-medium text-muted-foreground">
-        Settings
-      </h3>
+    <section aria-label="Settings" className="flex flex-col gap-3">
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -741,7 +797,7 @@ function SettingsSection({
       </div>
       <div className="flex justify-end">
         <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={onDelete}>
-          Delete secret…
+          Delete secret
         </Button>
       </div>
     </section>
