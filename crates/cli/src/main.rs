@@ -1,3 +1,4 @@
+mod connect;
 mod export;
 mod link;
 mod mcp;
@@ -110,6 +111,23 @@ enum Cmd {
         #[arg(long, conflicts_with_all = ["paths", "staged"])]
         install_hook: bool,
     },
+    /// Connect an account at a provider (openai, cloudflare_token) or deploy target (vercel, cloudflare_workers)
+    Connect {
+        service: String,
+        /// Name for the connection [default: the service's name]
+        #[arg(long)]
+        name: Option<String>,
+        /// Account settings, e.g. --set project_id=proj_…
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
+        /// Read the admin token from stdin instead of asking
+        #[arg(long)]
+        token_stdin: bool,
+    },
+    /// List connected accounts
+    Connections,
+    /// Remove a connection and its stored token
+    Disconnect { name: String },
     /// Shared secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
@@ -371,6 +389,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             );
             return Ok(ExitCode::FAILURE);
         }
+        Cmd::Connect { service, name, set, token_stdin } => connect::connect(&service, name, &set, token_stdin)?,
+        Cmd::Connections => connect::list()?,
+        Cmd::Disconnect { name } => connect::disconnect(&name)?,
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
