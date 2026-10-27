@@ -1,6 +1,8 @@
 # Agent access
 
-**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret`, the audit log and custom proxy profiles. Approvals ask for Touch ID (or the login password) on macOS. Still proposed: `propose_rotation`, Windows named pipes and a headless `dotsafe daemon`.
+**Status:** M6 is implemented on macOS and Linux: `dotsafe mcp`, the broker with approvals and grants, the refusal list, the runner, redaction, the secret proxy (also `dotsafe run --proxy`), `generate_secret`, the audit log and custom proxy profiles. Approvals ask for Touch ID (or the login password) on macOS. `dotsafe daemon` runs the same broker without the app. Still proposed: `propose_rotation`, standing approvals for unattended machines, and Windows named pipes.
+
+**`dotsafe daemon`:** the broker (`dotsafe_agent::broker`, shared with the app through a small `Host` trait: vault, grants, how to ask) served from a terminal. It unlocks once (session cache, `DOTSAFE_PASSWORD`, or a prompt) and serves the same socket, refusing to start if the app already does. Approvals are asked in its terminal (once, 15 minutes, an hour, or until it stops); with no terminal on stdin, every request is refused, because nobody is there to approve. `--for 8h` stops it after a while.
 
 **Custom proxy profiles** add keys beyond OpenAI and Anthropic: the key's variable, its SDK's base URL variable, the one `https://` upstream, and the header. They're vault records (`proxy_profile`), not config or repo files, because a profile decides where a key is sent: agents can edit files but not the vault. The proxy checks each one before use (`Profile::custom`: plain https host with no credentials, query or fragment; valid variable names; a plain header that isn't `host`, `cookie` and the like; no built-in variable taken over) and skips any that fail. Manage them in Settings → Agents or with `dotsafe proxy`.
 
@@ -78,7 +80,7 @@ Grant {
   - `dotsafe` itself: `get` and `export` print values, and a vault left open by `dotsafe unlock` would let them run without a password.
   - These are a speed bump, not a boundary. See [Limits](#limits).
 - **Repo files the agent can edit:** when the command runs a script in the workspace (`bun test`, `npm run dev`), the dialog warns that the agent can change that script. It shows uncommitted changes in the files the command will run, using `git status`.
-- **Headless policies:** for `dotsafe daemon` without a UI, the user creates standing grants in the app. They're stored in the vault, not in the repo, because the agent can edit the repo.
+- **Headless policies (proposed):** for a daemon with nobody at its terminal, standing grants created by the user and stored in the vault (not the repo, which the agent can edit). Until then, an unattended daemon refuses everything.
 
 ## Runner
 
@@ -159,4 +161,4 @@ The setup screen also offers a snippet for the project's `AGENTS.md`: "Secrets a
 4. ✅ Secret proxy with built-in profiles, plus `dotsafe run --proxy` for humans.
 5. ✅ `generate_secret` and the audit log.
 6. ✅ Touch ID on approval (macOS).
-7. Windows named pipes, a headless `dotsafe daemon`. (✅ custom proxy profiles.)
+7. Windows named pipes, standing approvals. (✅ custom proxy profiles, ✅ `dotsafe daemon`.)

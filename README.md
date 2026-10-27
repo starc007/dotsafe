@@ -33,6 +33,10 @@ dotsafe scan                      # find vault values in this checkout (raw or e
 dotsafe scan --install-hook       # pre-commit hook that runs `dotsafe scan --staged`
 dotsafe unlock --for 8h           # cache the key in the OS keychain; `dotsafe lock` to forget it
 dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
+dotsafe init --webdav https://cloud.example.com/remote.php/dav/files/me/dotsafe/ --user me
+dotsafe backup --to ~/Backups/dotsafe   # a dated, still-encrypted copy; the last 10 are kept
+dotsafe move --bucket … --endpoint …    # move the vault elsewhere; the old copy stays until you delete it
+dotsafe daemon                          # serve agents without the desktop app; approve in this terminal
 dotsafe sync                      # vaults in a bucket: exchange changes now
 dotsafe secret share STRIPE_KEY --all   # one shared secret, linked wherever it had the same value
 dotsafe secret rotate STRIPE_KEY        # new value everywhere it's linked; old one kept as previous

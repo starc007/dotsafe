@@ -1,6 +1,6 @@
 # Storage
 
-**Status:** M1 and M2 are implemented, except replicas, WebDAV and moving a vault between stores (still proposed).
+**Status:** M1 and M2 are implemented, and so are WebDAV, backup snapshots and moving a vault (see [As built](#as-built-webdav-backups-moving)). Live replicas (a second store kept in step after every write) are still proposed; backups cover the "a copy elsewhere" need for now.
 
 ## Goals
 
@@ -115,6 +115,12 @@ pub enum StoreConfig {
   ]
 }
 ```
+
+## As built: WebDAV, backups, moving
+
+- **WebDAV** (`crates/stores/src/webdav.rs`): a folder on Nextcloud, ownCloud, a NAS or Fastmail, behind the same `CachedStore` as buckets, so it works offline and syncs. Conditional writes use `If-None-Match: *` and `If-Match` with the server's ETags; a 412 is a conflict, like S3. The `records/` folder is made with `MKCOL` on first write (servers answer a PUT into a missing folder with 409). Listing is `PROPFIND` with `Depth: 1`. HTTPS only (plain HTTP just for `localhost`), redirects off, Basic auth with the password (ideally an app password) in the OS keychain or `DOTSAFE_WEBDAV_PASSWORD`. Set up with `dotsafe init --webdav URL --user NAME` or the WebDAV tab in the app.
+- **Backups** (`core::backup`): a dated snapshot folder (`dotsafe-backup-YYYY-MM-DD-HHMM`) of every encrypted object, in a folder each machine chooses (`backup_dir` in its config). The last 10 are kept. A snapshot is a complete vault folder, so restoring is connecting to it (and moving it back if wanted). `dotsafe backup [--to DIR]`; the app backs up once a day while unlocked and has "Back up now". Copies come from the open vault's own store, so a bucket vault's cache isn't opened twice.
+- **Moving** (`backup::copy_to_empty`): copies every object to an empty place (refused if it already holds a vault), checks the copy opens with the vault key, then points this machine's config at it. The old copy is left alone until the user deletes it; other devices connect to the new place themselves. `dotsafe move --path | --bucket … | --webdav … --user …`; the app moves to a folder ("Move vault…").
 
 ## Replicas
 

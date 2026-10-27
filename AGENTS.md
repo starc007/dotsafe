@@ -10,11 +10,11 @@ dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets 
 
 ```
 crates/core   Vault format, crypto, merge/sync, config, storage (store.rs). Shared by app and CLI.
-crates/agent  Agent access: broker protocol, local socket, refusal policy, redaction, runner. `dotsafe mcp` (CLI) and the broker (desktop) use it.
-crates/stores Network storage backends (S3/R2) and `open(config)`, which picks the right store and reads keys from the keychain.
+crates/agent  Agent access: the broker (shared by the app and `dotsafe daemon` through `broker::Host`), protocol, local socket, refusal policy, redaction, runner, proxy.
+crates/stores Network storage backends (S3/R2, WebDAV) and `open(config)`, which picks the right store and reads keys from the keychain.
 crates/integrations Provider key rotation (OpenAI, Cloudflare tokens, AWS IAM; Anthropic and Stripe guided) and deploy-target pushes (Vercel, Cloudflare Workers): the HTTP client, AWS SigV4 signing, and the rotate/retire/push flow.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
-src-tauri     Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), reminders.rs (due-for-rotation notifications).
+src-tauri     Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
 src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 api           Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See api/README.md.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
