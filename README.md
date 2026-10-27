@@ -36,6 +36,12 @@ dotsafe secret rotate STRIPE_KEY --leaked --generate
 dotsafe secret retire STRIPE_KEY        # once the old value is revoked with its provider
 dotsafe secret history STRIPE_KEY       # versions and notes, never values
 dotsafe secret due                      # what's due under each secret's rotation policy
+dotsafe connect openai --set project_id=proj_…   # an account that issues keys (asks for the admin token)
+dotsafe connect vercel --name web                # a deploy target that gets every rotation
+dotsafe secret provider OPENAI_API_KEY --connection OpenAI
+dotsafe secret target add OPENAI_API_KEY --connection web --set project=my-app
+dotsafe secret rotate OPENAI_API_KEY    # new key from OpenAI, live everywhere, pushed to Vercel
+dotsafe secret retire OPENAI_API_KEY    # revokes the old key at OpenAI
 ```
 
 **AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
@@ -43,6 +49,8 @@ dotsafe secret due                      # what's due under each secret's rotatio
 `dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key.
 
 **In the app.** Press ⌘K anywhere to find a variable in any project and copy it, or jump to an environment. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
+
+**Provider rotation.** Connect OpenAI or a Cloudflare API token, and rotating a secret asks the provider for a new key. The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you revoke it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, which are stored in the vault. Set it up in Settings → Integrations, or with `dotsafe connect`.
 
 **Devices.** Turn on Touch ID unlock in Settings → Devices (the password is still asked every two weeks). Add a Mac with a one-time code instead of typing the password there. If a device is lost, remove it: dotsafe switches the vault to a new key and re-encrypts everything, so it can't read anything new.
 

@@ -1,6 +1,6 @@
 # Secrets and rotation
 
-**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5 (provider plugins, push targets) is still proposed, and so are `targets`/`provider` on secrets and the device-revoked bulk queue.
+**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5's first slice is implemented: OpenAI and Cloudflare API tokens as providers, Vercel and Cloudflare Workers as push targets, in the CLI and desktop (see [As built (M5, slice 1)](#as-built-m5-slice-1)). Still proposed: Anthropic, Stripe, AWS and GitHub Actions, verifying with deploy targets, drift detection from provider timestamps, and the device-revoked bulk queue.
 
 ## The problem
 
@@ -121,6 +121,23 @@ dotsafe secrets due                         # what needs rotating
 dotsafe history STRIPE_SECRET_KEY           # versions, without values
 dotsafe restore STRIPE_SECRET_KEY <version>
 ```
+
+## As built (M5, slice 1)
+
+- **Records:** provider and target links live in two new record kinds, not on `secret`, so older clients can't drop them by rewriting a secret. A `connection` is an account at a service, with its admin token kept as an ordinary shared secret (so it has history too). A `binding` per secret holds its provider, the provider's key id for each version, and its targets with the fingerprint of what was last pushed. Both are record format v4 ([vault-format.md](../vault-format.md#record-version-4-integrations)).
+- **Code:** `crates/integrations` has the HTTP calls (`Client`) and the flow (`rotate::{rotate, retire, push}`). It's HTTPS only and never follows redirects, so a token only goes to its own service. Core still has no network code.
+- **Providers checked against their APIs:**
+
+  | Service | Create | Verify | Revoke | Overlap |
+  |---|---|---|---|---|
+  | OpenAI | A project service account (`POST /organization/projects/{id}/service_accounts`); its key is the new value | `GET /models` with the new key | Delete the service account | Yes |
+  | Cloudflare API token | Roll it (`PUT …/tokens/{id}/value`) | `GET …/tokens/verify` with the new token | Nothing: rolling ended the old one | No |
+
+  Anthropic's Admin API can disable keys but not create them, and Stripe has no key API, so those stay manual (with a checklist, later). AWS needs SigV4 signing, and GitHub Actions secrets need libsodium sealed boxes, a new primitive that needs a decision first.
+- **Targets:** Vercel (`POST /v10/projects/{p}/env?upsert=true`, type `encrypted`) and Cloudflare Workers (`PUT /accounts/{a}/workers/scripts/{s}/secrets`).
+- **The flow, in this order:** create → **save the new key as staged at once** (so a crash never loses the only working key) → verify → promote → push to every target → with `leaked`, or for a provider without overlap, revoke and retire the old key. If verification fails and the provider has overlap, the key stays staged and nothing else changes. Without overlap it goes live anyway, because the old key is already dead. `retire` revokes the previous versions' keys at the provider before marking them retired, and stops at the first failure.
+- **Pushes** also happen on manual promote and on demand. Each target records the SHA-256 of what was pushed, so the UI can show "out of date" without reading anything back.
+- **Not yet:** an audit entry per step, a notification when pushes fail in the background, and a test against the real services. Every call has been tested against a local fake, but not yet against a real account.
 
 ## Open questions
 
