@@ -156,6 +156,6 @@ dotsafe restore STRIPE_SECRET_KEY <version>
 
 ## Open questions
 
-- Variable interpolation (`${DB_HOST}`) and environment inheritance (a base environment with overrides). These are related and fit the same reference model, but they're separate from rotation. Proposal: design them with M3, so the format changes land once.
+- ~~Variable interpolation and environment inheritance.~~ Built as `${{ NAME }}` references and one parent per environment (record v5; see [vault-format.md](../vault-format.md#record-version-5-inheritance-and-references)).
 - Retention defaults for retired values: purge after 30 days, or keep them until the user deletes them.
 - Whether pending values should ever reach `dotsafe run` (for example `--pending` for testing before promotion).
