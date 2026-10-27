@@ -48,8 +48,8 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Menu bar and quick copy
 
-- [ ] **D17** Menu bar icon: Find and copy…, Open dotsafe, Lock and Quit all work.
-- [ ] **D18** **⌥⌘K** from another app opens quick copy. Search, copy a value, and the window goes away. When the vault is locked it asks to unlock first.
+- [x] **D17** Menu bar icon: Find and copy…, Open dotsafe, Lock and Quit all work.
+- [x] **D18** **⌥⌘K** from another app opens quick copy. Search, copy a value, and the window goes away. When the vault is locked it asks to unlock first.
 
 ### Look and feel (WebKit)
 

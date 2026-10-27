@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FolderOpen, KeyRound, Link2 } from "lucide-react";
+import { EyeOff, FolderOpen, KeyRound, Variable } from "lucide-react";
 import { api, message, type ProjectView, type VariableHit } from "@/lib/api";
 import { CommandPalette, type CommandItem } from "@/components/motion/command-palette";
+import { EnvironmentName } from "@/components/EnvironmentName";
 
 /** ⌘K: find any variable in any project and copy it, or jump to an
  * environment. Only names reach the webview; copying happens in Rust. */
@@ -33,14 +34,13 @@ export function QuickCopy({
     const vars: CommandItem[] = (variables ?? []).map((v) => ({
       id: `var:${v.environmentId}:${v.key}`,
       label: v.key,
-      group: "Copy a variable",
+      mono: true,
+      group: "Variables",
       keywords: [v.project, v.environment],
-      icon: v.linked ? Link2 : KeyRound,
-      badge: (
-        <span className="text-xs text-muted-foreground">
-          {v.project} / {v.environment}
-        </span>
-      ),
+      // Linked variables take their value from a secret.
+      icon: v.linked ? KeyRound : Variable,
+      action: "Copy",
+      badge: <EnvironmentName usage={v} muted />,
       onSelect: async () => {
         try {
           await api.copyVariable(v.environmentId, v.key);
@@ -54,8 +54,9 @@ export function QuickCopy({
       p.environments.map((e) => ({
         id: `env:${e.id}`,
         label: `${p.name} / ${e.name}`,
-        group: "Go to",
+        group: "Environments",
         icon: FolderOpen,
+        action: "Open",
         onSelect: () => onOpenEnvironment(p.id, e.id),
       })),
     );
@@ -70,7 +71,12 @@ export function QuickCopy({
       items={items}
       placeholder="Find a variable…"
       emptyMessage={error ?? (variables === null ? "Loading variables…" : "No matching variables.")}
-      footer="Enter copies the value. It never appears on screen."
+      footer={
+        <>
+          <EyeOff aria-hidden className="size-3.5 shrink-0" />
+          Values are copied, never shown
+        </>
+      }
     />
   );
 }

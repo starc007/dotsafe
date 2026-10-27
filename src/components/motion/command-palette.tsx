@@ -20,6 +20,7 @@ import { useTouchCapable } from "@/lib/hooks/use-touch-capable";
 import { PresenceGate } from "@/lib/presence-gate";
 import { cn } from "@/lib/utils";
 import { searchCommands } from "@/lib/command-search";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
 export type CommandItem = {
   id: string;
@@ -29,6 +30,10 @@ export type CommandItem = {
   keywords?: string[];
   icon?: LucideIcon;
   badge?: ReactNode;
+  /** What Enter does on this row, shown in the footer, e.g. "Copy". */
+  action?: string;
+  /** Sets the label in monospace, for names like variable keys. */
+  mono?: boolean;
   onSelect: () => void;
 };
 
@@ -205,7 +210,7 @@ export function CommandPalette({
               transition={{ duration: 0.18, ease: EASE_OUT }}
               {...gate}
               onClick={() => setOpen(false)}
-              className="pointer-events-auto fixed inset-0 z-[100] bg-background/5 [backdrop-filter:blur(12px)_saturate(140%)] [-webkit-backdrop-filter:blur(12px)_saturate(140%)]"
+              className="pointer-events-auto fixed inset-0 z-[100] bg-black/10 supports-backdrop-filter:backdrop-blur-xs"
             />
           )}
         </PresenceGate>
@@ -241,10 +246,10 @@ export function CommandPalette({
                 transition={reduce ? { duration: 0.1 } : PANEL_SPRING}
                 {...gate}
                 onKeyDown={onKeyDown}
-                className="pointer-events-auto w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background shadow-2xl will-change-transform"
+                className="pointer-events-auto flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-shell p-1.5 shadow-2xl will-change-transform"
               >
-                <div className="flex items-center gap-3 border-b border-border px-4">
-                  <Search className="h-4 w-4 text-muted-foreground" />
+                <div className="flex items-center gap-3 px-3.5">
+                  <Search className="size-4 shrink-0 text-muted-foreground" />
                   <input
                     ref={inputRef}
                     value={query}
@@ -268,28 +273,23 @@ export function CommandPalette({
                       canTouch && "text-base",
                     )}
                   />
-                  <kbd className="hidden rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground sm:inline-block">
-                    ESC
-                  </kbd>
+                  <Kbd aria-hidden className="bg-card">esc</Kbd>
                 </div>
                 <div
                   ref={listRef}
                   id={`${uid}-list`}
                   role="listbox"
                   aria-label="Commands"
-                  className="max-h-[60vh] overflow-y-auto overscroll-contain p-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="max-h-[52vh] overflow-y-auto overscroll-contain rounded-2xl bg-card p-1.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   {rows.length === 0 ? (
-                    <div className="p-8 text-center text-sm text-muted-foreground">
+                    <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                       {emptyMessage}
                     </div>
                   ) : (
                     grouped.map(([group, list]) => (
-                      <div key={group} className="mb-1 last:mb-0">
-                        <div
-                          aria-hidden
-                          className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                        >
+                      <div key={group} className="mb-1.5 last:mb-0">
+                        <div aria-hidden className="px-2.5 pt-1.5 pb-1 text-xs font-medium text-muted-foreground">
                           {group}
                         </div>
                         {list.map((it) => {
@@ -311,7 +311,7 @@ export function CommandPalette({
                                 setOpen(false);
                               }}
                               className={cn(
-                                "relative isolate flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm transition-colors",
+                                "relative isolate flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors",
                                 isActive
                                   ? "text-foreground"
                                   : "text-muted-foreground",
@@ -320,7 +320,7 @@ export function CommandPalette({
                               {isActive ? (
                                 <motion.span
                                   layoutId={`${uid}-active`}
-                                  className="absolute inset-0 z-0 rounded-md bg-muted"
+                                  className="absolute inset-0 z-0 rounded-xl bg-muted"
                                   transition={
                                     reduce
                                       ? { duration: 0 }
@@ -335,11 +335,17 @@ export function CommandPalette({
                                 />
                               ) : null}
                               {Icon ? (
-                                <Icon className="relative z-10 h-4 w-4" />
+                                <Icon className="relative z-10 size-4 shrink-0" />
                               ) : hasIcons ? (
-                                <span className="relative z-10 h-4 w-4" />
+                                <span className="relative z-10 size-4 shrink-0" />
                               ) : null}
-                              <span className="relative z-10 flex-1 truncate">
+                              <span
+                                className={cn(
+                                  "relative z-10 flex-1 truncate",
+                                  isActive && "text-foreground",
+                                  it.mono && "font-mono text-[12.5px]",
+                                )}
+                              >
                                 {it.label}
                               </span>
                               {it.badge ? (
@@ -359,9 +365,24 @@ export function CommandPalette({
                     ))
                   )}
                 </div>
-                {footer ? (
-                  <div className="border-t border-border px-4 py-2 text-xs text-muted-foreground">{footer}</div>
-                ) : null}
+                <div className="flex items-center gap-3 px-3.5 pt-2.5 pb-1.5 text-xs text-muted-foreground">
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{footer}</span>
+                  <span aria-hidden className="flex shrink-0 items-center gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <KbdGroup>
+                        <Kbd className="bg-card">↑</Kbd>
+                        <Kbd className="bg-card">↓</Kbd>
+                      </KbdGroup>
+                      Move
+                    </span>
+                    {rows[active] ? (
+                      <span className="flex items-center gap-1.5">
+                        <Kbd className="bg-card">↵</Kbd>
+                        {rows[active].action ?? "Select"}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
               </motion.div>
             </div>
           )}
