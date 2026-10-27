@@ -2,9 +2,9 @@
 //! same command names, camelCase arguments and JSON the UI sends, against a
 //! vault in a temp folder.
 //!
-//! Commands that need an `AppHandle` (the clipboard, the file picker, sync
-//! events) and ones that reach the network or the keychain aren't covered
-//! here. Every test gets its own `AppState`; the config directory is shared
+//! Copying is checked through the hash the session keeps; test builds don't
+//! touch the system clipboard. The file picker, and commands that reach the
+//! network or the keychain, aren't covered here. Every test gets its own `AppState`; the config directory is shared
 //! and only ever written, never read back.
 
 use std::path::Path;
@@ -63,6 +63,11 @@ impl Desktop {
                 commands::all_variables,
                 commands::vault_health,
                 commands::reveal_variable,
+                commands::copy_variable,
+                commands::sync_now,
+                secrets::copy_secret,
+                devices::create_enrollment_code,
+                devices::copy_enrollment_code,
                 commands::set_variable,
                 commands::delete_variable,
                 commands::clear_import_files,
@@ -558,4 +563,43 @@ fn the_rotation_queue_shrinks_as_values_are_rotated() {
     assert_eq!(desktop.ok("rotation_queue", json!({}))["variables"], json!([]));
     desktop.ok("dismiss_rotation_queue", json!({}));
     assert_eq!(desktop.ok("rotation_queue", json!({})), Value::Null);
+}
+
+#[test]
+fn copying_puts_the_value_on_the_clipboard_and_remembers_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "API_KEY", "sk_copy_me");
+    desktop.set(&dev, "SHARED", "shared-value");
+    let secret = desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": false }));
+    let copied = || desktop.state.0.lock().unwrap().clipboard.map(|(hash, _)| hash);
+
+    assert_eq!(copied(), None);
+    desktop.ok("copy_variable", json!({ "environmentId": dev, "key": "API_KEY" }));
+    assert_eq!(copied(), Some(crate::state::hash_text("sk_copy_me")));
+    // A linked variable copies its secret's current value.
+    desktop.ok("copy_variable", json!({ "environmentId": dev, "key": "SHARED" }));
+    assert_eq!(copied(), Some(crate::state::hash_text("shared-value")));
+    desktop.ok("copy_secret", json!({ "id": secret["id"] }));
+    assert_eq!(copied(), Some(crate::state::hash_text("shared-value")));
+    let missing = desktop.err("copy_variable", json!({ "environmentId": dev, "key": "NOPE" }));
+    assert_eq!(missing["message"], "NOPE isn't set.");
+
+    // Enrollment codes copy too, but only one made on this Mac.
+    assert!(desktop.err("copy_enrollment_code", json!({}))["message"].as_str().unwrap().contains("Add a device again"));
+    let code = desktop.ok("create_enrollment_code", json!({}));
+    desktop.ok("copy_enrollment_code", json!({}));
+    assert_eq!(copied(), Some(crate::state::hash_text(code["code"].as_str().unwrap())));
+
+    desktop.ok("lock", json!({}));
+    assert_eq!(desktop.err("copy_variable", json!({ "environmentId": dev, "key": "API_KEY" }))["kind"], "locked");
+    assert!(desktop.err("copy_enrollment_code", json!({}))["message"].as_str().unwrap().contains("Add a device again"), "codes are forgotten on lock");
+}
+
+#[test]
+fn syncing_a_folder_vault_is_a_no_op() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    assert_eq!(desktop.ok("sync_now", json!({})), json!({ "lastSyncedAt": null, "error": null }));
 }

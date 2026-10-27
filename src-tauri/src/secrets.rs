@@ -3,16 +3,15 @@
 //! variables, values only reach the webview through `reveal_secret`; copying
 //! goes straight from Rust to the clipboard.
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::{Due, Entry, Environment, Policy, Record, Secret, Secrets, VersionState};
 use serde::Serialize;
-use tauri::{AppHandle, State};
-use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri::{AppHandle, Runtime, State};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::state::{AppState, CmdError, CmdResult, Session, hash_text};
+use crate::state::{AppState, CmdError, CmdResult, Session};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,14 +215,14 @@ pub async fn reveal_secret(state: State<'_, AppState>, id: Uuid) -> CmdResult<St
 }
 
 #[tauri::command]
-pub async fn copy_secret(app: AppHandle, state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
+pub async fn copy_secret<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
     state
         .run(move |s| {
             let snapshot = Snapshot::take(s)?;
             let secret = snapshot.secret(id)?;
             let value = secret.current_value().ok_or_else(|| CmdError::other("This secret has no value."))?;
-            app.clipboard().write_text(value).map_err(|e| CmdError::other(e.to_string()))?;
-            s.clipboard = Some((hash_text(value), Instant::now()));
+            let value = value.to_string();
+            crate::state::copy_to_clipboard(&app, s, &value)?;
             Ok(())
         })
         .await

@@ -4,7 +4,6 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use dotsafe_core::license::unix_now;
 use dotsafe_core::{
@@ -13,8 +12,7 @@ use dotsafe_core::{
 };
 use dotsafe_stores::{S3Credentials, S3Store};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
-use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri::{AppHandle, Runtime, State};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -22,7 +20,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
 use crate::licensing::{self, ApiError};
-use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind, IDLE_LOCK, hash_text};
+use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind, IDLE_LOCK};
 
 const MIN_PASSWORD_LEN: usize = 8;
 const DEFAULT_ENV: &str = "development";
@@ -211,7 +209,7 @@ pub struct SyncView {
 
 /// Syncs a bucket vault now, instead of waiting for the background sync.
 #[tauri::command]
-pub async fn sync_now(app: AppHandle, state: State<'_, AppState>) -> CmdResult<SyncView> {
+pub async fn sync_now<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> CmdResult<SyncView> {
     let inner = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || crate::sync::sync_once(&inner, Some(&app)))
         .await
@@ -601,8 +599,8 @@ pub async fn reveal_variable(state: State<'_, AppState>, environment_id: Uuid, k
 /// Copies a value to the clipboard and clears it again after 30 seconds,
 /// unless something else was copied in the meantime.
 #[tauri::command]
-pub async fn copy_variable(
-    app: AppHandle,
+pub async fn copy_variable<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     environment_id: Uuid,
     key: String,
@@ -611,8 +609,7 @@ pub async fn copy_variable(
         .run(move |s| {
             let env = s.environment(environment_id)?;
             let value = Zeroizing::new(resolved_value(s, &env, &key)?);
-            app.clipboard().write_text(value.as_str()).map_err(|e| CmdError::other(e.to_string()))?;
-            s.clipboard = Some((hash_text(&value), Instant::now()));
+            crate::state::copy_to_clipboard(&app, s, &value)?;
             Ok(())
         })
         .await

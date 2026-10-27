@@ -15,8 +15,7 @@ use dotsafe_core::{
 };
 use dotsafe_stores::S3Store;
 use serde::Serialize;
-use tauri::{AppHandle, State};
-use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri::{AppHandle, Runtime, State};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -227,12 +226,11 @@ pub async fn create_enrollment_code(state: State<'_, AppState>) -> CmdResult<Enr
 /// Copies the code just made, for pasting on the other Mac (Universal
 /// Clipboard). Cleared from the clipboard like any copied secret.
 #[tauri::command]
-pub async fn copy_enrollment_code(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn copy_enrollment_code<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>) -> CmdResult<()> {
     state
         .run(move |s| {
             let code = s.enrollment_code.clone().ok_or_else(|| CmdError::other("Add a device again for a new code."))?;
-            app.clipboard().write_text(code.as_str()).map_err(|e| CmdError::other(e.to_string()))?;
-            s.clipboard = Some((crate::state::hash_text(&code), std::time::Instant::now()));
+            crate::state::copy_to_clipboard(&app, s, &code)?;
             Ok(())
         })
         .await

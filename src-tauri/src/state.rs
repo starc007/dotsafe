@@ -9,7 +9,7 @@ use dotsafe_agent::grants::Grants;
 use dotsafe_core::{Config, Environment, Project, Record, Stamp, Vault};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -206,6 +206,18 @@ impl AppState {
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// Puts a secret on the clipboard and remembers its hash, so housekeeping
+/// clears it after [`CLIPBOARD_CLEAR`] unless something else was copied.
+/// Test builds skip the system clipboard; they check the remembered hash.
+pub fn copy_to_clipboard<R: Runtime>(app: &AppHandle<R>, s: &mut Session, text: &str) -> CmdResult<()> {
+    #[cfg(not(test))]
+    app.clipboard().write_text(text).map_err(|e| CmdError::other(e.to_string()))?;
+    #[cfg(test)]
+    let _ = app;
+    s.clipboard = Some((hash_text(text), Instant::now()));
+    Ok(())
 }
 
 pub fn hash_text(text: &str) -> [u8; 32] {
