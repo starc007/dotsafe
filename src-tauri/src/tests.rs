@@ -267,7 +267,7 @@ fn listing_commands_never_return_values() {
     desktop.set(&web, "SHARED", SHARED);
     let secret = desktop.ok(
         "share_variable",
-        json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": true }),
+        json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "link": [web] }),
     );
     let id = secret["id"].clone();
     desktop.ok("stage_secret", json!({ "id": id, "value": "staged-value-must-not-leak-3", "note": "next" }));
@@ -316,7 +316,7 @@ fn quick_copy_lists_every_variable_by_name() {
     desktop.set(&web_dev, "B", "1");
     desktop.set(&api_dev, "A", "2");
     desktop.set(&api_dev, "LINKED", "3");
-    desktop.ok("share_variable", json!({ "environmentId": api_dev, "key": "LINKED", "name": "linked", "linkCopies": false }));
+    desktop.ok("share_variable", json!({ "environmentId": api_dev, "key": "LINKED", "name": "linked", "link": [] }));
 
     let hits = desktop.ok("all_variables", json!({}));
     let rows: Vec<String> = hits
@@ -365,15 +365,24 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     let desktop = Desktop::with_vault(dir.path());
     let (_, api) = desktop.project("api");
     let (_, web) = desktop.project("web");
+    let (_, docs) = desktop.project("docs");
+    let (_, other) = desktop.project("other");
     desktop.set(&api, "STRIPE_KEY", "sk_old");
     desktop.set(&web, "STRIPE_KEY", "sk_old");
+    desktop.set(&docs, "STRIPE_KEY", "sk_old");
+    desktop.set(&other, "STRIPE_KEY", "sk_different");
 
     let preview = desktop.ok("share_preview", json!({ "environmentId": api, "key": "STRIPE_KEY" }));
-    assert_eq!(preview["copies"].as_array().unwrap().len(), 1, "web has the same value");
+    let projects = |list: &Value| list.as_array().unwrap().iter().map(|u| u["project"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(projects(&preview["copies"]), ["docs", "web"], "same value");
+    assert_eq!(projects(&preview["different"]), ["other"], "same name, another value");
+    // Only the chosen copies are linked, and never one with another value.
     let secret = desktop.ok(
         "share_variable",
-        json!({ "environmentId": api, "key": "STRIPE_KEY", "name": "Stripe", "linkCopies": true }),
+        json!({ "environmentId": api, "key": "STRIPE_KEY", "name": "Stripe", "link": [web, other] }),
     );
+    assert!(desktop.ok("list_variables", json!({ "environmentId": docs }))[0]["secret"].is_null());
+    assert!(desktop.ok("list_variables", json!({ "environmentId": other }))[0]["secret"].is_null());
     let id = secret["id"].clone();
     assert_eq!(secret["usedIn"].as_array().unwrap().len(), 2);
     let linked = desktop.ok("list_variables", json!({ "environmentId": web }));
@@ -486,7 +495,7 @@ fn connections_providers_and_targets() {
     desktop.set(&dev, "OPENAI_API_KEY", "sk-1");
     let secret = desktop.ok(
         "share_variable",
-        json!({ "environmentId": dev, "key": "OPENAI_API_KEY", "name": "OpenAI", "linkCopies": false }),
+        json!({ "environmentId": dev, "key": "OPENAI_API_KEY", "name": "OpenAI", "link": [] }),
     );
     let id = secret["id"].clone();
 
@@ -553,7 +562,7 @@ fn the_rotation_queue_shrinks_as_values_are_rotated() {
     let (_, dev) = desktop.project("api");
     desktop.set(&dev, "DB_URL", "postgres://old");
     desktop.set(&dev, "SHARED", "s1");
-    desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": false }));
+    desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "link": [] }));
     assert_eq!(desktop.ok("rotation_queue", json!({})), Value::Null);
 
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -583,7 +592,7 @@ fn copying_puts_the_value_on_the_clipboard_and_remembers_it() {
     let (_, dev) = desktop.project("api");
     desktop.set(&dev, "API_KEY", "sk_copy_me");
     desktop.set(&dev, "SHARED", "shared-value");
-    let secret = desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": false }));
+    let secret = desktop.ok("share_variable", json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "link": [] }));
     let copied = || desktop.state.0.lock().unwrap().clipboard.map(|(hash, _)| hash);
 
     assert_eq!(copied(), None);
@@ -624,7 +633,7 @@ fn guided_and_aws_providers_are_set_up_like_the_others() {
     desktop.set(&dev, "AWS_SECRET_ACCESS_KEY", "secret-1");
     desktop.set(&dev, "AWS_ACCESS_KEY_ID", "AKIA1");
     let share = |key: &str| {
-        desktop.ok("share_variable", json!({ "environmentId": dev, "key": key, "name": key, "linkCopies": false }))["id"].clone()
+        desktop.ok("share_variable", json!({ "environmentId": dev, "key": key, "name": key, "link": [] }))["id"].clone()
     };
     let (stripe_secret, aws_secret) = (share("STRIPE_KEY"), share("AWS_SECRET_ACCESS_KEY"));
     share("AWS_ACCESS_KEY_ID");
