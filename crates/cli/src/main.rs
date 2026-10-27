@@ -70,10 +70,24 @@ enum Cmd {
         #[command(flatten)]
         env: EnvArg,
     },
-    /// Delete variables
+    /// Delete variables. An environment's own value is removed and any inherited one applies again
     Unset {
         #[arg(required = true)]
         keys: Vec<String>,
+        /// Remove an inherited variable here entirely, so the parent's value doesn't apply either
+        #[arg(long)]
+        hide: bool,
+        #[command(flatten)]
+        env: EnvArg,
+    },
+    /// Make an environment inherit another's variables (same project); its own override them
+    Inherit {
+        /// The environment to inherit from
+        #[arg(required_unless_present = "none")]
+        parent: Option<String>,
+        /// Stop inheriting
+        #[arg(long, conflicts_with = "parent")]
+        none: bool,
         #[command(flatten)]
         env: EnvArg,
     },
@@ -379,30 +393,76 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Get { key, env } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            let secrets = ctx.vault.secrets()?;
-            match target.env.entry(&key).and_then(|entry| secrets.value(entry)) {
+            match ctx.resolver()?.value(target.env.id, &key)? {
                 Some(value) => println!("{value}"),
                 None => bail!("{key} is not set in {}", target.label()),
             }
         }
-        Cmd::Unset { keys, env } => {
+        Cmd::Unset { keys, hide, env } => {
             let ctx = Ctx::open()?;
             let mut target = ctx.target(env.env, false)?;
+            let inherited: Vec<String> = match target.env.parent {
+                Some(parent) => ctx.resolver()?.entries(parent)?.into_iter().map(|e| e.key).collect(),
+                None => Vec::new(),
+            };
             for key in keys {
-                if target.env.entry(&key).is_none() {
-                    eprintln!("{key} wasn't set.");
-                    continue;
+                let own = target.env.entry(&key).is_some();
+                let from_parent = inherited.contains(&key);
+                if hide && !from_parent {
+                    bail!("{key} isn't inherited here; plain `dotsafe unset {key}` removes it");
                 }
-                target.env.remove(&key, ctx.stamp());
-                eprintln!("Removed {key} from {}.", target.label());
+                match (own, from_parent, hide) {
+                    (_, true, true) | (false, true, false) => {
+                        target.env.hide(&key, ctx.stamp());
+                        eprintln!("Removed {key} from {}; it's no longer inherited here.", target.label());
+                    }
+                    (true, true, false) => {
+                        target.env.remove(&key, ctx.stamp());
+                        eprintln!("Removed {}'s own {key}; the inherited value applies again. Use --hide to remove it entirely.", target.label());
+                    }
+                    (true, false, _) => {
+                        target.env.remove(&key, ctx.stamp());
+                        eprintln!("Removed {key} from {}.", target.label());
+                    }
+                    (false, false, _) => eprintln!("{key} wasn't set."),
+                }
             }
             ctx.vault.put(Record::Environment(target.env))?;
         }
         Cmd::List { env } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            for key in target.env.keys() {
-                println!("{key}");
+            for entry in ctx.resolver()?.entries(target.env.id)? {
+                println!("{}", entry.key);
+            }
+        }
+        Cmd::Inherit { parent, none, env } => {
+            let ctx = Ctx::open()?;
+            let mut target = ctx.target(env.env, true)?;
+            target.env.parent = match (parent, none) {
+                (_, true) => None,
+                (Some(name), false) => {
+                    let found = ctx.environments()?.into_iter().find(|e| e.project_id == target.project.id && e.name == name);
+                    let Some(parent) = found else { bail!("{} has no {name} environment", target.project.name) };
+                    if parent.id == target.env.id {
+                        bail!("an environment can't inherit from itself");
+                    }
+                    Some(parent.id)
+                }
+                (None, false) => bail!("name the environment to inherit from, or pass --none"),
+            };
+            target.env.updated = ctx.stamp();
+            // Check the chain before saving: no loops, nothing missing.
+            let mut records = ctx.vault.list()?;
+            records.retain(|r| r.id() != target.env.id);
+            records.push(Record::Environment(target.env.clone()));
+            dotsafe_core::Resolver::from_records(&records).chain(target.env.id)?;
+            let label = target.label();
+            let parent_name = target.env.parent.and_then(|id| ctx.environments().ok()?.into_iter().find(|e| e.id == id).map(|e| e.name));
+            ctx.vault.put(Record::Environment(target.env))?;
+            match parent_name {
+                Some(name) => eprintln!("{label} inherits from {name} now; its own variables override those."),
+                None => eprintln!("{label} doesn't inherit from anything now."),
             }
         }
         Cmd::Import { file, from, item, env } => {
@@ -440,9 +500,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Export { env, output, force } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            let secrets = ctx.vault.secrets()?;
-            let vars: Vec<(String, String)> =
-                secrets.resolve(&target.env).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let vars = ctx.resolver()?.resolve(target.env.id)?;
             let text = export::text(&vars, &target.label(), output.is_some());
             match output {
                 Some(path) => {
@@ -500,9 +558,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Run { env, proxy, command } => {
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            let secrets = ctx.vault.secrets()?;
-            let vars: Vec<(String, String)> =
-                secrets.resolve(&target.env).map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            let vars = ctx.resolver()?.resolve(target.env.id)?;
             let profiles = if proxy { dotsafe_agent::proxy::profiles(&ctx.vault.list()?) } else { Vec::new() };
             drop(ctx);
             let mut cmd = Command::new(&command[0]);
@@ -773,6 +829,11 @@ impl Ctx {
 
     fn stamp(&self) -> Stamp {
         self.vault.stamp(self.device_id)
+    }
+
+    /// Works out variables with inheritance, links and references.
+    fn resolver(&self) -> Result<dotsafe_core::Resolver> {
+        Ok(dotsafe_core::Resolver::from_records(&self.vault.list()?))
     }
 
     fn projects(&self) -> Result<Vec<Project>> {

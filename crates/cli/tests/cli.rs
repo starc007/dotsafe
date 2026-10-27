@@ -576,3 +576,36 @@ fn custom_proxy_profiles_keep_more_keys_out_of_processes() {
     m.ok(&project, &["proxy", "remove", "Mistral"]);
     assert_eq!(m.ok(&project, &["run", "--proxy", "--", "sh", "-c", "printf '%s' \"$MISTRAL_API_KEY\""]), "m-real-key");
 }
+
+#[test]
+fn environments_inherit_and_values_reference_each_other() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "-e", "production", "DB_HOST=db.prod", "DB_URL=postgres://${{ DB_HOST }}/app", "SENTRY=https://s"]);
+    m.ok(&project, &["set", "-e", "staging", "DB_HOST=db.staging"]);
+    let out = m.run(&project, &["inherit", "production", "-e", "staging"]);
+    assert!(stderr(&out).contains("inherits from production"), "{}", stderr(&out));
+    // A loop is refused before anything is saved.
+    let looped = m.run(&project, &["inherit", "staging", "-e", "production"]);
+    assert!(stderr(&looped).contains("loop"), "{}", stderr(&looped));
+
+    assert_eq!(m.ok(&project, &["list", "-e", "staging"]), "DB_HOST\nDB_URL\nSENTRY\n");
+    assert_eq!(m.ok(&project, &["get", "-e", "staging", "DB_URL"]), "postgres://db.staging/app\n");
+    let ran = m.ok(&project, &["run", "-e", "staging", "--", "sh", "-c", "printf '%s' \"$DB_URL\""]);
+    assert_eq!(ran, "postgres://db.staging/app", "run gets the expanded, inherited value");
+    assert!(m.ok(&project, &["export", "-e", "staging"]).contains("SENTRY=https://s"));
+
+    // Removing an inherited variable here, and an own one that falls back.
+    assert!(stderr(&m.run(&project, &["unset", "-e", "staging", "SENTRY"])).contains("no longer inherited"));
+    assert!(!m.ok(&project, &["list", "-e", "staging"]).contains("SENTRY"));
+    assert!(stderr(&m.run(&project, &["unset", "-e", "staging", "DB_HOST"])).contains("inherited value applies again"));
+    assert_eq!(m.ok(&project, &["get", "-e", "staging", "DB_URL"]), "postgres://db.prod/app\n");
+
+    // A broken reference stops the command instead of running with a wrong value.
+    m.ok(&project, &["set", "-e", "staging", "API=${{ NOPE }}/v1"]);
+    let broken = m.run(&project, &["run", "-e", "staging", "--", "true"]);
+    assert!(!broken.status.success() && stderr(&broken).contains("API refers to NOPE, which isn't set"), "{}", stderr(&broken));
+    m.ok(&project, &["inherit", "--none", "-e", "staging"]);
+    m.ok(&project, &["unset", "-e", "staging", "API"]);
+    assert_eq!(m.ok(&project, &["list", "-e", "staging"]), "");
+}
