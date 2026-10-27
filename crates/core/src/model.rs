@@ -100,14 +100,15 @@ impl Record {
     }
 
     /// The oldest record format that can hold this record: 3 for shared
-    /// secrets, linked variables and audit days, 4 for integrations, 2 for
-    /// the rest. Older clients refuse newer versions instead of rewriting
+    /// secrets, linked variables and audit days, 4 for integrations (and
+    /// audit days that log them), 2 for the rest. Older clients refuse newer versions instead of rewriting
     /// them without what they don't understand.
     pub(crate) fn min_version(&self) -> u32 {
         match self {
             Record::Project(_) => 2,
             Record::Environment(e) if e.vars.values().any(|v| v.secret.is_some()) => 3,
             Record::Environment(_) => 2,
+            Record::Audit(a) if a.needs_v4() => 4,
             Record::Secret(_) | Record::Audit(_) => 3,
             Record::Connection(_) | Record::Binding(_) => 4,
         }
@@ -234,6 +235,11 @@ impl Environment {
     /// Live variables in key order.
     pub fn entries(&self) -> impl Iterator<Item = (&str, Entry<'_>)> {
         self.vars.iter().filter_map(|(k, v)| Some((k.as_str(), v.entry()?)))
+    }
+
+    /// When a live variable was last set or linked.
+    pub fn changed(&self, key: &str) -> Option<Stamp> {
+        self.vars.get(key).filter(|v| v.value.is_some() || v.secret.is_some()).map(|v| v.stamp)
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &str> {

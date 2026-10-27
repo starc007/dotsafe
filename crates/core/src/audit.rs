@@ -1,5 +1,6 @@
-//! The audit log: what agents asked for and what came of it. Kept in the
-//! vault, so it's encrypted like everything else and syncs across devices.
+//! The audit log: what agents asked for and what came of it, and rotations
+//! through providers and pushes to deploy targets. Kept in the vault, so
+//! it's encrypted like everything else and syncs across devices.
 //!
 //! One record per device per day keeps records small and writes conflict-free
 //! (only one device writes each). Events merge by id. After 90 days a day's
@@ -36,7 +37,8 @@ pub struct AuditDay {
 pub struct AuditEvent {
     /// Unix milliseconds.
     pub at: u64,
-    /// Who asked, as the agent described itself ("Claude Code").
+    /// Who asked, as the agent described itself ("Claude Code"), or "You"
+    /// for rotations and pushes.
     pub actor: String,
     pub action: AuditAction,
     pub outcome: AuditOutcome,
@@ -57,6 +59,12 @@ pub struct AuditEvent {
 pub enum AuditAction {
     Run,
     Generate,
+    /// A provider issued a new key. Record format v4.
+    Rotate,
+    /// A value was pushed to a deploy target. Record format v4.
+    Push,
+    /// An old key was revoked at its provider. Record format v4.
+    Revoke,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +102,12 @@ impl AuditDay {
 
     pub fn events(&self) -> impl Iterator<Item = &AuditEvent> {
         self.events.values()
+    }
+
+    /// Holds actions added with integrations, which clients from before
+    /// record format v4 can't read.
+    pub(crate) fn needs_v4(&self) -> bool {
+        self.events.values().any(|e| matches!(e.action, AuditAction::Rotate | AuditAction::Push | AuditAction::Revoke))
     }
 
     /// Past the retention period.

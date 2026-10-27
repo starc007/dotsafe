@@ -7,12 +7,64 @@
 //! can be rotated too. The calls themselves are in `crates/integrations`;
 //! core has no network code.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::model::Stamp;
+use crate::model::{Record, Stamp};
+
+/// The shared secrets that hold live connections' admin tokens. Lists of
+/// the user's own secrets leave these out; they're managed from the
+/// connection instead.
+pub fn credentials(records: &[Record]) -> HashSet<Uuid> {
+    records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Connection(c) if !c.deleted => Some(c.credential),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Values a removed device could still know: shared secrets whose current
+/// value is older than `since`, and variables with their own value last set
+/// before it. Rotating one takes it off the list.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Exposed {
+    pub secrets: Vec<Uuid>,
+    /// (environment id, variable name)
+    pub variables: Vec<(Uuid, String)>,
+}
+
+pub fn exposed_since(records: &[Record], since: u64) -> Exposed {
+    let mut exposed = Exposed::default();
+    let projects: HashSet<Uuid> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::Project(p) if !p.deleted => Some(p.id),
+            _ => None,
+        })
+        .collect();
+    for record in records {
+        match record {
+            Record::Secret(s) if !s.deleted => {
+                if s.current().is_some_and(|(_, v)| v.created.at_ms < since && v.value.is_some()) {
+                    exposed.secrets.push(s.id);
+                }
+            }
+            Record::Environment(e) if !e.deleted && projects.contains(&e.project_id) => {
+                for key in e.keys() {
+                    if e.value(key).is_some() && e.changed(key).is_some_and(|stamp| stamp.at_ms < since) {
+                        exposed.variables.push((e.id, key.to_string()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    exposed
+}
 
 /// An account at a service, and the admin token dotsafe calls it with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

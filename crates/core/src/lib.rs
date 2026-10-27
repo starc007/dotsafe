@@ -17,7 +17,7 @@ pub mod secret;
 pub mod store;
 pub mod vault;
 
-pub use config::{Config, S3Location};
+pub use config::{Config, RotationQueue, S3Location};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::{DeviceInfo, DeviceKey, EnrollmentCode, RecoveryKey};
