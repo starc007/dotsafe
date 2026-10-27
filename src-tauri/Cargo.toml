@@ -33,6 +33,8 @@ keyring = "4.2.0"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# Runs commands through real IPC on a mock runtime (src/tests.rs).
+tauri = { version = "2", features = ["test"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

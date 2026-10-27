@@ -71,6 +71,7 @@ scripts/check.sh                                    # everything below, in one g
 
 - Match the existing style: small modules, doc comments that explain why, `thiserror` errors in core, `anyhow` in the CLI.
 - **Core tests:** live in `crates/core/tests/` (`vault.rs`, `format_v2.rs`) and use cheap Argon2 params (`FAST`). Add a test for every format, crypto or merge change, including the tamper cases. `tests/fixtures/v1-vault` is a real v1 vault (password `fixture-password`) for upgrade tests; never regenerate it with current code.
+- **Desktop tests:** see [Testing the desktop app](#testing-the-desktop-app).
 - **CLI tests:** run the real binary with `DOTSAFE_CONFIG_DIR`, `DOTSAFE_NO_KEYCHAIN=1` and `DOTSAFE_PASSWORD`, so they never touch the user's real config or keychain.
 - **Don't run `cargo remove` blindly.** It silently deletes the `[profile.dev.package.blake2]` override in the root `Cargo.toml`. That override keeps Argon2 fast in debug builds; without it, tests get about 10× slower. Re-add it if it disappears.
 
@@ -97,4 +98,4 @@ scripts/check.sh                                    # everything below, in one g
 - **Device keys never leave the keychain** and are only read after `presence::confirm` (Touch ID). Device unlock is macOS-only; don't offer it where there's no presence check.
 - **Agents never get values.** No broker request or MCP tool returns a secret; values only reach processes the broker starts after the user approves. Keep the refusal list in `crates/agent/src/policy.rs` and the environment allowlist in `run.rs` strict. The secret proxy (`proxy.rs`) forwards only to each route's one HTTPS upstream, never follows redirects, and drops any auth the command sends. Every agent request is written to the vault's audit log (`core/src/audit.rs`), names only. Approving checks presence (Touch ID) in Rust, in `answer_agent_request`; never move that check into the webview.
 - **Licensing and sync never block the vault.** License requests run off the session lock (`off_thread` in commands.rs), and bucket sync uses the shared `Arc<Vault>` outside it (`sync.rs`). Network failures are `offline` errors, never revocations or data loss. Keep it that way.
-- **Known gap:** the desktop commands (`src-tauri/src/commands.rs`) have no automated tests yet.
+- **Desktop command tests** live in `src-tauri/src/tests.rs`. They call commands through real IPC on Tauri's mock runtime, with the same names, camelCase arguments and JSON the UI sends, against a temp vault. Add a command there when you add it to `lib.rs`, and keep `listing_commands_never_return_values` covering every command that lists things. Commands that need an `AppHandle` (clipboard, file picker, sync events), the network or the keychain aren't covered yet.

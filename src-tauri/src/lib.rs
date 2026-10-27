@@ -7,6 +7,8 @@ mod presence;
 mod secrets;
 mod state;
 mod sync;
+#[cfg(test)]
+mod tests;
 
 use tauri::{DragDropEvent, Emitter, Manager, WindowEvent};
 

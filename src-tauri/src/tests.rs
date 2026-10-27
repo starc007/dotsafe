@@ -1,0 +1,441 @@
+//! Desktop commands, called through real IPC on Tauri's mock runtime: the
+//! same command names, camelCase arguments and JSON the UI sends, against a
+//! vault in a temp folder.
+//!
+//! Commands that need an `AppHandle` (the clipboard, the file picker, sync
+//! events) and ones that reach the network or the keychain aren't covered
+//! here. Every test gets its own `AppState`; the config directory is shared
+//! and only ever written, never read back.
+
+use std::path::Path;
+use std::sync::{Arc, Once};
+
+use dotsafe_core::{Config, FolderStore, KdfParams, Vault};
+use serde_json::{Value, json};
+use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets};
+use tauri::webview::InvokeRequest;
+use tauri::{App, WebviewWindow, WebviewWindowBuilder};
+
+use crate::state::{AppState, Session};
+use crate::{broker, commands, devices, secrets};
+
+// Cheap Argon2 settings so tests run fast. Never use these for real vaults.
+const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
+const PASSWORD: &str = "correct horse battery";
+
+/// One app window and the session behind it.
+struct Desktop {
+    webview: WebviewWindow<MockRuntime>,
+    state: AppState,
+    _app: App<MockRuntime>,
+}
+
+impl Desktop {
+    fn new() -> Desktop {
+        static CONFIG_DIR: Once = Once::new();
+        CONFIG_DIR.call_once(|| {
+            let dir = std::env::temp_dir().join(format!("dotsafe-desktop-tests-{}", std::process::id()));
+            // SAFETY: runs once, before any test reads the environment.
+            unsafe { std::env::set_var("DOTSAFE_CONFIG_DIR", dir) };
+        });
+        let state = AppState(Arc::new(std::sync::Mutex::new(Session { config: None, ..Session::default() })));
+        let app = mock_builder()
+            .manage(state.clone())
+            .manage(broker::Approvals::default())
+            .invoke_handler(tauri::generate_handler![
+                commands::status,
+                commands::folder_has_vault,
+                commands::create_vault,
+                commands::connect_vault,
+                commands::bucket_has_vault,
+                commands::unlock,
+                commands::unlock_with_recovery,
+                commands::change_password,
+                commands::reset_recovery_key,
+                commands::lock,
+                commands::list_projects,
+                commands::create_project,
+                commands::delete_project,
+                commands::create_environment,
+                commands::delete_environment,
+                commands::list_variables,
+                commands::all_variables,
+                commands::vault_health,
+                commands::reveal_variable,
+                commands::set_variable,
+                commands::delete_variable,
+                commands::clear_import_files,
+                commands::preview_import,
+                commands::import_variables,
+                commands::get_settings,
+                secrets::list_secrets,
+                secrets::get_secret,
+                secrets::reveal_secret,
+                secrets::share_preview,
+                secrets::share_variable,
+                secrets::link_variable,
+                secrets::unlink_variable,
+                secrets::stage_secret,
+                secrets::promote_secret,
+                secrets::roll_back_secret,
+                secrets::retire_previous_secret,
+                secrets::delete_secret,
+                devices::list_devices,
+                broker::agent_activity,
+            ])
+            .build(mock_context(noop_assets()))
+            .expect("mock app builds");
+        let webview = WebviewWindowBuilder::new(&app, "main", Default::default()).build().expect("mock window");
+        Desktop { webview, state, _app: app }
+    }
+
+    /// A window connected to a new vault in `dir`, unlocked.
+    fn with_vault(dir: &Path) -> Desktop {
+        Vault::create(FolderStore::new(dir), PASSWORD, FAST).unwrap();
+        let desktop = Desktop::new();
+        desktop.ok("connect_vault", json!({ "path": dir, "password": PASSWORD }));
+        desktop
+    }
+
+    fn call(&self, cmd: &str, args: Value) -> Result<Value, Value> {
+        let request = InvokeRequest {
+            cmd: cmd.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            // The app's own origin; commands are refused from anywhere else.
+            url: "tauri://localhost".parse().unwrap(),
+            body: InvokeBody::Json(args),
+            headers: Default::default(),
+            invoke_key: INVOKE_KEY.into(),
+        };
+        get_ipc_response(&self.webview, request).map(|body| body.deserialize::<Value>().unwrap())
+    }
+
+    fn ok(&self, cmd: &str, args: Value) -> Value {
+        self.call(cmd, args).unwrap_or_else(|e| panic!("{cmd} failed: {e}"))
+    }
+
+    /// The error's `kind`, for a call that must fail.
+    fn err(&self, cmd: &str, args: Value) -> Value {
+        match self.call(cmd, args) {
+            Ok(v) => panic!("{cmd} should have failed, got {v}"),
+            Err(e) => e,
+        }
+    }
+
+    /// A project with its `development` environment's id.
+    fn project(&self, name: &str) -> (String, String) {
+        let p = self.ok("create_project", json!({ "name": name }));
+        (p["id"].as_str().unwrap().into(), p["environments"][0]["id"].as_str().unwrap().into())
+    }
+
+    fn set(&self, env: &str, key: &str, value: &str) {
+        self.ok("set_variable", json!({ "environmentId": env, "key": key, "value": value }));
+    }
+
+    fn keys(&self, env: &str) -> Vec<String> {
+        let vars = self.ok("list_variables", json!({ "environmentId": env }));
+        vars.as_array().unwrap().iter().map(|v| v["key"].as_str().unwrap().to_string()).collect()
+    }
+}
+
+#[test]
+fn creating_a_vault_unlocks_it_and_returns_a_recovery_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::new();
+    let status = desktop.ok("status", json!({}));
+    assert_eq!((status["configured"].clone(), status["unlocked"].clone()), (json!(false), json!(false)));
+    assert_eq!(desktop.ok("folder_has_vault", json!({ "path": dir.path() })), json!(false));
+
+    let short = desktop.err("create_vault", json!({ "path": dir.path(), "password": "short" }));
+    assert_eq!(short["kind"], "other");
+
+    let recovery = desktop.ok("create_vault", json!({ "path": dir.path(), "password": PASSWORD }));
+    assert_eq!(recovery.as_str().unwrap().split('-').count(), 13);
+    assert_eq!(desktop.ok("folder_has_vault", json!({ "path": dir.path() })), json!(true));
+    let status = desktop.ok("status", json!({}));
+    assert_eq!((status["configured"].clone(), status["unlocked"].clone()), (json!(true), json!(true)));
+}
+
+#[test]
+fn locked_vaults_refuse_everything_until_the_right_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    desktop.ok("lock", json!({}));
+
+    for (cmd, args) in [
+        ("list_projects", json!({})),
+        ("all_variables", json!({})),
+        ("list_secrets", json!({})),
+        ("create_project", json!({ "name": "api" })),
+    ] {
+        assert_eq!(desktop.err(cmd, args)["kind"], "locked", "{cmd} while locked");
+    }
+    let wrong = desktop.err("unlock", json!({ "password": "not the password" }));
+    assert_eq!((wrong["kind"].as_str(), wrong["message"].as_str()), (Some("invalid_password"), Some("Wrong password.")));
+    desktop.ok("unlock", json!({ "password": PASSWORD }));
+    assert_eq!(desktop.ok("list_projects", json!({})), json!([]));
+}
+
+#[test]
+fn projects_environments_and_variables() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (project, dev) = desktop.project("api");
+    assert_eq!(desktop.err("create_project", json!({ "name": "API" }))["message"], "A project named API already exists.");
+
+    desktop.set(&dev, "DATABASE_URL", "postgres://localhost/app");
+    desktop.set(&dev, "API_KEY", "sk_test_123");
+    assert_eq!(desktop.keys(&dev), ["API_KEY", "DATABASE_URL"]);
+    let reveal = |key: &str| desktop.ok("reveal_variable", json!({ "environmentId": dev, "key": key }));
+    assert_eq!(reveal("API_KEY"), "sk_test_123");
+
+    // Adding over an existing name is refused; editing in place and renaming work.
+    let taken = desktop.err("set_variable", json!({ "environmentId": dev, "key": "API_KEY", "value": "x" }));
+    assert_eq!(taken["message"], "API_KEY already exists.");
+    let bad = desktop.err("set_variable", json!({ "environmentId": dev, "key": "1BAD", "value": "x" }));
+    assert!(bad["message"].as_str().unwrap().contains("letters, numbers and underscores"));
+    desktop.ok(
+        "set_variable",
+        json!({ "environmentId": dev, "key": "API_KEY", "value": "sk_test_456", "previousKey": "API_KEY" }),
+    );
+    desktop.ok(
+        "set_variable",
+        json!({ "environmentId": dev, "key": "STRIPE_KEY", "value": "sk_test_456", "previousKey": "API_KEY" }),
+    );
+    assert_eq!(desktop.keys(&dev), ["DATABASE_URL", "STRIPE_KEY"]);
+    desktop.ok("delete_variable", json!({ "environmentId": dev, "key": "DATABASE_URL" }));
+    assert_eq!(desktop.keys(&dev), ["STRIPE_KEY"]);
+
+    // Environments come back in deploy order, with their variable counts.
+    let prod = desktop.ok("create_environment", json!({ "projectId": project, "name": "production" }));
+    desktop.ok("create_environment", json!({ "projectId": project, "name": "staging" }));
+    let listed = desktop.ok("list_projects", json!({}));
+    let envs: Vec<(&str, u64)> = listed[0]["environments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap(), e["varCount"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(envs, [("development", 1), ("staging", 0), ("production", 0)]);
+
+    desktop.ok("delete_environment", json!({ "environmentId": prod["id"] }));
+    assert_eq!(desktop.ok("list_projects", json!({}))[0]["environments"].as_array().unwrap().len(), 2);
+    desktop.ok("delete_project", json!({ "projectId": project }));
+    assert_eq!(desktop.ok("list_projects", json!({})), json!([]));
+    assert_eq!(desktop.err("list_variables", json!({ "environmentId": dev }))["message"], "That environment no longer exists.");
+}
+
+#[test]
+fn listing_commands_never_return_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    let (_, web) = desktop.project("web");
+    const PLAIN: &str = "plain-value-must-not-leak-1";
+    const SHARED: &str = "shared-value-must-not-leak-2";
+    desktop.set(&dev, "PLAIN", PLAIN);
+    desktop.set(&dev, "SHARED", SHARED);
+    desktop.set(&web, "SHARED", SHARED);
+    let secret = desktop.ok(
+        "share_variable",
+        json!({ "environmentId": dev, "key": "SHARED", "name": "shared", "linkCopies": true }),
+    );
+    let id = secret["id"].clone();
+    desktop.ok("stage_secret", json!({ "id": id, "value": "staged-value-must-not-leak-3", "note": "next" }));
+
+    let responses = [
+        desktop.ok("list_projects", json!({})),
+        desktop.ok("list_variables", json!({ "environmentId": dev })),
+        desktop.ok("list_variables", json!({ "environmentId": web })),
+        desktop.ok("all_variables", json!({})),
+        desktop.ok("vault_health", json!({})),
+        desktop.ok("list_secrets", json!({})),
+        desktop.ok("get_secret", json!({ "id": id })),
+        desktop.ok("share_preview", json!({ "environmentId": dev, "key": "PLAIN" })),
+        desktop.ok("preview_import", json!({ "environmentId": dev, "source": { "kind": "text", "text": "PLAIN=import-must-not-leak-4\n" } })),
+        desktop.ok("get_settings", json!({})),
+        desktop.ok("status", json!({})),
+        desktop.ok("list_devices", json!({})),
+        desktop.ok("agent_activity", json!({})),
+    ];
+    for response in responses {
+        let text = response.to_string();
+        assert!(!text.contains("must-not-leak"), "a value leaked: {text}");
+    }
+    // Only the reveal commands return values.
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "SHARED" })), SHARED);
+    assert_eq!(desktop.ok("reveal_secret", json!({ "id": id })), SHARED);
+}
+
+#[test]
+fn quick_copy_lists_every_variable_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (api, api_dev) = desktop.project("api");
+    let (_, web_dev) = desktop.project("web");
+    desktop.set(&web_dev, "B", "1");
+    desktop.set(&api_dev, "A", "2");
+    desktop.set(&api_dev, "LINKED", "3");
+    desktop.ok("share_variable", json!({ "environmentId": api_dev, "key": "LINKED", "name": "linked", "linkCopies": false }));
+
+    let hits = desktop.ok("all_variables", json!({}));
+    let rows: Vec<String> = hits
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| format!("{}/{}/{} linked={}", h["project"], h["environment"], h["key"], h["linked"]).replace('"', ""))
+        .collect();
+    assert_eq!(rows, ["api/development/A linked=false", "api/development/LINKED linked=true", "web/development/B linked=false"]);
+    assert_eq!(hits[0]["projectId"], json!(api));
+    assert_eq!(hits[0]["environmentId"], json!(api_dev));
+    assert_eq!(desktop.ok("vault_health", json!({})), json!({ "stale": 0, "unreadable": 0 }));
+}
+
+#[test]
+fn importing_pasted_env_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "KEEP", "old");
+    desktop.set(&dev, "SAME", "same");
+    let source = json!({ "kind": "text", "text": "KEEP=new\nSAME=same\nADDED=1\nnot a line\n" });
+
+    let preview = desktop.ok("preview_import", json!({ "environmentId": dev, "source": source }));
+    let changes: Vec<String> = preview["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| format!("{}:{}", e["key"].as_str().unwrap(), e["change"].as_str().unwrap()))
+        .collect();
+    assert!(changes.is_empty(), "a parse error stops the preview: {preview}");
+    assert!(!preview["errors"].as_array().unwrap().is_empty());
+
+    let source = json!({ "kind": "text", "text": "KEEP=new\nSAME=same\nADDED=1\n" });
+    let result = desktop.ok("import_variables", json!({ "environmentId": dev, "source": source, "overwrite": false }));
+    assert_eq!(result, json!({ "added": 1, "updated": 0, "unchanged": 1, "skipped": 1 }));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": dev, "key": "KEEP" })), "old");
+    let result = desktop.ok("import_variables", json!({ "environmentId": dev, "source": source, "overwrite": true }));
+    assert_eq!(result, json!({ "added": 0, "updated": 1, "unchanged": 2, "skipped": 0 }));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": dev, "key": "KEEP" })), "new");
+}
+
+#[test]
+fn shared_secrets_rotate_everywhere_they_are_linked() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, api) = desktop.project("api");
+    let (_, web) = desktop.project("web");
+    desktop.set(&api, "STRIPE_KEY", "sk_old");
+    desktop.set(&web, "STRIPE_KEY", "sk_old");
+
+    let preview = desktop.ok("share_preview", json!({ "environmentId": api, "key": "STRIPE_KEY" }));
+    assert_eq!(preview["copies"].as_array().unwrap().len(), 1, "web has the same value");
+    let secret = desktop.ok(
+        "share_variable",
+        json!({ "environmentId": api, "key": "STRIPE_KEY", "name": "Stripe", "linkCopies": true }),
+    );
+    let id = secret["id"].clone();
+    assert_eq!(secret["usedIn"].as_array().unwrap().len(), 2);
+    let linked = desktop.ok("list_variables", json!({ "environmentId": web }));
+    assert_eq!(linked[0]["secret"]["name"], "Stripe");
+    let edit = json!({ "environmentId": web, "key": "STRIPE_KEY", "value": "x", "previousKey": "STRIPE_KEY" });
+    assert!(desktop.err("set_variable", edit)["message"].as_str().unwrap().contains("linked to a shared secret"));
+
+    // Staged values aren't live until promoted; the old one stays as previous.
+    let staged = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_new", "note": "quarterly" }));
+    assert_eq!(staged["staged"], true);
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" })), "sk_old");
+    let promoted = desktop.ok("promote_secret", json!({ "id": id }));
+    assert_eq!((promoted["staged"].clone(), promoted["hasPrevious"].clone()), (json!(false), json!(true)));
+    for env in [&api, &web] {
+        assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": env, "key": "STRIPE_KEY" })), "sk_new");
+    }
+    desktop.ok("roll_back_secret", json!({ "id": id }));
+    assert_eq!(desktop.ok("reveal_secret", json!({ "id": id })), "sk_old");
+    desktop.ok("stage_secret", json!({ "id": id, "value": "sk_newer", "note": null }));
+    desktop.ok("promote_secret", json!({ "id": id }));
+    let retired = desktop.ok("retire_previous_secret", json!({ "id": id }));
+    assert_eq!(retired["hasPrevious"], false);
+
+    // Unlinking keeps the current value as the variable's own.
+    desktop.ok("unlink_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" }));
+    assert_eq!(desktop.ok("list_variables", json!({ "environmentId": web }))[0]["secret"], Value::Null);
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" })), "sk_newer");
+    desktop.ok("link_variable", json!({ "environmentId": web, "key": "OTHER_NAME", "secretId": id }));
+    assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "OTHER_NAME" })), "sk_newer");
+}
+
+#[test]
+fn recovery_key_unlock_requires_a_new_password() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut vault = Vault::create(FolderStore::new(dir.path()), PASSWORD, FAST).unwrap();
+    let recovery = vault.reset_recovery_key().unwrap().to_display_string();
+    drop(vault);
+    let desktop = Desktop::new();
+    desktop.state.0.lock().unwrap().config = Some(Config::for_vault(dir.path().to_path_buf()));
+
+    let typo = desktop.err("unlock_with_recovery", json!({ "recoveryKey": "nope" }));
+    assert!(typo["message"].as_str().unwrap().contains("13 groups"));
+    desktop.ok("unlock_with_recovery", json!({ "recoveryKey": recovery.to_lowercase() }));
+    assert_eq!(desktop.ok("status", json!({}))["mustChangePassword"], true);
+    // The forgotten password isn't asked for.
+    desktop.ok("change_password", json!({ "currentPassword": null, "newPassword": "a brand new password" }));
+    assert_eq!(desktop.ok("status", json!({}))["mustChangePassword"], false);
+
+    // From now on, changing it needs the current one.
+    let missing = desktop.err("change_password", json!({ "currentPassword": null, "newPassword": "another password" }));
+    assert_eq!(missing["message"], "Enter your current password.");
+    let wrong = desktop.err("change_password", json!({ "currentPassword": PASSWORD, "newPassword": "another password" }));
+    assert_eq!(wrong["kind"], "invalid_password");
+    desktop.ok("lock", json!({}));
+    assert_eq!(desktop.err("unlock", json!({ "password": PASSWORD }))["kind"], "invalid_password");
+    desktop.ok("unlock", json!({ "password": "a brand new password" }));
+}
+
+#[test]
+fn a_new_recovery_key_needs_the_password_and_replaces_the_old_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut vault = Vault::create(FolderStore::new(dir.path()), PASSWORD, FAST).unwrap();
+    let old = vault.reset_recovery_key().unwrap().to_display_string();
+    drop(vault);
+    let desktop = Desktop::new();
+    desktop.ok("connect_vault", json!({ "path": dir.path(), "password": PASSWORD }));
+
+    assert_eq!(desktop.err("reset_recovery_key", json!({ "password": "wrong" }))["kind"], "invalid_password");
+    let new = desktop.ok("reset_recovery_key", json!({ "password": PASSWORD }));
+    assert_ne!(new, json!(old));
+    desktop.ok("lock", json!({}));
+    assert_eq!(desktop.err("unlock_with_recovery", json!({ "recoveryKey": old }))["kind"], "invalid_password");
+    desktop.ok("unlock_with_recovery", json!({ "recoveryKey": new }));
+}
+
+#[test]
+fn a_second_machine_sees_the_same_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = Desktop::with_vault(dir.path());
+    let (_, dev) = first.project("api");
+    first.set(&dev, "TOKEN", "abc");
+
+    let second = Desktop::new();
+    let wrong = second.err("connect_vault", json!({ "path": dir.path(), "password": "nope" }));
+    assert_eq!(wrong["kind"], "invalid_password");
+    second.ok("connect_vault", json!({ "path": dir.path(), "password": PASSWORD }));
+    assert_eq!(second.ok("reveal_variable", json!({ "environmentId": dev, "key": "TOKEN" })), "abc");
+}
+
+#[test]
+fn bucket_forms_are_checked_before_anything_is_contacted() {
+    let desktop = Desktop::new();
+    let bucket = |endpoint: &str, key: &str| {
+        json!({ "bucket": {
+            "endpoint": endpoint, "region": "", "bucket": "vaults", "prefix": "dotsafe",
+            "accessKeyId": key, "secretAccessKey": key,
+        }})
+    };
+    let insecure = desktop.err("bucket_has_vault", bucket("http://example.com", "AKIA"));
+    assert_eq!(insecure["message"], "The endpoint must start with https://.");
+    let no_key = desktop.err("bucket_has_vault", bucket("https://example.com", " "));
+    assert_eq!(no_key["message"], "Enter the access key ID and secret.");
+}
