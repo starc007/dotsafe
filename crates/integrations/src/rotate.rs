@@ -6,6 +6,7 @@
 //! connection never loses the only working key (with Cloudflare's roll, the
 //! old one is already dead by then).
 
+use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
 use dotsafe_core::{Binding, Connection, Pushed, Record, Secret, VersionState, Vault, crypto};
 use uuid::Uuid;
 
@@ -79,7 +80,14 @@ pub fn rotate(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid, lea
     let overlap = service(&connection.service)?.overlap;
 
     let name = format!("dotsafe {} {}", ctx.secret.name, now_ms() / 1000);
-    let new = client.create_key(&connection, &token, &link, &name)?;
+    let secret_name = ctx.secret.name.clone();
+    let new = match client.create_key(&connection, &token, &link, &name) {
+        Ok(new) => new,
+        Err(e) => {
+            log(vault, device, AuditAction::Rotate, &secret_name, format!("new key from {}", connection.name), Some(e.to_string()));
+            return Err(e);
+        }
+    };
 
     // Save it before anything else can fail.
     let mut secret = ctx.secret;
@@ -97,11 +105,15 @@ pub fn rotate(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid, lea
         && overlap
         && !leaked
     {
+        let why = format!("the new key failed its check and is staged: {e}");
+        log(vault, device, AuditAction::Rotate, &secret_name, format!("new key from {}", connection.name), Some(why));
         return Ok(Rotated { promoted: false, staged: Some(e.to_string()), revoked_old: false, pushes: Vec::new() });
     }
     secret = fresh_secret(vault, secret_id)?;
     secret.promote(vault.stamp(device))?;
     vault.put(Record::Secret(secret))?;
+    let summary = format!("new key from {}{}", connection.name, if leaked { " (leaked)" } else { "" });
+    log(vault, device, AuditAction::Rotate, &secret_name, summary, None);
 
     let pushes = push(vault, client, device, secret_id)?;
     let revoked_old = if leaked || !overlap {
@@ -124,7 +136,10 @@ pub fn retire(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid) -> 
             if v.state == VersionState::Previous
                 && let Some(key_id) = ctx.binding.keys.get(&version)
             {
-                client.revoke_key(&connection, &token, key_id)?;
+                let result = client.revoke_key(&connection, &token, key_id);
+                let summary = format!("revoked the old key at {}", connection.name);
+                log(vault, device, AuditAction::Revoke, &ctx.secret.name, summary, result.as_ref().err().map(|e| e.to_string()));
+                result?;
             }
         }
     }
@@ -147,6 +162,11 @@ pub fn push(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid) -> Re
     for (id, target) in targets {
         let outcome = connection(vault, target.connection)
             .and_then(|(connection, token)| client.push(&connection, &token, &target, &value).map(|_| connection.name));
+        let where_to = match &outcome {
+            Ok(name) => format!("pushed to {name} as {}", target.name),
+            Err(_) => format!("push as {}", target.name),
+        };
+        log(vault, device, AuditAction::Push, &ctx.secret.name, where_to, outcome.as_ref().err().map(|e| e.to_string()));
         let (connection_name, error) = match outcome {
             Ok(name) => {
                 let stored = binding.targets.get_mut(&id).expect("listed above");
@@ -162,6 +182,21 @@ pub fn push(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid) -> Re
         vault.put(Record::Binding(binding))?;
     }
     Ok(results)
+}
+
+/// Writes an audit event. A failure to log never fails the rotation itself.
+fn log(vault: &Vault, device: Uuid, action: AuditAction, secret: &str, summary: String, error: Option<String>) {
+    let event = AuditEvent {
+        at: now_ms(),
+        actor: "You".into(),
+        action,
+        outcome: if error.is_some() { AuditOutcome::Failed } else { AuditOutcome::Allowed },
+        summary: format!("{secret}: {summary}"),
+        environment: String::new(),
+        variables: vec![secret.to_string()],
+        detail: error,
+    };
+    let _ = audit::record(vault, device, event);
 }
 
 fn fresh_secret(vault: &Vault, id: Uuid) -> Result<Secret> {
