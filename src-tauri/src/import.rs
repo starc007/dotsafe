@@ -78,7 +78,7 @@ pub fn collect(source: &ImportSource, files: &[PathBuf]) -> (Vec<Parsed>, Vec<St
             if text.len() > MAX_BYTES {
                 errors.push("That's too much text to be a .env file.".into());
             } else {
-                match dotenv::parse(text) {
+                match dotenv::parse_any(text) {
                     Ok(vars) => found.extend(vars.into_iter().map(|(key, value)| Parsed { key, value, file: None })),
                     Err(e) => errors.push(capitalize(&e)),
                 }
@@ -113,7 +113,7 @@ fn read_env_file(path: &Path) -> Result<Vec<(String, String)>, String> {
         return Err("too large to be a .env file".into());
     }
     let text = fs::read_to_string(path).map_err(|_| "not a text file".to_string())?;
-    dotenv::parse(&text)
+    dotenv::parse_any(&text)
 }
 
 /// Keeps each key once, at its first position, with its last value.

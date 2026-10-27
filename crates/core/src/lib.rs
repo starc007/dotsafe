@@ -21,7 +21,7 @@ pub use config::{Config, RotationQueue, S3Location};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::{DeviceInfo, DeviceKey, EnrollmentCode, RecoveryKey};
-pub use integration::{Binding, Connection, ProviderLink, Pushed, Target};
+pub use integration::{Binding, Connection, ProviderLink, ProxyProfile, Pushed, Target};
 pub use license::{License, LicenseStatus};
 pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_var_name};
 pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};

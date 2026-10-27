@@ -1,6 +1,6 @@
 import { Keyboard } from "lucide-react";
-import { SHORTCUTS, ariaShortcut, type Shortcut } from "@/lib/shortcuts";
-import { Kbd } from "@/components/ui/kbd";
+import { SHORTCUTS, ariaShortcut, isMac, type Shortcut } from "@/lib/shortcuts";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
@@ -32,12 +32,25 @@ export function ShortcutsSettings() {
                   </div>
                 ))}
               {group === "General" && (
-                <div className="flex items-center justify-between py-2">
-                  <dt>Close a dialog or settings</dt>
-                  <dd>
-                    <Kbd>Esc</Kbd>
-                  </dd>
-                </div>
+                <>
+                  <div className="flex items-center justify-between py-2">
+                    <dt>Find and copy a variable from any app</dt>
+                    <dd>
+                      <span className="sr-only">{isMac ? "Meta+Alt+K" : "Control+Alt+K"}</span>
+                      <KbdGroup aria-hidden>
+                        <Kbd>{isMac ? "⌥" : "Alt"}</Kbd>
+                        <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
+                        <Kbd>K</Kbd>
+                      </KbdGroup>
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between py-2">
+                    <dt>Close a dialog or settings</dt>
+                    <dd>
+                      <Kbd>Esc</Kbd>
+                    </dd>
+                  </div>
+                </>
               )}
             </dl>
           </section>

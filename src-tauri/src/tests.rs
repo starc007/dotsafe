@@ -98,6 +98,9 @@ impl Desktop {
                 integrations::add_secret_target,
                 integrations::remove_secret_target,
                 integrations::open_provider_console,
+                integrations::list_proxy_profiles,
+                integrations::add_proxy_profile,
+                integrations::remove_proxy_profile,
                 integrations::rotation_queue,
                 integrations::dismiss_rotation_queue,
             ])
@@ -651,4 +654,27 @@ fn guided_and_aws_providers_are_set_up_like_the_others() {
 
     desktop.ok("open_provider_console", json!({ "serviceId": "stripe" }));
     assert!(desktop.err("open_provider_console", json!({ "serviceId": "vercel" }))["message"].as_str().unwrap().contains("no console link"));
+}
+
+#[test]
+fn custom_proxy_profiles_are_checked_and_stored_in_the_vault() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let profile = |upstream: &str| {
+        json!({ "profile": {
+            "name": "Mistral", "keyVar": "MISTRAL_API_KEY", "baseUrlVar": "MISTRAL_BASE_URL",
+            "upstream": upstream, "basePath": "/v1", "header": "authorization", "bearer": true,
+        }})
+    };
+    assert!(desktop.err("add_proxy_profile", profile("http://evil.example"))["message"].as_str().unwrap().contains("https://"));
+    desktop.ok("add_proxy_profile", profile("https://api.mistral.ai"));
+    assert_eq!(desktop.err("add_proxy_profile", profile("https://api.mistral.ai"))["message"], "MISTRAL_API_KEY already has a profile.");
+
+    let list = desktop.ok("list_proxy_profiles", json!({}));
+    let names: Vec<&str> = list.as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["OpenAI", "Anthropic", "Mistral"]);
+    assert_eq!(list[0]["id"], Value::Null, "built-ins can't be removed");
+    let id = list[2]["id"].clone();
+    desktop.ok("remove_proxy_profile", json!({ "id": id }));
+    assert_eq!(desktop.ok("list_proxy_profiles", json!({})).as_array().unwrap().len(), 2);
 }

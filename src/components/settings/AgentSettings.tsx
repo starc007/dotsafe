@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconButton } from "@/components/IconButton";
 import { ActionSwapIcon } from "@/components/motion/action-swap";
+import { ProxyProfilesCard } from "@/components/ProxyProfilesCard";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 const SETUP = "claude mcp add dotsafe -- dotsafe mcp";
@@ -161,6 +162,8 @@ export function AgentSettings() {
           )}
         </SurfaceBody>
       </Surface>
+
+      <ProxyProfilesCard />
 
       <Surface aria-labelledby="agents-recent-title">
         <SurfaceHeader icon={<History aria-hidden />}>

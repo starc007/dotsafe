@@ -149,7 +149,7 @@ impl Broker {
         };
 
         // Work out what would run, under the lock, without any values.
-        let (scope, project, environment, approved) = {
+        let (scope, project, environment, approved, profiles) = {
             let mut session = self.session();
             let Ok(vault) = session.vault() else { return locked() };
             let records = match vault.list() {
@@ -182,12 +182,15 @@ impl Broker {
                 variables,
             };
             let approved = session.agent_grants.allows(&scope, Instant::now());
-            (scope, project.name, env.name, approved)
+            // Built-in and custom profiles; custom ones come from the vault,
+            // which agents can't edit.
+            let profiles = proxy::profiles(&records);
+            (scope, project.name, env.name, approved, profiles)
         };
         let env_label = format!("{project}/{environment}");
 
         let proxied_names: Vec<String> = if request.proxy && self.proxy().is_some() {
-            proxy::proxied_names(scope.variables.iter().map(String::as_str))
+            proxy::proxied_names(scope.variables.iter().map(String::as_str), &profiles)
         } else {
             Vec::new()
         };
@@ -251,7 +254,7 @@ impl Broker {
         // Known API keys go through the proxy: the process gets a placeholder
         // and a local URL. The routes live until the run ends.
         let proxied = match (request.proxy, self.proxy()) {
-            (true, Some(server)) => Some(proxy::apply(server, secrets.clone())),
+            (true, Some(server)) => Some(proxy::apply(server, secrets.clone(), &profiles)),
             _ => None,
         };
         let (env, proxied_names) = match &proxied {

@@ -187,6 +187,9 @@ function pushAll(secretId: string) {
   });
 }
 
+// Custom proxy profiles.
+let proxyProfiles: { id: string; name: string; keyVar: string; baseUrlVar: string; upstream: string; problem: null }[] = [];
+
 // The rotation queue after removing a device: values as they were then.
 // `?queue` starts with one, as if "Old laptop" was removed a moment ago.
 let rotationQueue: { since: number; device: string; vars: Map<string, string> } | null = null;
@@ -629,6 +632,22 @@ export function installMockBackend() {
           if (revokedOld) for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: now });
           return { checkFailed: null, promoted: true, revokedOld, pushes: pushAll(s.id) };
         }
+        case "list_proxy_profiles":
+          return [
+            { id: null, name: "OpenAI", keyVar: "OPENAI_API_KEY", baseUrlVar: "OPENAI_BASE_URL", upstream: "https://api.openai.com", problem: null },
+            { id: null, name: "Anthropic", keyVar: "ANTHROPIC_API_KEY", baseUrlVar: "ANTHROPIC_BASE_URL", upstream: "https://api.anthropic.com", problem: null },
+            ...proxyProfiles,
+          ];
+        case "add_proxy_profile": {
+          const p = (raw as { profile: { name: string; keyVar: string; baseUrlVar: string; upstream: string } }).profile;
+          if (!p.upstream.startsWith("https://")) fail("other", "The upstream must start with https://.");
+          if (["OPENAI_API_KEY", "ANTHROPIC_API_KEY"].includes(p.keyVar)) fail("other", `${p.keyVar} already goes through the proxy.`);
+          proxyProfiles.push({ id: id(), name: p.name, keyVar: p.keyVar, baseUrlVar: p.baseUrlVar, upstream: p.upstream, problem: null });
+          return null;
+        }
+        case "remove_proxy_profile":
+          proxyProfiles = proxyProfiles.filter((p) => p.id !== a.id);
+          return null;
         case "open_provider_console":
           return null;
         case "push_secret":

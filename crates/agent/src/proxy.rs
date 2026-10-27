@@ -1,7 +1,8 @@
 //! The secret proxy: commands use API keys without the key ever entering
 //! their process.
 //!
-//! For a known key (OpenAI, Anthropic), the command gets a placeholder key
+//! For a known key (OpenAI, Anthropic, or a custom profile from the vault),
+//! the command gets a placeholder key
 //! and a base URL pointing at this proxy on 127.0.0.1. The proxy strips any
 //! auth the command sends, adds the real key, and forwards to the provider's
 //! one fixed upstream over HTTPS, streaming the response back (SSE included).
@@ -26,46 +27,112 @@ pub const PLACEHOLDER: &str = "dotsafe-proxied";
 const MAX_REQUEST_BODY: u64 = 32 * 1024 * 1024;
 
 /// A provider whose SDKs read a base URL from the environment.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
-    pub name: &'static str,
+    pub name: String,
     /// The variable holding the key.
-    pub key_var: &'static str,
+    pub key_var: String,
     /// The variable SDKs read the base URL from.
-    pub base_url_var: &'static str,
-    pub upstream: &'static str,
+    pub base_url_var: String,
+    pub upstream: String,
     /// Appended to the proxy URL in `base_url_var` (what SDKs expect there).
-    pub base_path: &'static str,
-    pub header: &'static str,
+    pub base_path: String,
+    pub header: String,
     /// Send the key as `Bearer <key>` rather than as is.
     pub bearer: bool,
 }
 
-pub const PROFILES: &[Profile] = &[
-    Profile {
-        name: "OpenAI",
-        key_var: "OPENAI_API_KEY",
-        base_url_var: "OPENAI_BASE_URL",
-        upstream: "https://api.openai.com",
-        base_path: "/v1",
-        header: "authorization",
-        bearer: true,
-    },
-    Profile {
-        name: "Anthropic",
-        key_var: "ANTHROPIC_API_KEY",
-        base_url_var: "ANTHROPIC_BASE_URL",
-        upstream: "https://api.anthropic.com",
-        base_path: "",
-        header: "x-api-key",
-        bearer: false,
-    },
-];
+/// The profiles dotsafe knows without being told.
+pub fn builtin_profiles() -> Vec<Profile> {
+    let profile = |name: &str, key: &str, base: &str, upstream: &str, path: &str, header: &str, bearer| Profile {
+        name: name.into(),
+        key_var: key.into(),
+        base_url_var: base.into(),
+        upstream: upstream.into(),
+        base_path: path.into(),
+        header: header.into(),
+        bearer,
+    };
+    vec![
+        profile("OpenAI", "OPENAI_API_KEY", "OPENAI_BASE_URL", "https://api.openai.com", "/v1", "authorization", true),
+        profile("Anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "https://api.anthropic.com", "", "x-api-key", false),
+    ]
+}
+
+/// Headers a custom profile may not use: they'd break or confuse requests.
+const RESERVED_HEADERS: &[&str] =
+    &["host", "content-length", "transfer-encoding", "connection", "cookie", "proxy-authorization"];
+
+impl Profile {
+    /// A custom profile from the vault, if it's safe to use: an `https://`
+    /// upstream with a plain host (no credentials, query or fragment), valid
+    /// variable names, a plain header name, and no built-in variable taken
+    /// over. Returns why not otherwise.
+    pub fn custom(record: &dotsafe_core::ProxyProfile) -> Result<Profile, String> {
+        let name = record.name.trim();
+        if name.is_empty() {
+            return Err("Give the profile a name.".into());
+        }
+        for var in [&record.key_var, &record.base_url_var] {
+            if !dotsafe_core::is_valid_var_name(var) {
+                return Err(format!("{var:?} isn't a valid variable name."));
+            }
+        }
+        if record.key_var == record.base_url_var {
+            return Err("The key and base URL variables must differ.".into());
+        }
+        if let Some(builtin) = builtin_profiles()
+            .into_iter()
+            .find(|p| [&p.key_var, &p.base_url_var].iter().any(|v| **v == record.key_var || **v == record.base_url_var))
+        {
+            return Err(format!("{} already goes through the proxy as {}.", record.key_var, builtin.name));
+        }
+        let upstream = record.upstream.trim().trim_end_matches('/');
+        let host = upstream.strip_prefix("https://").ok_or("The upstream must start with https://.")?;
+        let host_part = host.split('/').next().unwrap_or_default();
+        if host_part.is_empty() || host.contains(['@', '?', '#', ' ']) || host_part.contains('\\') {
+            return Err("The upstream must be a plain https:// address, like https://api.example.com.".into());
+        }
+        if !record.base_path.is_empty() && (!record.base_path.starts_with('/') || record.base_path.contains(['?', '#', ' '])) {
+            return Err("The base path must start with /.".into());
+        }
+        let header = record.header.trim().to_lowercase();
+        if header.is_empty() || !header.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            return Err("The header must be a plain header name, like authorization.".into());
+        }
+        if RESERVED_HEADERS.contains(&header.as_str()) {
+            return Err(format!("The {header} header can't carry a key."));
+        }
+        Ok(Profile {
+            name: name.into(),
+            key_var: record.key_var.clone(),
+            base_url_var: record.base_url_var.clone(),
+            upstream: upstream.into(),
+            base_path: record.base_path.clone(),
+            header,
+            bearer: record.bearer,
+        })
+    }
+}
+
+/// The built-in profiles plus every valid custom one in `records`. Invalid
+/// custom profiles are skipped, never used half-checked.
+pub fn profiles(records: &[dotsafe_core::Record]) -> Vec<Profile> {
+    let mut all = builtin_profiles();
+    for custom in dotsafe_core::integration::proxy_profiles(records) {
+        if let Ok(profile) = Profile::custom(&custom)
+            && !all.iter().any(|p| p.key_var == profile.key_var)
+        {
+            all.push(profile);
+        }
+    }
+    all
+}
 
 /// Which of `names` would go through the proxy.
-pub fn proxied_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+pub fn proxied_names<'a>(names: impl IntoIterator<Item = &'a str>, profiles: &[Profile]) -> Vec<String> {
     let names: Vec<&str> = names.into_iter().collect();
-    PROFILES.iter().filter(|p| names.contains(&p.key_var)).map(|p| p.key_var.to_string()).collect()
+    profiles.iter().filter(|p| names.contains(&p.key_var.as_str())).map(|p| p.key_var.clone()).collect()
 }
 
 struct Route {
@@ -156,24 +223,24 @@ pub struct Proxied {
 /// Replaces each known key in `vars` with a placeholder and points its SDK
 /// at a proxy route holding the real key. A base URL already set in `vars`
 /// (for example an Azure endpoint) becomes the route's upstream.
-pub fn apply(server: &ProxyServer, vars: Vec<(String, String)>) -> Proxied {
+pub fn apply(server: &ProxyServer, vars: Vec<(String, String)>, profiles: &[Profile]) -> Proxied {
     let mut env = vars;
     let mut names = Vec::new();
     let mut routes = Vec::new();
-    for profile in PROFILES {
-        let Some(key) = env.iter().find(|(k, _)| k == profile.key_var).map(|(_, v)| v.clone()) else { continue };
+    for profile in profiles {
+        let Some(key) = env.iter().find(|(k, _)| *k == profile.key_var).map(|(_, v)| v.clone()) else { continue };
         let custom =
-            env.iter().find(|(k, v)| k == profile.base_url_var && v.starts_with("https://")).map(|(_, v)| v.clone());
+            env.iter().find(|(k, v)| *k == profile.base_url_var && v.starts_with("https://")).map(|(_, v)| v.clone());
         let (upstream, base_path) = match custom {
             Some(url) => (url, ""),
-            None => (profile.upstream.to_string(), profile.base_path),
+            None => (profile.upstream.clone(), profile.base_path.as_str()),
         };
         let value = Zeroizing::new(if profile.bearer { format!("Bearer {key}") } else { key });
-        let Ok(route) = server.route(&upstream, profile.header, value) else { continue };
-        env.retain(|(k, _)| k != profile.key_var && k != profile.base_url_var);
-        env.push((profile.key_var.to_string(), PLACEHOLDER.to_string()));
-        env.push((profile.base_url_var.to_string(), format!("{}{base_path}", route.url)));
-        names.push(profile.key_var.to_string());
+        let Ok(route) = server.route(&upstream, &profile.header, value) else { continue };
+        env.retain(|(k, _)| *k != profile.key_var && *k != profile.base_url_var);
+        env.push((profile.key_var.clone(), PLACEHOLDER.to_string()));
+        env.push((profile.base_url_var.clone(), format!("{}{base_path}", route.url)));
+        names.push(profile.key_var.clone());
         routes.push(route);
     }
     Proxied { env, names, routes }
@@ -356,7 +423,7 @@ mod tests {
             ("ANTHROPIC_BASE_URL".to_string(), "https://gateway.example.com/anthropic".to_string()),
             ("DATABASE_URL".to_string(), "postgres://x".to_string()),
         ];
-        let p = apply(&proxy, vars);
+        let p = apply(&proxy, vars, &builtin_profiles());
         let get = |k: &str| p.env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap();
         assert_eq!(get("OPENAI_API_KEY"), PLACEHOLDER);
         assert_eq!(get("ANTHROPIC_API_KEY"), PLACEHOLDER);
@@ -365,6 +432,55 @@ mod tests {
         assert_eq!(get("DATABASE_URL"), "postgres://x", "other variables pass through");
         assert_eq!(p.names, ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"]);
         assert!(!p.env.iter().any(|(_, v)| v.contains("real")), "no real key in the command's environment");
-        assert_eq!(proxied_names(["OPENAI_API_KEY", "PORT"]), ["OPENAI_API_KEY"]);
+        assert_eq!(proxied_names(["OPENAI_API_KEY", "PORT"], &builtin_profiles()), ["OPENAI_API_KEY"]);
+    }
+
+    fn custom(upstream: &str, key_var: &str, header: &str) -> dotsafe_core::ProxyProfile {
+        dotsafe_core::ProxyProfile {
+            id: uuid::Uuid::new_v4(),
+            name: "Mistral".into(),
+            key_var: key_var.into(),
+            base_url_var: "MISTRAL_BASE_URL".into(),
+            upstream: upstream.into(),
+            base_path: "/v1".into(),
+            header: header.into(),
+            bearer: true,
+            deleted: false,
+            updated: dotsafe_core::Stamp::new(1, uuid::Uuid::nil()),
+        }
+    }
+
+    #[test]
+    fn custom_profiles_are_checked_before_use() {
+        let ok = Profile::custom(&custom("https://api.mistral.ai/", "MISTRAL_API_KEY", "Authorization")).unwrap();
+        assert_eq!((ok.upstream.as_str(), ok.header.as_str()), ("https://api.mistral.ai", "authorization"));
+        for (upstream, key, header, why) in [
+            ("http://api.mistral.ai", "MISTRAL_API_KEY", "authorization", "https"),
+            ("https://user:pw@evil.example", "MISTRAL_API_KEY", "authorization", "plain"),
+            ("https://api.mistral.ai?x=1", "MISTRAL_API_KEY", "authorization", "plain"),
+            ("https://", "MISTRAL_API_KEY", "authorization", "https://"),
+            ("https://api.mistral.ai", "OPENAI_API_KEY", "authorization", "already goes through"),
+            ("https://api.mistral.ai", "bad name", "authorization", "valid variable"),
+            ("https://api.mistral.ai", "MISTRAL_API_KEY", "x key", "plain header"),
+            ("https://api.mistral.ai", "MISTRAL_API_KEY", "host", "can't carry"),
+        ] {
+            let err = Profile::custom(&custom(upstream, key, header)).unwrap_err();
+            assert!(err.contains(why), "{upstream} {key} {header}: {err}");
+        }
+    }
+
+    #[test]
+    fn custom_profiles_route_their_key_like_the_built_in_ones() {
+        let proxy = ProxyServer::start().unwrap();
+        let records = vec![dotsafe_core::Record::ProxyProfile(custom("https://api.mistral.ai", "MISTRAL_API_KEY", "authorization"))];
+        let all = profiles(&records);
+        assert_eq!(all.len(), 3);
+        let p = apply(&proxy, vec![("MISTRAL_API_KEY".into(), "m-real".into())], &all);
+        let get = |k: &str| p.env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap();
+        assert_eq!(get("MISTRAL_API_KEY"), PLACEHOLDER);
+        assert!(get("MISTRAL_BASE_URL").starts_with(&proxy.url) && get("MISTRAL_BASE_URL").ends_with("/v1"));
+        // An invalid profile in the vault is skipped, not used.
+        let bad = vec![dotsafe_core::Record::ProxyProfile(custom("http://evil.example", "MISTRAL_API_KEY", "authorization"))];
+        assert_eq!(profiles(&bad).len(), 2);
     }
 }

@@ -523,3 +523,56 @@ fn guided_and_aws_providers_from_the_cli() {
         &["secret", "provider", "AWS_SECRET_ACCESS_KEY", "--connection", "AWS", "--set", "user_name=ci", "--set", "access_key_id_secret=AWS_ACCESS_KEY_ID"],
     );
 }
+
+#[test]
+fn import_reads_other_managers_exports() {
+    let (root, m, project) = setup();
+    m.init();
+    fs::write(project.join("infisical.json"), r#"[{"key": "API_KEY", "value": "sk_1", "type": "shared"}]"#).unwrap();
+    m.ok(&project, &["import", "infisical.json"]);
+    assert_eq!(m.ok(&project, &["get", "API_KEY"]), "sk_1\n");
+
+    // `--from doppler` runs Doppler's CLI; a stand-in prints what it would.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = root.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let script = bin.join("doppler");
+        fs::write(&script, "#!/bin/sh\necho '{\"DB_URL\": \"postgres://d\", \"DOPPLER_PROJECT\": \"api\"}'\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let out = m.cmd(&project, &["import", "--from", "doppler"]).env("PATH", path).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert!(stderr(&out).contains("Imported 1 variables from Doppler"), "{}", stderr(&out));
+        assert_eq!(m.ok(&project, &["list"]), "API_KEY\nDB_URL\n", "Doppler's own variables are left out");
+    }
+
+    let missing = m.cmd(&project, &["import", "--from", "infisical"]).env("PATH", "/nonexistent").output().unwrap();
+    assert!(stderr(&missing).contains("infisical isn't installed"), "{}", stderr(&missing));
+    assert!(!m.run(&project, &["import", "--from", "1password"]).status.success(), "1Password needs --item");
+}
+
+#[test]
+fn custom_proxy_profiles_keep_more_keys_out_of_processes() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "MISTRAL_API_KEY=m-real-key"]);
+    let bad = m.run(&project, &["proxy", "add", "Evil", "--key-var", "MISTRAL_API_KEY", "--base-url-var", "MISTRAL_BASE_URL", "--upstream", "http://evil.example"]);
+    assert!(stderr(&bad).contains("https://"), "{}", stderr(&bad));
+    let taken = m.run(&project, &["proxy", "add", "Mine", "--key-var", "OPENAI_API_KEY", "--base-url-var", "X_URL", "--upstream", "https://x.example"]);
+    assert!(stderr(&taken).contains("already goes through the proxy"), "{}", stderr(&taken));
+    m.ok(
+        &project,
+        &["proxy", "add", "Mistral", "--key-var", "MISTRAL_API_KEY", "--base-url-var", "MISTRAL_BASE_URL", "--upstream", "https://api.mistral.ai", "--base-path", "/v1"],
+    );
+    let list = m.ok(&project, &["proxy", "list"]);
+    assert!(list.contains("Mistral\tMISTRAL_API_KEY\thttps://api.mistral.ai\tcustom"), "{list}");
+
+    let seen = m.ok(&project, &["run", "--proxy", "--", "sh", "-c", "printf '%s %s' \"$MISTRAL_API_KEY\" \"$MISTRAL_BASE_URL\""]);
+    let (key, url) = seen.split_once(' ').unwrap();
+    assert_eq!(key, "dotsafe-proxied");
+    assert!(url.starts_with("http://127.0.0.1:") && url.ends_with("/v1"), "{url}");
+    m.ok(&project, &["proxy", "remove", "Mistral"]);
+    assert_eq!(m.ok(&project, &["run", "--proxy", "--", "sh", "-c", "printf '%s' \"$MISTRAL_API_KEY\""]), "m-real-key");
+}

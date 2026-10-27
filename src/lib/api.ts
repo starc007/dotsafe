@@ -114,6 +114,25 @@ export type QueueView = {
   secrets: { id: string; name: string; hasProvider: boolean; connectionToken: boolean }[];
   variables: { projectId: string; project: string; environmentId: string; environment: string; key: string }[];
 };
+/** A key the secret proxy keeps out of processes. `id` is null for built-ins. */
+export type ProxyProfileView = {
+  id: string | null;
+  name: string;
+  keyVar: string;
+  baseUrlVar: string;
+  upstream: string;
+  /** Why a custom profile isn't used. */
+  problem: string | null;
+};
+export type ProxyProfileInput = {
+  name: string;
+  keyVar: string;
+  baseUrlVar: string;
+  upstream: string;
+  basePath: string;
+  header: string;
+  bearer: boolean;
+};
 export type PushView = { name: string; connection: string; error: string | null };
 export type RotationView = {
   /** Why the new key failed its check. */
@@ -369,6 +388,9 @@ export const api = {
   rotateQueuedWithProviders: () =>
     call<{ name: string; error: string | null; pushes: PushView[] }[]>("rotate_queued_with_providers"),
   dismissRotationQueue: () => call<void>("dismiss_rotation_queue"),
+  listProxyProfiles: () => call<ProxyProfileView[]>("list_proxy_profiles"),
+  addProxyProfile: (profile: ProxyProfileInput) => call<void>("add_proxy_profile", { profile }),
+  removeProxyProfile: (id: string) => call<void>("remove_proxy_profile", { id }),
   getSettings: () => call<Settings>("get_settings"),
   activateLicense: (key: string) => call<License>("activate_license", { key }),
   checkLicense: () => call<License | null>("check_license"),
