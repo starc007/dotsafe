@@ -1,6 +1,6 @@
 # Secrets and rotation
 
-**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5's first slice is implemented: OpenAI and Cloudflare API tokens as providers, Vercel and Cloudflare Workers as push targets, in the CLI and desktop (see [As built (M5, slice 1)](#as-built-m5-slice-1)). Still proposed: Anthropic, Stripe, AWS and GitHub Actions, verifying with deploy targets, drift detection from provider timestamps, and the device-revoked bulk queue.
+**Status:** M3 is implemented (shared secrets, history, the rotation flow, generators, policies, the leaked fast path, CLI and desktop). M5's first slice is implemented: OpenAI and Cloudflare API tokens as providers, Vercel and Cloudflare Workers as push targets, in the CLI and desktop (see [As built (M5, slice 1)](#as-built-m5-slice-1)). Since then: the device-removed rotation queue, audit entries for rotations, pushes and revokes, and due reminders. Still proposed: Anthropic, Stripe, AWS and GitHub Actions, verifying with deploy targets, and drift detection from provider timestamps.
 
 ## The problem
 
@@ -137,7 +137,11 @@ dotsafe restore STRIPE_SECRET_KEY <version>
 - **Targets:** Vercel (`POST /v10/projects/{p}/env?upsert=true`, type `encrypted`) and Cloudflare Workers (`PUT /accounts/{a}/workers/scripts/{s}/secrets`).
 - **The flow, in this order:** create → **save the new key as staged at once** (so a crash never loses the only working key) → verify → promote → push to every target → with `leaked`, or for a provider without overlap, revoke and retire the old key. If verification fails and the provider has overlap, the key stays staged and nothing else changes. Without overlap it goes live anyway, because the old key is already dead. `retire` revokes the previous versions' keys at the provider before marking them retired, and stops at the first failure.
 - **Pushes** also happen on manual promote and on demand. Each target records the SHA-256 of what was pushed, so the UI can show "out of date" without reading anything back.
-- **Not yet:** an audit entry per step, a notification when pushes fail in the background, and a test against the real services. Every call has been tested against a local fake, but not yet against a real account.
+- **Audit:** each provider rotation, revoke and push is written to the audit log (actor "You"), next to agent requests.
+- **Connection tokens** stay out of secret lists; they're replaced from the connection ("Replace token…", `dotsafe reconnect`), and the old one is kept retired in the token's history.
+- **After removing a device:** the machine that removed it keeps a rotation queue (`rotation_queue` in its local config: when, and which device). The queue isn't stored; it's worked out from the vault each time, as every shared secret whose current value is older than the removal, plus every variable with its own value set before it. Rotating something takes it off the list. Provider-backed secrets rotate in one click (`rotate_queued_with_providers`, `dotsafe secret queue --rotate`). The queue is per machine and isn't synced.
+- **Due reminders:** while unlocked, the desktop app checks every 30 minutes and posts a macOS notification with how many secrets are overdue or due soon, at most once a day unless more become due. It shows the count, never the names, so secret names don't end up in Notification Center. Connection tokens are left out.
+- **Not yet:** a test against the real services. Every call has been tested against a local fake, but not yet against a real account.
 
 ## Open questions
 

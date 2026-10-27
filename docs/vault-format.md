@@ -115,7 +115,7 @@ A client that predates shared secrets would read a linked variable as a tombston
 
 ### Record version 4 (integrations)
 
-`connection` and `binding` records are written with `"version": 4` and AAD `"dotsafe/v4/record" ‖ vault_id ‖ epoch ‖ id`. Clients that predate integrations refuse them ("unsupported record version 4") instead of failing to parse an unknown record type, and relabelling one as v3 or v2 fails authentication. Every other record keeps the oldest version that can hold it.
+`connection` and `binding` records, and `audit` days that log a `rotate`, `push` or `revoke` action, are written with `"version": 4` and AAD `"dotsafe/v4/record" ‖ vault_id ‖ epoch ‖ id`. Clients that predate integrations refuse them ("unsupported record version 4") instead of failing to parse an unknown record type, and relabelling one as v3 or v2 fails authentication. Every other record keeps the oldest version that can hold it.
 
 **Merging bindings:** `provider` merges on `updated`. Targets merge by id on their own `changed` stamp. `keys` is the union of both sides; each version's key id is set once, when the provider issues it.
 
