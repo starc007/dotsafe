@@ -7,6 +7,7 @@
 //! output with the values scrubbed. No request ever returns a value.
 //! See docs/architecture/agents.md.
 
+pub mod broker;
 pub mod grants;
 #[cfg(unix)]
 pub mod ipc;
