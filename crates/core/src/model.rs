@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::audit::AuditDay;
 use crate::error::{Error, Result};
+use crate::integration::{Binding, Connection};
 use crate::secret::Secret;
 
 /// When and where a change was made: a hybrid logical clock reading. Ordered
@@ -82,6 +83,8 @@ pub enum Record {
     Environment(Environment),
     Secret(Secret),
     Audit(AuditDay),
+    Connection(Connection),
+    Binding(Binding),
 }
 
 impl Record {
@@ -91,16 +94,22 @@ impl Record {
             Record::Environment(e) => e.id,
             Record::Secret(s) => s.id,
             Record::Audit(a) => a.id,
+            Record::Connection(c) => c.id,
+            Record::Binding(b) => b.id,
         }
     }
 
-    /// Whether the record uses anything added in record format v3 (secrets,
-    /// linked variables), which older clients must not read and rewrite.
-    pub(crate) fn needs_v3(&self) -> bool {
+    /// The oldest record format that can hold this record: 3 for shared
+    /// secrets, linked variables and audit days, 4 for integrations, 2 for
+    /// the rest. Older clients refuse newer versions instead of rewriting
+    /// them without what they don't understand.
+    pub(crate) fn min_version(&self) -> u32 {
         match self {
-            Record::Project(_) => false,
-            Record::Environment(e) => e.vars.values().any(|v| v.secret.is_some()),
-            Record::Secret(_) | Record::Audit(_) => true,
+            Record::Project(_) => 2,
+            Record::Environment(e) if e.vars.values().any(|v| v.secret.is_some()) => 3,
+            Record::Environment(_) => 2,
+            Record::Secret(_) | Record::Audit(_) => 3,
+            Record::Connection(_) | Record::Binding(_) => 4,
         }
     }
 
@@ -112,6 +121,8 @@ impl Record {
             Record::Environment(e) => e.vars.values().map(|v| v.stamp).fold(e.updated, Stamp::max),
             Record::Secret(s) => s.max_stamp(),
             Record::Audit(a) => a.updated,
+            Record::Connection(c) => c.updated,
+            Record::Binding(b) => b.max_stamp(),
         }
     }
 
@@ -126,6 +137,8 @@ impl Record {
             }
             (Record::Secret(a), Record::Secret(b)) if a.id == b.id => Ok(Record::Secret(a.merge(b))),
             (Record::Audit(a), Record::Audit(b)) if a.id == b.id => Ok(Record::Audit(a.merge(b))),
+            (Record::Connection(a), Record::Connection(b)) if a.id == b.id => Ok(Record::Connection(a.merge(b))),
+            (Record::Binding(a), Record::Binding(b)) if a.id == b.id => Ok(Record::Binding(a.merge(b))),
             (a, _) => Err(Error::Format(format!("cannot merge different records into {}", a.id()))),
         }
     }

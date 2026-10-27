@@ -30,14 +30,15 @@ const HEAD_KEY: &str = "head.json";
 const RECORDS_DIR: &str = "records";
 
 const RECORD_FORMAT: &str = "dotsafe-record";
-/// Records that use shared secrets or linked variables are written as v3, so
-/// clients that predate them refuse those records instead of rewriting them
-/// without the links. Everything else stays v2.
-const RECORD_VERSION: u32 = 2;
-const RECORD_VERSION_SECRETS: u32 = 3;
+/// Records are written with the oldest version that can hold them
+/// ([`Record::min_version`]): v3 for shared secrets and linked variables, v4
+/// for integrations, v2 for the rest. Clients that predate a version refuse
+/// those records instead of rewriting them without what they don't know.
+const RECORD_VERSION_MAX: u32 = 4;
 const RECORD_AAD_V1: &[u8] = b"dotsafe/v1/record";
 const RECORD_AAD: &[u8] = b"dotsafe/v2/record";
 const RECORD_AAD_V3: &[u8] = b"dotsafe/v3/record";
+const RECORD_AAD_V4: &[u8] = b"dotsafe/v4/record";
 // A domain label, unchanged from v1 so the records key stays the same.
 const RECORDS_KEY_INFO: &[u8] = b"dotsafe/v1/records";
 
@@ -471,7 +472,7 @@ impl Vault {
 
     fn seal_record(&self, record: &Record) -> Result<Vec<u8>> {
         let id = record.id();
-        let version = if record.needs_v3() { RECORD_VERSION_SECRETS } else { RECORD_VERSION };
+        let version = record.min_version();
         let plaintext = padded(serde_json::to_vec(record)?);
         let epoch = self.epoch();
         let file = RecordFile {
@@ -524,7 +525,7 @@ impl Vault {
         let records_key = self.records_key_for(epoch).ok_or(Error::UnknownEpoch(id))?;
         let aad = match file.version {
             1 => [RECORD_AAD_V1, self.header.vault_id.as_bytes(), id.as_bytes()].concat(),
-            2 | 3 => self.record_aad(file.version, epoch, id),
+            2..=RECORD_VERSION_MAX => self.record_aad(file.version, epoch, id),
             version => return Err(Error::UnsupportedVersion { kind: "record", version }),
         };
         let plaintext = crypto::open(records_key, &file.sealed, &aad).ok_or(Error::RecordTampered(id))?;
@@ -649,7 +650,11 @@ impl Vault {
     /// Binds a record to its vault, key epoch, id and format version, so it
     /// can't be moved, or relabelled as a version older clients would read.
     fn record_aad(&self, version: u32, epoch: u32, id: Uuid) -> Vec<u8> {
-        let label = if version == RECORD_VERSION_SECRETS { RECORD_AAD_V3 } else { RECORD_AAD };
+        let label = match version {
+            3 => RECORD_AAD_V3,
+            4 => RECORD_AAD_V4,
+            _ => RECORD_AAD,
+        };
         [label, self.header.vault_id.as_bytes(), &epoch.to_be_bytes(), id.as_bytes()].concat()
     }
 
