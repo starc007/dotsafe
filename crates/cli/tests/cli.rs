@@ -396,3 +396,52 @@ fn scan_staged_and_the_pre_commit_hook() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stdout).contains("a.txt:1:9\tmy-api/development/API_KEY"));
 }
+
+#[test]
+fn connections_providers_and_targets() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "OPENAI_API_KEY=sk-proj-1"]);
+    m.ok(&project, &["secret", "share", "OPENAI_API_KEY"]);
+    let connect = |args: &[&str]| {
+        let mut cmd = m.cmd(&project, args);
+        cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(b"admin-token-123\n").unwrap();
+        child.wait_with_output().unwrap()
+    };
+
+    // Settings are checked against the service.
+    let out = connect(&["connect", "openai", "--token-stdin"]);
+    assert!(!out.status.success() && stderr(&out).contains("Project ID is required"), "{}", stderr(&out));
+    assert!(!connect(&["connect", "heroku", "--token-stdin"]).status.success());
+    let out = connect(&["connect", "openai", "--name", "Acme", "--set", "project_id=proj_1", "--token-stdin"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = connect(&["connect", "vercel", "--name", "Web", "--token-stdin"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(m.ok(&project, &["connections"]), "Acme\tOpenAI\tproject_id=proj_1\nWeb\tVercel\t\n");
+    // The token is a shared secret, never printed.
+    assert!(m.ok(&project, &["secret", "list"]).contains("Acme admin token"));
+    assert!(!m.ok(&project, &["connections"]).contains("admin-token-123"));
+
+    // A provider must be a provider and a target a target.
+    let wrong = m.run(&project, &["secret", "provider", "OPENAI_API_KEY", "--connection", "Web"]);
+    assert!(stderr(&wrong).contains("deploy target, not a provider"));
+    m.ok(&project, &["secret", "provider", "OPENAI_API_KEY", "--connection", "Acme", "--key-id", "svc_1"]);
+    let wrong = m.run(&project, &["secret", "target", "add", "OPENAI_API_KEY", "--connection", "Acme"]);
+    assert!(stderr(&wrong).contains("provider, not a deploy target"));
+    let missing = m.run(&project, &["secret", "target", "add", "OPENAI_API_KEY", "--connection", "Web"]);
+    assert!(stderr(&missing).contains("Project is required"), "{}", stderr(&missing));
+    m.ok(&project, &["secret", "target", "add", "OPENAI_API_KEY", "--connection", "Web", "--set", "project=web"]);
+    assert_eq!(m.ok(&project, &["secret", "target", "list", "OPENAI_API_KEY"]), "1\tWeb\tOPENAI_API_KEY\tproject=web\tnever pushed\n");
+
+    // Connections in use can't be removed until nothing uses them.
+    assert!(stderr(&m.run(&project, &["disconnect", "Web"])).contains("secrets still use Web"));
+    m.ok(&project, &["secret", "target", "remove", "OPENAI_API_KEY", "1"]);
+    m.ok(&project, &["disconnect", "Web"]);
+    m.ok(&project, &["secret", "provider", "OPENAI_API_KEY", "--none"]);
+    m.ok(&project, &["disconnect", "Acme"]);
+    assert_eq!(m.ok(&project, &["connections"]), "");
+    assert!(!m.ok(&project, &["secret", "list"]).contains("admin token"), "the stored tokens are deleted");
+}

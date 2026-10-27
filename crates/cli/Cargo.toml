@@ -14,6 +14,7 @@ anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 dotsafe-agent.workspace = true
 dotsafe-core.workspace = true
+dotsafe-integrations.workspace = true
 dotsafe-stores.workspace = true
 keyring = "4.2.0"
 rpassword = "7.5.4"
