@@ -11,6 +11,7 @@ license = "UNLICENSED"
 dotsafe-core = { path = "crates/core" }
 dotsafe-stores = { path = "crates/stores" }
 dotsafe-agent = { path = "crates/agent" }
+dotsafe-integrations = { path = "crates/integrations" }
 
 # Optimize the crypto crates even in debug builds, so unlocking with real
 # Argon2 settings stays fast during development and tests.

@@ -1188,6 +1188,7 @@ dependencies = [
  "clap",
  "dotsafe-agent",
  "dotsafe-core",
+ "dotsafe-integrations",
  "dotsafe-stores",
  "keyring",
  "rpassword",
@@ -1225,6 +1226,7 @@ dependencies = [
  "block2",
  "dotsafe-agent",
  "dotsafe-core",
+ "dotsafe-integrations",
  "dotsafe-stores",
  "keyring",
  "objc2",
@@ -1241,6 +1243,21 @@ dependencies = [
  "ureq",
  "uuid",
  "whoami",
+ "zeroize",
+]
+
+[[package]]
+name = "dotsafe-integrations"
+version = "0.1.0"
+dependencies = [
+ "dotsafe-core",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tiny_http",
+ "ureq",
+ "url",
+ "uuid",
  "zeroize",
 ]
 
