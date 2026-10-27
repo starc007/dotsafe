@@ -695,7 +695,7 @@ fn resolved_value(s: &crate::state::Session, env: &Environment, key: &str) -> Cm
     }
     resolver
         .value(env.id, key)?
-        .ok_or_else(|| CmdError::other(format!("{key} is linked to a shared secret that has no value.")))
+        .ok_or_else(|| CmdError::other(format!("{key} is linked to a secret that has no value.")))
 }
 
 #[tauri::command]
@@ -775,7 +775,7 @@ pub async fn set_variable(
             }
             if editing_in_place && matches!(env.entry(&key), Some(Entry::Secret(_))) {
                 return Err(CmdError::other(format!(
-                    "{key} is linked to a shared secret. Rotate the secret, or unlink {key} first."
+                    "{key} is linked to a secret. Rotate the secret, or unlink {key} first."
                 )));
             }
             if let Some(old) = previous_key.filter(|p| *p != key) {

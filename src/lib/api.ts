@@ -179,7 +179,9 @@ export type VersionView = {
   note: string | null;
   wiped: boolean;
 };
-export type SecretDetail = SecretView & { versions: VersionView[] };
+/** A variable with its own copy of one of a secret's values, instead of a link. */
+export type CopyView = Usage & { outdated: boolean };
+export type SecretDetail = SecretView & { versions: VersionView[]; copies: CopyView[] };
 export type ImportPreview = {
   entries: { key: string; change: ImportChange; file: string | null }[];
   errors: string[];
@@ -324,7 +326,7 @@ export const api = {
   generateSecretValue: (id: string) => call<string>("generate_secret_value", { id }),
   copySecret: (id: string) => call<void>("copy_secret", { id }),
   sharePreview: (environmentId: string, key: string) =>
-    call<{ copies: Usage[]; different: Usage[] }>("share_preview", { environmentId, key }),
+    call<{ copies: Usage[]; different: Usage[]; nameTaken: boolean }>("share_preview", { environmentId, key }),
   /** `link`: environment ids from the preview's copies to link as well. */
   shareVariable: (environmentId: string, key: string, name: string, link: string[]) =>
     call<SecretView>("share_variable", { environmentId, key, name, link }),

@@ -17,7 +17,7 @@ import { SurfaceDialog } from "@/components/SurfaceDialog";
 
 type Mode = "files" | "paste";
 
-const CHANGE_LABEL = { new: "New", update: "Changes", unchanged: "Same", linked: "Shared, skipped" } as const;
+const CHANGE_LABEL = { new: "New", update: "Changes", unchanged: "Same", linked: "Secret, skipped" } as const;
 
 /** Imports many variables at once from .env files (picked or dropped) or
  * pasted text, including JSON exported by Doppler, Infisical or 1Password. */
@@ -230,7 +230,7 @@ export function ImportForm({
                         counts.new && `${counts.new} new`,
                         counts.update && `${counts.update} with a different value`,
                         counts.unchanged && `${counts.unchanged} already the same`,
-                        counts.linked && `${counts.linked} linked to shared secrets, left as they are`,
+                        counts.linked && `${counts.linked} linked to secrets, left as they are`,
                       ]
                         .filter(Boolean)
                         .join(" · ")}

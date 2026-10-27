@@ -43,6 +43,19 @@ pub struct SecretDetail {
     #[serde(flatten)]
     summary: SecretView,
     versions: Vec<VersionView>,
+    /// Variables holding one of this secret's values as their own copy
+    /// instead of linking to it. Rotating leaves them behind.
+    copies: Vec<CopyView>,
+}
+
+/// An unlinked copy of a secret's value. Names only.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyView {
+    #[serde(flatten)]
+    usage: Usage,
+    /// It holds an earlier value, not the current one.
+    outdated: bool,
 }
 
 #[derive(Serialize)]
@@ -65,6 +78,8 @@ pub struct VersionView {
 pub struct SharePreview {
     copies: Vec<Usage>,
     different: Vec<Usage>,
+    /// A secret already has the variable's name.
+    name_taken: bool,
 }
 
 fn now_ms() -> u64 {
@@ -137,8 +152,34 @@ impl Snapshot {
         }
     }
 
+    /// Variables whose own value is one of `secret`'s live values (current,
+    /// previous or retired, not staged or wiped).
+    fn copies(&self, secret: &Secret) -> Vec<CopyView> {
+        let current = secret.current_value();
+        let values: Vec<&str> = secret
+            .versions()
+            .into_iter()
+            .filter(|(_, v)| v.state != VersionState::Pending)
+            .filter_map(|(_, v)| v.value.as_deref())
+            .collect();
+        let mut copies: Vec<CopyView> = self
+            .environments()
+            .flat_map(|env| {
+                env.entries().filter_map(|(key, entry)| match entry {
+                    Entry::Value(value) if values.contains(&value) => Some(CopyView {
+                        usage: self.usage(env, key),
+                        outdated: Some(value) != current,
+                    }),
+                    _ => None,
+                })
+            })
+            .collect();
+        copies.sort_by(|a, b| (&a.usage.project, &a.usage.environment).cmp(&(&b.usage.project, &b.usage.environment)));
+        copies
+    }
+
     fn secret(&self, id: Uuid) -> CmdResult<Secret> {
-        self.secrets.get(id).cloned().ok_or_else(|| CmdError::other("That shared secret no longer exists."))
+        self.secrets.get(id).cloned().ok_or_else(|| CmdError::other("That secret no longer exists."))
     }
 }
 
@@ -157,6 +198,7 @@ fn detail(snapshot: &Snapshot, secret: &Secret) -> SecretDetail {
                 wiped: v.value.is_none(),
             })
             .collect(),
+        copies: snapshot.copies(secret),
     }
 }
 
@@ -266,7 +308,8 @@ pub async fn share_preview(state: State<'_, AppState>, environment_id: Uuid, key
             let order = |a: &Usage, b: &Usage| (&a.project, &a.environment).cmp(&(&b.project, &b.environment));
             copies.sort_by(order);
             different.sort_by(order);
-            Ok(SharePreview { copies, different })
+            let name_taken = snapshot.secrets.iter().any(|secret| secret.name == key);
+            Ok(SharePreview { copies, different, name_taken })
         })
         .await
 }
@@ -343,7 +386,7 @@ pub async fn unlink_variable(state: State<'_, AppState>, environment_id: Uuid, k
         .run(move |s| {
             let mut env = s.environment(environment_id)?;
             let Some(Entry::Secret(id)) = env.entry(&key) else {
-                return Err(CmdError::other(format!("{key} isn't linked to a shared secret.")));
+                return Err(CmdError::other(format!("{key} isn't linked to a secret.")));
             };
             let secrets = s.vault()?.secrets()?;
             let value = Zeroizing::new(secrets.value(Entry::Secret(id)).unwrap_or_default().to_string());

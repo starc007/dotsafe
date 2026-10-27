@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CircleSlash, Share2 } from "lucide-react";
+import { CircleSlash, KeyRound } from "lucide-react";
 import { api, message, type Usage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -11,19 +11,21 @@ import { Field } from "@/components/Field";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
 
-/** Turns a variable into a shared secret, and offers to link other
+/** Turns a variable into a secret, and offers to link other
  * environments that hold the same value under the same name. Ones with the
  * same name but another value are listed too, so it's clear why they're left. */
 export function ShareDialog({
   open,
   onOpenChange,
   environmentId,
+  environmentName,
   variable,
   onShared,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   environmentId: string;
+  environmentName: string;
   variable: string;
   onShared: (name: string, linked: number) => void;
 }) {
@@ -48,13 +50,17 @@ export function ShareDialog({
         if (!current) return;
         setCopies(preview.copies);
         setDifferent(preview.different);
+        // Another environment's value, or an existing secret, has this name:
+        // say which environment this one is, unless the name was already edited.
+        if (preview.different.length || preview.nameTaken)
+          setName((n) => (n === variable ? `${variable} (${environmentName})` : n));
         setChosen(new Set(preview.copies.map((c) => c.environmentId)));
       })
       .catch((e) => current && setError(message(e)));
     return () => {
       current = false;
     };
-  }, [open, environmentId, variable]);
+  }, [open, environmentId, environmentName, variable]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -74,12 +80,12 @@ export function ShareDialog({
     <SurfaceDialog
       open={open}
       onOpenChange={onOpenChange}
-      icon={<Share2 aria-hidden />}
-      title={`Share ${variable}`}
-      description="Define it once, link it anywhere, and rotate it in one place."
+      icon={<KeyRound aria-hidden />}
+      title={`Make ${variable} a secret`}
+      description="Keep its history, rotate it in one step, and link it into other environments."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Secret name" htmlFor="secret-name" error={error} hint="Shown in Shared secrets. Variable names stay as they are.">
+        <Field label="Secret name" htmlFor="secret-name" error={error} hint="Shown in Secrets. Variable names stay as they are.">
           <Input
             id="secret-name"
             autoFocus
@@ -141,7 +147,7 @@ export function ShareDialog({
           </Button>
           <Button type="submit" disabled={busy || copies === null || !name.trim()}>
             {busy && <Spinner />}
-            Share
+            Make it a secret
           </Button>
         </SurfaceFooter>
       </form>

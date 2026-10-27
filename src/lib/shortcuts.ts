@@ -18,7 +18,7 @@ export const SHORTCUTS = {
   quickCopy: { key: "k", label: "Find and copy a variable", group: "General" },
   lock: { key: "l", label: "Lock the vault", group: "General" },
   settings: { key: ",", label: "Open or close settings", group: "General" },
-  secrets: { key: "s", shift: true, label: "Open shared secrets", group: "General" },
+  secrets: { key: "s", shift: true, label: "Open secrets", group: "General" },
   newProject: { key: "n", shift: true, label: "New project", group: "Projects" },
   previousProject: { key: "ArrowUp", label: "Previous project", group: "Projects" },
   nextProject: { key: "ArrowDown", label: "Next project", group: "Projects" },

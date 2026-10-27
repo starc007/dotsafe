@@ -124,7 +124,7 @@ export function RotationQueueDialog({
                 </div>
               )}
               {queue.secrets.length > 0 && (
-                <QueueList title="Shared secrets">
+                <QueueList title="Secrets">
                   {queue.secrets.map((s) => (
                     <QueueRow
                       key={s.id}

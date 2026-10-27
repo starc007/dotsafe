@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, RotateCcw, ShieldAlert, Sparkles } from "lucide-react";
+import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, RotateCcw, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ const STATE_LABEL: Record<VersionState, string> = {
 type Mode = "idle" | "rotate" | "leaked" | "guided";
 type Tab = "overview" | "used" | "history" | "integrations" | "settings";
 
-/** One shared secret, in tabs: its value and the rotation flow, where it's
+/** One secret, in tabs: its value and the rotation flow, where it's
  * used, its history, its provider and targets, and its settings. */
 export function SecretDialog({
   secretId,
@@ -185,7 +185,7 @@ export function SecretDialog({
         open={open}
         onOpenChange={onOpenChange}
         icon={<KeyRound aria-hidden />}
-        title={secret?.name ?? "Shared secret"}
+        title={secret?.name ?? "Secret"}
         description={
           secret
             ? `Rotated ${secret.rotatedAt ? daysAgo(secret.rotatedAt) : "never"} · used in ${uses} ${uses === 1 ? "place" : "places"}`
@@ -267,6 +267,39 @@ export function SecretDialog({
                     </button>
                   </SummaryRow>
                 </dl>
+
+                {secret.copies.length > 0 && (
+                  <ul aria-label="Unlinked copies" className="flex flex-col divide-y rounded-2xl bg-muted/40 text-[13px]">
+                    {secret.copies.map((c) => (
+                      <li key={`${c.environmentId}/${c.key}`} className="flex items-center gap-2.5 py-1.5 pr-1.5 pl-3">
+                        <TriangleAlert
+                          aria-hidden
+                          className={cn("size-4 shrink-0", c.outdated ? "text-destructive" : "text-overridden")}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          <EnvironmentName usage={c} />
+                          <span className="text-muted-foreground">
+                            {c.outdated ? " still has an old value" : " has its own copy, so rotating skips it"}
+                          </span>
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() =>
+                            act(
+                              "link",
+                              () => api.linkVariable(c.environmentId, c.key, secret.id),
+                              `${c.key} in ${c.environment} now uses ${secret.name}`,
+                            )
+                          }
+                        >
+                          Link
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 <RotationSection
                   secret={secret}
@@ -793,7 +826,7 @@ function SettingsSection({
 
   return (
     <section aria-label="Settings" className="flex flex-col gap-5">
-      <Field label="Name" htmlFor="secret-rename" hint="Shown in Shared secrets. Linked variables keep their names.">
+      <Field label="Name" htmlFor="secret-rename" hint="Shown in Secrets. Linked variables keep their names.">
         <form
           className="flex gap-2"
           onSubmit={(e) => {
