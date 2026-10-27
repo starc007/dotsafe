@@ -1,16 +1,20 @@
 //! The HTTP calls for each service.
 
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::{Connection, ProviderLink, Target};
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
 
-use crate::{Error, Result};
+use crate::{Error, Result, service, sigv4};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// New AWS access keys take a few seconds to work everywhere.
+const AWS_PROPAGATION: Duration = Duration::from_secs(3);
+const AWS_ATTEMPTS: u32 = 6;
+const ANTHROPIC_VERSION: &str = "2023-06-01";
 
 /// A key a provider just issued.
 pub struct NewKey {
@@ -24,6 +28,8 @@ pub struct Client {
     /// Replaces every service's API address. Only for tests, which point it
     /// at a local fake; it can't be set from config or the environment.
     base: Option<Url>,
+    /// How long to wait between checks of a new AWS key.
+    aws_wait: Duration,
 }
 
 impl Default for Client {
@@ -42,7 +48,7 @@ impl Client {
             .https_only(true)
             .build()
             .into();
-        Client { agent, base: None }
+        Client { agent, base: None, aws_wait: AWS_PROPAGATION }
     }
 
     /// A client that sends every request to `base` over plain HTTP. For
@@ -54,7 +60,7 @@ impl Client {
             .max_redirects(0)
             .build()
             .into();
-        Client { agent, base: Some(Url::parse(base).expect("test base URL")) }
+        Client { agent, base: Some(Url::parse(base).expect("test base URL")), aws_wait: Duration::ZERO }
     }
 
     /// Asks the provider for a new key named `name`.
@@ -63,7 +69,7 @@ impl Client {
             "openai" => {
                 let project = setting(&connection.settings, "project_id")?;
                 let url = self.url("OpenAI", OPENAI, &["organization", "projects", project, "service_accounts"])?;
-                let body = self.send("OpenAI", "POST", url, token, Some(json!({ "name": name })))?;
+                let body = self.send("OpenAI", "POST", url, &bearer(token), Some(json!({ "name": name })))?;
                 let key_id = body["id"].as_str();
                 let value = body["api_key"]["value"].as_str();
                 match (key_id, value) {
@@ -74,50 +80,137 @@ impl Client {
             "cloudflare_token" => {
                 let token_id = setting(&link.settings, "token_id")?;
                 let url = self.url("Cloudflare", CLOUDFLARE, &cloudflare_tokens(connection, &[token_id, "value"]))?;
-                let body = self.send("Cloudflare", "PUT", url, token, Some(json!({})))?;
+                let body = self.send("Cloudflare", "PUT", url, &bearer(token), Some(json!({})))?;
                 match body["result"].as_str() {
                     Some(value) => Ok(NewKey { value: Zeroizing::new(value.into()), key_id: token_id.into() }),
                     None => Err(Error::Invalid("Cloudflare's answer had no new token in it".into())),
                 }
             }
-            other => Err(not_a("provider", other)),
+            "aws_iam" => {
+                let user = setting(&link.settings, "user_name")?;
+                let body = sigv4::form(&[("Action", "CreateAccessKey"), ("UserName", user), ("Version", "2010-05-08")]);
+                let xml = self.aws("iam", IAM, &connection_key_id(connection)?, token, &body)?;
+                match (xml_tag(&xml, "AccessKeyId"), xml_tag(&xml, "SecretAccessKey")) {
+                    (Some(id), Some(secret)) => Ok(NewKey { value: Zeroizing::new(secret), key_id: id }),
+                    _ => Err(Error::Invalid("AWS's answer had no new access key in it".into())),
+                }
+            }
+            other => match service(other) {
+                Ok(s) if s.guided => Err(Error::Invalid(format!("{} keys are made in its console; paste the new one", s.label))),
+                _ => Err(not_a("provider", other)),
+            },
         }
     }
 
-    /// Checks a new key works, by calling the provider with it.
-    pub fn verify_key(&self, connection: &Connection, value: &str) -> Result<()> {
+    /// Checks a new key works, by calling the provider with it. AWS keys
+    /// also need their access key ID.
+    pub fn verify_key(&self, connection: &Connection, value: &str, key_id: Option<&str>) -> Result<()> {
         match connection.service.as_str() {
             "openai" => {
                 let url = self.url("OpenAI", OPENAI, &["models"])?;
-                self.send("OpenAI", "GET", url, value, None).map(|_| ())
+                self.send("OpenAI", "GET", url, &bearer(value), None).map(|_| ())
             }
             "cloudflare_token" => {
                 let url = self.url("Cloudflare", CLOUDFLARE, &cloudflare_tokens(connection, &["verify"]))?;
-                let body = self.send("Cloudflare", "GET", url, value, None)?;
+                let body = self.send("Cloudflare", "GET", url, &bearer(value), None)?;
                 match body["result"]["status"].as_str() {
                     Some("active") => Ok(()),
                     status => Err(Error::Invalid(format!("Cloudflare says the new token is {}", status.unwrap_or("unusable")))),
                 }
             }
+            "anthropic" => {
+                let url = self.url("Anthropic", ANTHROPIC, &["models"])?;
+                self.send("Anthropic", "GET", url, &anthropic(value), None).map(|_| ())
+            }
+            "stripe" => {
+                let url = self.url("Stripe", STRIPE, &["balance"])?;
+                self.send("Stripe", "GET", url, &bearer(value), None).map(|_| ())
+            }
+            "aws_iam" => {
+                let key_id = key_id.ok_or_else(|| Error::Invalid("the new access key ID is missing".into()))?;
+                let body = sigv4::form(&[("Action", "GetCallerIdentity"), ("Version", "2011-06-15")]);
+                let mut last = None;
+                for attempt in 0..AWS_ATTEMPTS {
+                    if attempt > 0 {
+                        std::thread::sleep(self.aws_wait);
+                    }
+                    match self.aws("sts", STS, key_id, value, &body) {
+                        Ok(_) => return Ok(()),
+                        // Not known everywhere yet: try again shortly.
+                        Err(e @ Error::Refused { status: 403, .. }) => last = Some(e),
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(last.expect("at least one attempt"))
+            }
             other => Err(not_a("provider", other)),
         }
     }
 
+    /// The provider's id for the key `value`, where it can be found from the
+    /// key itself. Anthropic lists keys with a hint (its start and end).
+    pub fn find_key_id(&self, connection: &Connection, token: &str, value: &str) -> Result<Option<String>> {
+        if connection.service != "anthropic" {
+            return Ok(None);
+        }
+        let mut after: Option<String> = None;
+        let mut found = Vec::new();
+        loop {
+            let mut url = self.url("Anthropic", ANTHROPIC, &["organizations", "api_keys"])?;
+            url.query_pairs_mut().append_pair("limit", "1000");
+            if let Some(after) = &after {
+                url.query_pairs_mut().append_pair("after_id", after);
+            }
+            let page = self.send("Anthropic", "GET", url, &anthropic(token), None)?;
+            for key in page["data"].as_array().into_iter().flatten() {
+                let hint = key["partial_key_hint"].as_str().unwrap_or_default();
+                if key["status"] == "active"
+                    && let (Some(id), Some((start, end))) = (key["id"].as_str(), hint.split_once("..."))
+                    && !start.is_empty()
+                    && value.starts_with(start)
+                    && value.ends_with(end)
+                {
+                    found.push(id.to_string());
+                }
+            }
+            match (page["has_more"].as_bool(), page["last_id"].as_str()) {
+                (Some(true), Some(last)) => after = Some(last.to_string()),
+                _ => break,
+            }
+        }
+        // Two keys with the same hint can't be told apart.
+        Ok(if found.len() == 1 { found.pop() } else { None })
+    }
+
     /// Revokes a key the provider issued. A key that's already gone counts
     /// as revoked.
-    pub fn revoke_key(&self, connection: &Connection, token: &str, key_id: &str) -> Result<()> {
+    pub fn revoke_key(&self, connection: &Connection, token: &str, link: &ProviderLink, key_id: &str) -> Result<()> {
         match connection.service.as_str() {
             "openai" => {
                 let project = setting(&connection.settings, "project_id")?;
                 let url = self.url("OpenAI", OPENAI, &["organization", "projects", project, "service_accounts", key_id])?;
-                match self.send("OpenAI", "DELETE", url, token, None) {
+                gone_is_fine(self.send("OpenAI", "DELETE", url, &bearer(token), None))
+            }
+            // Rolling already ended the old token.
+            "cloudflare_token" => Ok(()),
+            "anthropic" => {
+                let url = self.url("Anthropic", ANTHROPIC, &["organizations", "api_keys", key_id])?;
+                gone_is_fine(self.send("Anthropic", "POST", url, &anthropic(token), Some(json!({ "status": "inactive" }))))
+            }
+            "aws_iam" => {
+                let user = setting(&link.settings, "user_name")?;
+                let body = sigv4::form(&[
+                    ("Action", "DeleteAccessKey"),
+                    ("AccessKeyId", key_id),
+                    ("UserName", user),
+                    ("Version", "2010-05-08"),
+                ]);
+                match self.aws("iam", IAM, &connection_key_id(connection)?, token, &body) {
                     Err(Error::Refused { status: 404, .. }) => Ok(()),
                     other => other.map(|_| ()),
                 }
             }
-            // Rolling already ended the old token.
-            "cloudflare_token" => Ok(()),
-            other => Err(not_a("provider", other)),
+            other => Err(not_a("provider that revokes through an API", other)),
         }
     }
 
@@ -138,14 +231,14 @@ impl Client {
                     .filter(|e: &Vec<&str>| !e.is_empty())
                     .unwrap_or_else(|| vec!["production", "preview", "development"]);
                 let body = json!({ "key": target.name, "value": value, "type": "encrypted", "target": environments });
-                self.send("Vercel", "POST", url, token, Some(body)).map(|_| ())
+                self.send("Vercel", "POST", url, &bearer(token), Some(body)).map(|_| ())
             }
             "cloudflare_workers" => {
                 let account = setting(&connection.settings, "account_id")?;
                 let script = setting(&target.settings, "script")?;
                 let url = self.url("Cloudflare", CLOUDFLARE, &["accounts", account, "workers", "scripts", script, "secrets"])?;
                 let body = json!({ "name": target.name, "text": value, "type": "secret_text" });
-                self.send("Cloudflare", "PUT", url, token, Some(body)).map(|_| ())
+                self.send("Cloudflare", "PUT", url, &bearer(token), Some(body)).map(|_| ())
             }
             other => Err(not_a("deploy target", other)),
         }
@@ -165,17 +258,32 @@ impl Client {
         Ok(url)
     }
 
-    fn send(&self, service: &'static str, method: &str, url: Url, token: &str, body: Option<Value>) -> Result<Value> {
-        let auth = Zeroizing::new(format!("Bearer {token}"));
+    fn send(
+        &self,
+        service: &'static str,
+        method: &str,
+        url: Url,
+        headers: &[(&'static str, Zeroizing<String>)],
+        body: Option<Value>,
+    ) -> Result<Value> {
         let uri = url.as_str();
-        let request = match method {
-            "GET" => self.agent.get(uri).header("Authorization", auth.as_str()).call(),
-            "DELETE" => self.agent.delete(uri).header("Authorization", auth.as_str()).call(),
-            "POST" => self.agent.post(uri).header("Authorization", auth.as_str()).send_json(body.unwrap_or_default()),
-            "PUT" => self.agent.put(uri).header("Authorization", auth.as_str()).send_json(body.unwrap_or_default()),
+        macro_rules! with_headers {
+            ($request:expr) => {{
+                let mut request = $request;
+                for (name, value) in headers {
+                    request = request.header(*name, value.as_str());
+                }
+                request
+            }};
+        }
+        let response = match method {
+            "GET" => with_headers!(self.agent.get(uri)).call(),
+            "DELETE" => with_headers!(self.agent.delete(uri)).call(),
+            "POST" => with_headers!(self.agent.post(uri)).send_json(body.unwrap_or_default()),
+            "PUT" => with_headers!(self.agent.put(uri)).send_json(body.unwrap_or_default()),
             _ => unreachable!("only the methods above are used"),
         };
-        let mut response = request.map_err(|_| Error::Unreachable(service))?;
+        let mut response = response.map_err(|_| Error::Unreachable(service))?;
         let status = response.status().as_u16();
         let text = response.body_mut().read_to_string().unwrap_or_default();
         let body: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -184,11 +292,75 @@ impl Client {
         }
         Err(Error::Refused { service, status, message: error_message(&body).unwrap_or_else(|| reason(status)) })
     }
+
+    /// A signed POST to an AWS query API (IAM, STS). Returns the XML body.
+    fn aws(&self, aws_service: &str, base: &str, access_key_id: &str, secret: &str, body: &str) -> Result<String> {
+        let url = self.url("AWS", base, &[])?;
+        let host = match (url.host_str(), url.port()) {
+            (Some(host), Some(port)) => format!("{host}:{port}"),
+            (Some(host), None) => host.to_string(),
+            _ => return Err(Error::Invalid("bad address for AWS".into())),
+        };
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let amz_date = sigv4::amz_date(now);
+        let request = sigv4::Request { host: &host, region: "us-east-1", service: aws_service, body, amz_date: &amz_date };
+        let authorization = Zeroizing::new(sigv4::authorization(&request, access_key_id, secret));
+        let response = self
+            .agent
+            .post(url.as_str())
+            .header("Content-Type", sigv4::CONTENT_TYPE)
+            .header("X-Amz-Date", &amz_date)
+            .header("Authorization", authorization.as_str())
+            .send(body.as_bytes());
+        let mut response = response.map_err(|_| Error::Unreachable("AWS"))?;
+        let status = response.status().as_u16();
+        let text = response.body_mut().read_to_string().unwrap_or_default();
+        if (200..300).contains(&status) {
+            return Ok(text);
+        }
+        let message = match (xml_tag(&text, "Code"), xml_tag(&text, "Message")) {
+            (Some(code), Some(message)) => format!("{code}: {message}"),
+            (_, Some(message)) => message,
+            _ => reason(status),
+        };
+        let status = if xml_tag(&text, "Code").as_deref() == Some("NoSuchEntity") { 404 } else { status };
+        Err(Error::Refused { service: "AWS", status, message })
+    }
 }
 
 const OPENAI: &str = "https://api.openai.com/v1";
 const CLOUDFLARE: &str = "https://api.cloudflare.com/client/v4";
 const VERCEL: &str = "https://api.vercel.com";
+const ANTHROPIC: &str = "https://api.anthropic.com/v1";
+const STRIPE: &str = "https://api.stripe.com/v1";
+const IAM: &str = "https://iam.amazonaws.com/";
+const STS: &str = "https://sts.amazonaws.com/";
+
+fn bearer(token: &str) -> Vec<(&'static str, Zeroizing<String>)> {
+    vec![("Authorization", Zeroizing::new(format!("Bearer {token}")))]
+}
+
+fn anthropic(key: &str) -> Vec<(&'static str, Zeroizing<String>)> {
+    vec![("x-api-key", Zeroizing::new(key.to_string())), ("anthropic-version", Zeroizing::new(ANTHROPIC_VERSION.into()))]
+}
+
+fn gone_is_fine(result: Result<Value>) -> Result<()> {
+    match result {
+        Err(Error::Refused { status: 404, .. }) => Ok(()),
+        other => other.map(|_| ()),
+    }
+}
+
+fn connection_key_id(connection: &Connection) -> Result<String> {
+    setting(&connection.settings, "access_key_id").map(str::to_string)
+}
+
+/// The text of the first `<tag>…</tag>` in an AWS XML answer.
+fn xml_tag(xml: &str, tag: &str) -> Option<String> {
+    let start = xml.find(&format!("<{tag}>"))? + tag.len() + 2;
+    let end = start + xml[start..].find(&format!("</{tag}>"))?;
+    Some(xml[start..end].trim().to_string())
+}
 
 /// Path to user-owned tokens, or account-owned ones when the connection has
 /// an account id.
@@ -209,8 +381,8 @@ fn not_a(what: &str, service: &str) -> Error {
     Error::Invalid(format!("{service} isn't a {what}"))
 }
 
-/// The message in OpenAI and Vercel (`error.message`) or Cloudflare
-/// (`errors[0].message`) error bodies.
+/// The message in OpenAI, Anthropic, Stripe and Vercel (`error.message`) or
+/// Cloudflare (`errors[0].message`) error bodies.
 fn error_message(body: &Value) -> Option<String> {
     body["error"]["message"]
         .as_str()
