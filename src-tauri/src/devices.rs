@@ -15,7 +15,8 @@ use dotsafe_core::{
 };
 use dotsafe_stores::S3Store;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -216,11 +217,23 @@ pub struct EnrollmentView {
 pub async fn create_enrollment_code(state: State<'_, AppState>) -> CmdResult<EnrollmentView> {
     state
         .run(|s| {
-            let code = s.vault_mut()?.create_enrollment_code()?;
-            Ok(EnrollmentView {
-                code: code.to_display_string(),
-                expires_at: now_ms() + dotsafe_core::header::ENROLLMENT_TTL_MS,
-            })
+            let code = s.vault_mut()?.create_enrollment_code()?.to_display_string();
+            s.enrollment_code = Some(Zeroizing::new(code.clone()));
+            Ok(EnrollmentView { code, expires_at: now_ms() + dotsafe_core::header::ENROLLMENT_TTL_MS })
+        })
+        .await
+}
+
+/// Copies the code just made, for pasting on the other Mac (Universal
+/// Clipboard). Cleared from the clipboard like any copied secret.
+#[tauri::command]
+pub async fn copy_enrollment_code(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    state
+        .run(move |s| {
+            let code = s.enrollment_code.clone().ok_or_else(|| CmdError::other("Add a device again for a new code."))?;
+            app.clipboard().write_text(code.as_str()).map_err(|e| CmdError::other(e.to_string()))?;
+            s.clipboard = Some((crate::state::hash_text(&code), std::time::Instant::now()));
+            Ok(())
         })
         .await
 }
@@ -284,7 +297,7 @@ pub async fn connect_with_code(
                 Vault::enroll_with_code(store, &code, config.device_id, &device_name()).map_err(|e| match e {
                     Error::InvalidCredentials => CmdError {
                         kind: ErrorKind::InvalidPassword,
-                        message: "That code doesn't work. Codes last ten minutes and work once.".into(),
+                        message: "That code doesn't open the vault here. Check the location above matches the other device's vault; codes also expire after ten minutes and work once.".into(),
                     },
                     e => e.into(),
                 })?;

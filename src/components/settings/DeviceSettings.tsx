@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Fingerprint, Laptop, Plus } from "lucide-react";
+import { Copy, Fingerprint, Laptop, Plus } from "lucide-react";
 import { api, message, type DevicesView, type DeviceView } from "@/lib/api";
 import { daysAgo } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -146,7 +147,10 @@ function AddDeviceDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
     setCode(null);
     api
       .createEnrollmentCode()
-      .then(setCode)
+      .then((made) => {
+        setNow(Date.now());
+        setCode(made);
+      })
       .catch((e) => {
         toast.error(message(e));
         onOpenChange(false);
@@ -156,6 +160,17 @@ function AddDeviceDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
   }, [open, onOpenChange]);
 
   const left = code ? Math.max(0, Math.round((code.expiresAt - now) / 1000)) : 0;
+  const expired = code !== null && left === 0;
+
+  async function copy() {
+    try {
+      await api.copyEnrollmentCode();
+      toast("Copied the code", { description: "The clipboard clears in 30 seconds." });
+    } catch (e) {
+      toast.error(message(e));
+    }
+  }
+
   return (
     <SurfaceDialog
       open={open}
@@ -164,28 +179,40 @@ function AddDeviceDialog({ open, onOpenChange }: { open: boolean; onOpenChange: 
       title="Add a device"
       description="On the new Mac, set up dotsafe, choose this vault's folder or bucket, and enter this code instead of the password."
     >
-      {!code ? (
-        <Skeleton aria-hidden className="h-24 rounded-2xl" />
-      ) : (
-        <div className="flex flex-col gap-3">
-          <div
-            aria-label="Code"
-            className="selectable grid grid-cols-4 gap-x-3 gap-y-2 rounded-2xl bg-muted/60 p-4 text-center font-mono text-[15px] tracking-wider"
-          >
-            {code.code.split("-").map((group, i) => (
-              <span key={i}>{group}</span>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {left > 0
-              ? `Works once, for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} more. Anyone with it can join, so only type it yourself.`
-              : "This code has expired. Close and add a device again for a new one."}
-          </p>
-          <SurfaceFooter className="pt-1">
-            <Button onClick={() => onOpenChange(false)}>Done</Button>
-          </SurfaceFooter>
+      {/* The same layout while the code loads, so the dialog doesn't change
+          height and jump after it opens. */}
+      <div className="flex flex-col gap-3">
+        <div
+          aria-label="Code"
+          aria-busy={!code}
+          className={cn(
+            "selectable grid grid-cols-4 gap-x-3 gap-y-2 rounded-2xl bg-muted/60 p-4 text-center font-mono text-[15px] tracking-wider",
+            expired && "text-muted-foreground line-through",
+          )}
+        >
+          {code
+            ? code.code.split("-").map((group, i) => <span key={i}>{group}</span>)
+            : Array.from({ length: 7 }, (_, i) => (
+                // Invisible text keeps each cell exactly as tall as a group.
+                <span key={i} className="relative">
+                  <span className="invisible">{i < 6 ? "XXXX" : "XX"}</span>
+                  <Skeleton aria-hidden className="absolute inset-x-2 inset-y-1" />
+                </span>
+              ))}
         </div>
-      )}
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {expired
+              ? "This code expired. Close this and add a device again for a new one."
+              : `Expires in ${code ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "10:00"} and works once. Anyone with it can join, so only use it on your own devices.`}
+        </p>
+        <SurfaceFooter className="pt-1">
+          <Button variant="ghost" onClick={copy} disabled={!code || expired}>
+            <Copy aria-hidden />
+            Copy code
+          </Button>
+          <Button onClick={() => onOpenChange(false)}>Done</Button>
+        </SurfaceFooter>
+      </div>
     </SurfaceDialog>
   );
 }
