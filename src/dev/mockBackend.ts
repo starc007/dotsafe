@@ -755,6 +755,8 @@ export function installMockBackend() {
           return currentOf(secret(a.id))?.value ?? fail("other", "This secret has no value.");
         case "copy_secret":
           return null;
+        case "generate_secret_value":
+          return Array.from(crypto.getRandomValues(new Uint8Array(40)), (b) => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62]).join("");
         case "share_preview": {
           const value = env(a.environmentId).vars.get(a.key);
           const usage = (e: Env) => ({ projectId: e.projectId, project: projects.get(e.projectId), environmentId: e.id, environment: e.name, key: a.key });

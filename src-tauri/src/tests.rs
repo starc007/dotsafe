@@ -84,6 +84,7 @@ impl Desktop {
                 secrets::list_secrets,
                 secrets::get_secret,
                 secrets::reveal_secret,
+                secrets::generate_secret_value,
                 secrets::share_preview,
                 secrets::share_variable,
                 secrets::link_variable,
@@ -391,6 +392,13 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     assert!(desktop.err("set_variable", edit)["message"].as_str().unwrap().contains("linked to a shared secret"));
 
     // Staged values aren't live until promoted; the old one stays as previous.
+    // Generating shows a fresh value without saving anything.
+    let generated = desktop.ok("generate_secret_value", json!({ "id": id }));
+    let generated = generated.as_str().unwrap();
+    assert_eq!(generated.len(), 40);
+    assert!(generated.chars().all(|c| c.is_ascii_alphanumeric()));
+    assert_ne!(desktop.ok("generate_secret_value", json!({ "id": id })), generated);
+    assert_eq!(desktop.ok("get_secret", json!({ "id": id }))["staged"], false);
     let staged = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_new", "note": "quarterly" }));
     assert_eq!(staged["staged"], true);
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "STRIPE_KEY" })), "sk_old");

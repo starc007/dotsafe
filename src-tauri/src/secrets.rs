@@ -216,6 +216,19 @@ pub async fn reveal_secret(state: State<'_, AppState>, id: Uuid) -> CmdResult<St
         .await
 }
 
+/// A fresh random value from the secret's generator, for the rotate form to
+/// show before it's staged. Nothing is saved.
+#[tauri::command]
+pub async fn generate_secret_value(state: State<'_, AppState>, id: Uuid) -> CmdResult<String> {
+    state
+        .run(move |s| {
+            let snapshot = Snapshot::take(s)?;
+            let secret = snapshot.secret(id)?;
+            Ok(secret.policy.generator.clone().unwrap_or_default().generate()?.to_string())
+        })
+        .await
+}
+
 #[tauri::command]
 pub async fn copy_secret<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>, id: Uuid) -> CmdResult<()> {
     state
