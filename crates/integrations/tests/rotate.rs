@@ -19,6 +19,8 @@ struct Seen {
     method: String,
     path: String,
     auth: String,
+    /// Anthropic's key header.
+    api_key: String,
     body: Value,
 }
 
@@ -30,6 +32,15 @@ struct Fake {
 
 impl Fake {
     fn start(answer: impl Fn(&str, &str, &str) -> (u16, Value) + Send + 'static) -> Fake {
+        Fake::start_raw(move |method, path, auth, _| {
+            let (status, body) = answer(method, path, auth);
+            (status, body.to_string())
+        })
+    }
+
+    /// Like `start`, but sees the request body and answers with raw text
+    /// (AWS speaks form bodies and XML).
+    fn start_raw(answer: impl Fn(&str, &str, &str, &str) -> (u16, String) + Send + 'static) -> Fake {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let url = format!("http://{}", server.server_addr().to_ip().unwrap());
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -44,16 +55,23 @@ impl Fake {
                     .find(|h| h.field.equiv("Authorization"))
                     .map(|h| h.value.to_string())
                     .unwrap_or_default();
+                let api_key = request
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("x-api-key"))
+                    .map(|h| h.value.to_string())
+                    .unwrap_or_default();
                 let method = request.method().to_string();
                 let path = request.url().to_string();
-                let (status, reply) = answer(&method, &path, &auth);
+                let (status, reply) = answer(&method, &path, &auth, &body);
                 log.lock().unwrap().push(Seen {
                     method,
                     path,
                     auth,
-                    body: serde_json::from_str(&body).unwrap_or(Value::Null),
+                    api_key,
+                    body: serde_json::from_str(&body).unwrap_or(Value::String(body.clone())),
                 });
-                let response = tiny_http::Response::from_string(reply.to_string()).with_status_code(status);
+                let response = tiny_http::Response::from_string(reply).with_status_code(status);
                 let _ = request.respond(response);
             }
         });
@@ -85,7 +103,7 @@ fn setup(service: &str, connection_settings: &[(&str, &str)], link_settings: &[(
     let connect = |service: &str, token: &str, settings| {
         let credential = Secret::new(format!("{service} admin"), token, vault.stamp(device));
         vault.put(Record::Secret(credential.clone())).unwrap();
-        let c = Connection::new(service, &format!("Acme {service}"), credential.id, settings, vault.stamp(device));
+        let c = Connection::new(service, &format!("Acme {service}"), Some(credential.id), settings, vault.stamp(device));
         vault.put(Record::Connection(c.clone())).unwrap();
         c.id
     };
@@ -149,7 +167,7 @@ fn openai_rotation_issues_verifies_promotes_and_pushes() {
     let fake = openai_fake(200);
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
     assert!(out.promoted && out.staged.is_none() && !out.revoked_old);
     assert_eq!(out.pushes.len(), 1);
     assert!(out.pushes[0].error.is_none(), "{:?}", out.pushes[0].error);
@@ -182,7 +200,7 @@ fn openai_rotation_issues_verifies_promotes_and_pushes() {
     assert_eq!(file["version"], 4);
 
     // Retiring revokes the old service account, then marks it retired.
-    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret).unwrap(), 1);
+    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap(), 1);
     let revoke = fake.seen().into_iter().find(|r| r.method == "DELETE").unwrap();
     assert_eq!(revoke.path, "/organization/projects/proj_1/service_accounts/old-key-id");
     assert_eq!(states(&secret(&s.vault, s.secret))[1].1, VersionState::Retired);
@@ -196,7 +214,7 @@ fn a_key_that_fails_its_check_is_saved_but_left_staged() {
     let fake = openai_fake(401);
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
     assert!(!out.promoted);
     assert!(out.staged.as_deref().unwrap().contains("Incorrect API key"), "{:?}", out.staged);
     let stored = secret(&s.vault, s.secret);
@@ -207,7 +225,7 @@ fn a_key_that_fails_its_check_is_saved_but_left_staged() {
     assert!(fake.seen().iter().all(|r| !r.path.starts_with("/v10/")), "nothing was pushed");
 
     // A second rotation waits until the staged value is dealt with.
-    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, false).is_err());
+    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).is_err());
 }
 
 #[test]
@@ -215,7 +233,7 @@ fn leaked_keys_are_revoked_straight_away() {
     let s = setup("openai", &[("project_id", "proj_1")], &[]);
     let fake = openai_fake(200);
     let client = Client::with_base_for_tests(&fake.url);
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, true).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, true).unwrap();
     assert!(out.revoked_old);
     assert!(fake.seen().iter().any(|r| r.method == "DELETE" && r.path.ends_with("/old-key-id")));
     assert_eq!(states(&secret(&s.vault, s.secret))[1].1, VersionState::Retired);
@@ -233,7 +251,7 @@ fn cloudflare_rolls_go_live_at_once_because_the_old_token_is_dead() {
     });
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
     assert!(out.staged.as_deref().unwrap().contains("disabled"));
     assert!(out.promoted && out.revoked_old);
     let stored = secret(&s.vault, s.secret);
@@ -249,7 +267,7 @@ fn push_failures_are_reported_per_target() {
     let credential = Secret::new("cf", "cf-token", s.vault.stamp(s.device));
     s.vault.put(Record::Secret(credential.clone())).unwrap();
     let settings = BTreeMap::from([("account_id".to_string(), "acc_1".to_string())]);
-    let workers = Connection::new("cloudflare_workers", "Workers", credential.id, settings, s.vault.stamp(s.device));
+    let workers = Connection::new("cloudflare_workers", "Workers", Some(credential.id), settings, s.vault.stamp(s.device));
     s.vault.put(Record::Connection(workers.clone())).unwrap();
     b.targets.insert(
         Uuid::new_v4(),
@@ -292,4 +310,133 @@ fn settings_are_checked_against_each_service() {
     let extra = BTreeMap::from([("project_id".to_string(), "p".to_string()), ("evil".to_string(), "x".to_string())]);
     assert!(check_settings(openai.connection_fields, &extra).is_err());
     assert!(service("nope").is_err());
+}
+
+#[test]
+fn anthropic_keys_are_pasted_checked_and_switched_off_by_hint() {
+    let s = setup("anthropic", &[], &[]);
+    let fake = Fake::start(|method, path, _| match (method, path) {
+        ("GET", "/models") => (200, json!({ "data": [] })),
+        ("GET", p) if p.starts_with("/organizations/api_keys?") => (
+            200,
+            json!({
+                "data": [
+                    { "id": "apikey_old", "status": "active", "partial_key_hint": "old...-key" },
+                    { "id": "apikey_new", "status": "active", "partial_key_hint": "sk-ant-api03-NEW...WXYZ" },
+                    { "id": "apikey_gone", "status": "inactive", "partial_key_hint": "sk-ant-api03-NEW...WXYZ" },
+                ],
+                "has_more": false,
+                "last_id": "apikey_new",
+            }),
+        ),
+        ("POST", p) if p.starts_with("/organizations/api_keys/") => (200, json!({ "status": "inactive" })),
+        ("POST", p) if p.starts_with("/v10/") => (200, json!({})),
+        _ => (404, json!({ "error": { "message": "no route" } })),
+    });
+    let client = Client::with_base_for_tests(&fake.url);
+
+    // Without a pasted key there's nothing to rotate with.
+    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).is_err());
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some(" sk-ant-api03-NEW-pasted-WXYZ "), false).unwrap();
+    assert!(out.promoted && !out.revoked_old);
+    let stored = secret(&s.vault, s.secret);
+    assert_eq!(stored.current_value(), Some("sk-ant-api03-NEW-pasted-WXYZ"), "trimmed");
+    assert_eq!(binding(&s.vault, s.secret).keys[&stored.current().unwrap().0], "apikey_new", "found by its hint");
+    let check = fake.seen().into_iter().find(|r| r.path == "/models").unwrap();
+    assert_eq!(check.api_key, "sk-ant-api03-NEW-pasted-WXYZ", "checked with the new key");
+
+    // The old key's id is known (from setup), so revoking switches it off.
+    rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap();
+    let off = fake.seen().into_iter().find(|r| r.method == "POST" && r.path.starts_with("/organizations/")).unwrap();
+    assert_eq!(off.path, "/organizations/api_keys/old-key-id");
+    assert_eq!((off.api_key.as_str(), off.body.clone()), ("admin-token", json!({ "status": "inactive" })));
+}
+
+#[test]
+fn stripe_keys_are_checked_with_themselves_and_revoked_by_hand() {
+    let s = setup("stripe", &[], &[]);
+    let fake = Fake::start(|method, path, auth| match (method, path) {
+        ("GET", "/balance") if auth == "Bearer sk_live_new" => (200, json!({ "object": "balance" })),
+        ("GET", "/balance") => (401, json!({ "error": { "message": "Invalid API Key provided" } })),
+        ("POST", _) => (200, json!({})),
+        _ => (404, json!({})),
+    });
+    let client = Client::with_base_for_tests(&fake.url);
+
+    let bad = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_typo"), false).unwrap();
+    assert!(!bad.promoted && bad.staged.unwrap().contains("Invalid API Key"));
+    let cancelled = {
+        let mut stored = secret(&s.vault, s.secret);
+        stored.cancel(s.vault.stamp(s.device)).unwrap();
+        stored
+    };
+    s.vault.put(Record::Secret(cancelled)).unwrap();
+
+    // Even a leak can't be revoked through Stripe's API: that's left to you.
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_new"), true).unwrap();
+    assert!(out.promoted && !out.revoked_old);
+    let refused = rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap_err();
+    assert!(refused.to_string().contains("only be revoked in its dashboard"), "{refused}");
+    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, true).unwrap(), 1);
+    assert!(fake.seen().iter().all(|r| r.method != "DELETE"));
+
+    // A Stripe connection needs no token at all.
+    let tokenless = Connection::new("stripe", "Stripe", None, BTreeMap::new(), s.vault.stamp(s.device));
+    s.vault.put(Record::Connection(tokenless.clone())).unwrap();
+    assert_eq!(rotate::connection(&s.vault, tokenless.id).unwrap().1.as_str(), "");
+}
+
+#[test]
+fn aws_keys_are_created_signed_verified_and_deleted() {
+    let s = setup("aws_iam", &[("access_key_id", "AKIAADMIN")], &[("user_name", "ci-bot")]);
+    // The secret that holds AWS_ACCESS_KEY_ID.
+    let id_secret = Secret::new("AWS_ACCESS_KEY_ID", "AKIAOLD", s.vault.stamp(s.device));
+    s.vault.put(Record::Secret(id_secret.clone())).unwrap();
+    let mut b = binding(&s.vault, s.secret);
+    b.provider.as_mut().unwrap().settings.insert("access_key_id_secret".into(), id_secret.id.to_string());
+    b.updated = s.vault.stamp(s.device);
+    s.vault.put(Record::Binding(b)).unwrap();
+
+    let sts_calls = Arc::new(Mutex::new(0));
+    let calls = sts_calls.clone();
+    let fake = Fake::start_raw(move |method, _, auth, body| {
+        assert_eq!(method, "POST");
+        if auth.starts_with("Bearer ") {
+            return (200, "{}".into()); // the Vercel push
+        }
+        assert!(auth.starts_with("AWS4-HMAC-SHA256 Credential="), "signed: {auth}");
+        let xml = |inner: &str| format!("<Response>{inner}</Response>");
+        if body.contains("Action=CreateAccessKey") {
+            assert!(auth.contains("Credential=AKIAADMIN/") && auth.contains("/us-east-1/iam/aws4_request"));
+            assert!(body.contains("UserName=ci-bot"));
+            (200, xml("<AccessKey><AccessKeyId>AKIANEW</AccessKeyId><SecretAccessKey>new/secret+key</SecretAccessKey></AccessKey>"))
+        } else if body.contains("Action=GetCallerIdentity") {
+            assert!(auth.contains("Credential=AKIANEW/") && auth.contains("/sts/aws4_request"), "checked as the new key");
+            let mut n = calls.lock().unwrap();
+            *n += 1;
+            // Not known everywhere at first.
+            if *n == 1 {
+                (403, "<ErrorResponse><Error><Code>InvalidClientTokenId</Code><Message>not yet</Message></Error></ErrorResponse>".into())
+            } else {
+                (200, xml("<Arn>arn:aws:iam::1:user/ci-bot</Arn>"))
+            }
+        } else if body.contains("Action=DeleteAccessKey") {
+            assert!(body.contains("AccessKeyId=old-key-id") && body.contains("UserName=ci-bot"));
+            (200, xml(""))
+        } else {
+            (400, "<ErrorResponse><Error><Code>Unknown</Code><Message>?</Message></Error></ErrorResponse>".into())
+        }
+    });
+    let client = Client::with_base_for_tests(&fake.url);
+
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
+    assert!(out.promoted && out.staged.is_none(), "{:?}", out.staged);
+    assert_eq!(*sts_calls.lock().unwrap(), 2, "retried while the key propagated");
+    assert_eq!(secret(&s.vault, s.secret).current_value(), Some("new/secret+key"));
+    assert_eq!(secret(&s.vault, id_secret.id).current_value(), Some("AKIANEW"), "the key ID moved too");
+
+    rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap();
+    assert!(fake.seen().iter().any(|r| r.body.as_str().is_some_and(|b| b.contains("Action=DeleteAccessKey"))));
+    let ids = secret(&s.vault, id_secret.id);
+    assert!(ids.versions().iter().all(|(_, v)| v.state != VersionState::Previous), "the old ID is retired with it");
 }

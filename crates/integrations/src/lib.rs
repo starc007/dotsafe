@@ -1,6 +1,8 @@
 //! Talking to the services secrets come from and go to: providers that issue
-//! keys (OpenAI service accounts, Cloudflare API tokens) and deploy targets
-//! that hold them (Vercel, Cloudflare Workers).
+//! keys (OpenAI service accounts, Cloudflare API tokens, AWS IAM access
+//! keys), providers whose keys you create by hand and dotsafe checks and
+//! revokes (Anthropic, Stripe), and deploy targets that hold them (Vercel,
+//! Cloudflare Workers).
 //!
 //! Everything runs on the device with the user's own admin tokens, which are
 //! secrets in the vault. Calls are HTTPS only and never follow redirects, so
@@ -9,6 +11,7 @@
 
 mod client;
 pub mod rotate;
+mod sigv4;
 
 pub use client::{Client, NewKey};
 
@@ -41,6 +44,9 @@ pub struct Field {
     pub label: &'static str,
     pub hint: &'static str,
     pub required: bool,
+    /// The value names another shared secret; it's stored as that secret's
+    /// id. AWS uses it for the secret that gets the new access key ID.
+    pub secret_ref: bool,
 }
 
 /// One integration and what it needs.
@@ -59,6 +65,16 @@ pub struct Service {
     /// Providers: the old key keeps working after a new one is issued, until
     /// it's revoked. Cloudflare's roll ends the old one at once.
     pub overlap: bool,
+    /// Providers: dotsafe can't create keys. You make one in the console and
+    /// paste it; dotsafe checks it, makes it live and pushes it.
+    pub guided: bool,
+    /// Providers: revoking happens in the console, not through an API. dotsafe
+    /// links there, then marks the old key retired.
+    pub manual_revoke: bool,
+    /// Whether the connection needs an admin token at all.
+    pub needs_token: bool,
+    /// Where keys are managed, for guided steps.
+    pub console_url: Option<&'static str>,
 }
 
 pub const SERVICES: &[Service] = &[
@@ -71,10 +87,14 @@ pub const SERVICES: &[Service] = &[
             key: "project_id",
             label: "Project ID",
             hint: "proj_…, from the project's settings. New keys belong to a service account in it.",
-            required: true,
+            required: true, secret_ref: false
         }],
         binding_fields: &[],
         overlap: true,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: Some("https://platform.openai.com/api-keys"),
     },
     Service {
         id: "cloudflare_token",
@@ -85,15 +105,79 @@ pub const SERVICES: &[Service] = &[
             key: "account_id",
             label: "Account ID",
             hint: "Only for account-owned tokens. Leave empty for tokens on your user.",
-            required: false,
+            required: false, secret_ref: false
         }],
         binding_fields: &[Field {
             key: "token_id",
             label: "Token ID",
             hint: "The ID of the token this secret holds, from the API Tokens page.",
-            required: true,
+            required: true, secret_ref: false
         }],
         overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: Some("https://dash.cloudflare.com/profile/api-tokens"),
+    },
+    Service {
+        id: "anthropic",
+        label: "Anthropic",
+        kind: Kind::Provider,
+        token_help: "An Admin key (sk-ant-admin…) from console.anthropic.com → Settings → Admin keys. dotsafe uses it to switch old keys off.",
+        connection_fields: &[],
+        binding_fields: &[],
+        overlap: true,
+        guided: true,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: Some("https://console.anthropic.com/settings/keys"),
+    },
+    Service {
+        id: "stripe",
+        label: "Stripe",
+        kind: Kind::Provider,
+        token_help: "No token needed: Stripe has no API for managing keys. dotsafe checks each new key with itself.",
+        connection_fields: &[],
+        binding_fields: &[],
+        overlap: true,
+        guided: true,
+        manual_revoke: true,
+        needs_token: false,
+        console_url: Some("https://dashboard.stripe.com/apikeys"),
+    },
+    Service {
+        id: "aws_iam",
+        label: "AWS IAM access key",
+        kind: Kind::Provider,
+        token_help: "The secret access key of an IAM user allowed to call iam:CreateAccessKey and iam:DeleteAccessKey on the user below.",
+        connection_fields: &[Field {
+            key: "access_key_id",
+            label: "Admin access key ID",
+            hint: "AKIA…, of the IAM user dotsafe calls IAM as.",
+            required: true,
+            secret_ref: false,
+        }],
+        binding_fields: &[
+            Field {
+                key: "user_name",
+                label: "IAM user",
+                hint: "The user whose access key this secret holds.",
+                required: true,
+                secret_ref: false,
+            },
+            Field {
+                key: "access_key_id_secret",
+                label: "Shared secret for the key ID",
+                hint: "Optional: the shared secret that holds AWS_ACCESS_KEY_ID. It gets the new ID on every rotation.",
+                required: false,
+                secret_ref: true,
+            },
+        ],
+        overlap: true,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: Some("https://console.aws.amazon.com/iam/home#/users"),
     },
     Service {
         id: "vercel",
@@ -104,27 +188,35 @@ pub const SERVICES: &[Service] = &[
             key: "team_id",
             label: "Team ID",
             hint: "team_…, for team projects. Leave empty for personal ones.",
-            required: false,
+            required: false, secret_ref: false
         }],
         binding_fields: &[
-            Field { key: "project", label: "Project", hint: "The project's name or ID.", required: true },
+            Field { key: "project", label: "Project", hint: "The project's name or ID.", required: true, secret_ref: false },
             Field {
                 key: "environments",
                 label: "Environments",
                 hint: "Comma-separated: production, preview, development. Defaults to all three.",
-                required: false,
+                required: false, secret_ref: false
             },
         ],
         overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: None,
     },
     Service {
         id: "cloudflare_workers",
         label: "Cloudflare Workers",
         kind: Kind::Target,
         token_help: "A Cloudflare API token with the \"Workers Scripts: Edit\" permission.",
-        connection_fields: &[Field { key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true }],
-        binding_fields: &[Field { key: "script", label: "Worker", hint: "The Worker's name.", required: true }],
+        connection_fields: &[Field { key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true, secret_ref: false }],
+        binding_fields: &[Field { key: "script", label: "Worker", hint: "The Worker's name.", required: true, secret_ref: false }],
         overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: None,
     },
 ];
 
