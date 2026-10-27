@@ -87,6 +87,16 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
 - **`head.json`** gains an `epoch` field (omitted means 1). A head from an epoch the client has no key for is replaced on the next write.
 - **Header writes** re-read the newest header, re-apply the change and write it conditionally on its ETag, retrying on conflict.
 
+### Header v4: merging conflict copies
+
+On a synced folder the conditional write can't be atomic, so two devices changing the header at once can leave the sync client with `vault.json` plus a conflict copy (`vault 2.json`, `vault (1).json`, `vault (conflicted copy …).json`).
+
+- **`removed_slots`:** a list of the ids of slots removed from the header, newest last, capped at 256 (omitted when empty). Every removal adds to it: a password or recovery key replaced, a device removed, an enrollment code used or expired, slots dropped by a re-key.
+- **Merging:** a copy is merged only if it's from the same vault and epoch and its `mac` verifies with the vault key. The merged header keeps every slot from either side unless either side removed it, takes the union of `removed_slots`, and is re-signed. So a password replaced on one device can't come back from the other's copy. If both devices set a new password, both work until the next change, which replaces both.
+- **When:** on every header write (merged copies are deleted once the write succeeds), and on unlock if there's anything to merge or clean up. A copy from an earlier epoch is obsolete and deleted. A copy from a later epoch (another device re-keyed) can't be checked with this key, so it's left alone. So is a copy whose `mac` doesn't verify.
+- **Unlocking:** if the credential doesn't fit `vault.json`, the copies are tried too, because a password changed on another device may so far exist only in a copy.
+- v3 headers are read and rewritten as v4 on unlock.
+
 ## `records/<uuid>.json`
 
 ```json
@@ -176,6 +186,6 @@ Records go first and the header last, so an interrupted upgrade simply runs agai
 
 - **Rollback on synced folders:** see `head.json` above. Rollbacks are detected but can't yet be told apart from sync lag, and a device that has never seen the vault trusts the first head it reads. Bucket vaults keep the last-seen head in their cache, so they also notice across sessions.
 - **Clock skew:** a device whose clock runs far ahead still pushes everyone's stamps forward. Causally later edits now win, but a future-dated edit beats a concurrent one made elsewhere.
-- **Header conflicts on synced folders:** header writes are conditional, so on S3/R2 two simultaneous changes both survive. A synced folder can't check atomically, so a truly simultaneous write there can still lose one change; merging folder conflict copies of `vault.json` isn't built.
+- **Header conflicts on synced folders:** conflict copies of `vault.json` are merged (header v4). A sync client that silently overwrites instead of keeping a copy can still lose one of two truly simultaneous changes; there's nothing left to merge.
 - **Deleting a project doesn't cascade:** deleting a project doesn't delete its environments in storage. The app is expected to tombstone them too.
 - **Decrypted values aren't wiped:** decrypted variable values are ordinary `String`s and aren't wiped from memory after use.

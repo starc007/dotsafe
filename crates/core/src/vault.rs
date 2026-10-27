@@ -152,15 +152,13 @@ impl Vault {
 
     pub fn unlock(store: impl Store + 'static, password: &str) -> Result<Vault> {
         let store: Box<dyn Store> = Box::new(store);
-        let header = read_header(&*store)?;
-        let vault_key = header.unlock_with_password(password.as_bytes())?;
+        let (header, vault_key) = read_unlocking(&*store, |h| h.unlock_with_password(password.as_bytes()))?;
         Vault::unlocked(store, header, vault_key)
     }
 
     pub fn unlock_with_recovery(store: impl Store + 'static, recovery: &RecoveryKey) -> Result<Vault> {
         let store: Box<dyn Store> = Box::new(store);
-        let header = read_header(&*store)?;
-        let vault_key = header.unlock_with_recovery(recovery)?;
+        let (header, vault_key) = read_unlocking(&*store, |h| h.unlock_with_recovery(recovery))?;
         Vault::unlocked(store, header, vault_key)
     }
 
@@ -169,8 +167,7 @@ impl Vault {
     /// every use. Fails if the vault was replaced since the key was cached.
     pub fn unlock_with_session_key(store: impl Store + 'static, key: &[u8; KEY_LEN]) -> Result<Vault> {
         let store: Box<dyn Store> = Box::new(store);
-        let header = read_header(&*store)?;
-        let vault_key = header.unlock_with_key(SecretKey::from_bytes(*key))?;
+        let (header, vault_key) = read_unlocking(&*store, |h| h.unlock_with_key(SecretKey::from_bytes(*key)))?;
         Vault::unlocked(store, header, vault_key)
     }
 
@@ -179,8 +176,7 @@ impl Vault {
     /// password, then enroll again.
     pub fn unlock_with_device(store: impl Store + 'static, device_id: Uuid, key: &DeviceKey) -> Result<Vault> {
         let store: Box<dyn Store> = Box::new(store);
-        let header = read_header(&*store)?;
-        let vault_key = header.unlock_with_device(device_id, key)?;
+        let (header, vault_key) = read_unlocking(&*store, |h| h.unlock_with_device(device_id, key))?;
         Vault::unlocked(store, header, vault_key)
     }
 
@@ -194,8 +190,7 @@ impl Vault {
         name: &str,
     ) -> Result<(Vault, DeviceKey)> {
         let store: Box<dyn Store> = Box::new(store);
-        let header = read_header(&*store)?;
-        let (vault_key, slot) = header.unlock_with_enrollment(code, now_ms())?;
+        let (header, (vault_key, slot)) = read_unlocking(&*store, |h| h.unlock_with_enrollment(code, now_ms()))?;
         let mut vault = Vault::unlocked(store, header, vault_key)?;
         let key = vault.update_header(|header, key| {
             header.remove_slot(key, slot)?;
@@ -232,6 +227,7 @@ impl Vault {
     /// interrupted re-key first.
     fn unlocked(store: Box<dyn Store>, header: VaultHeader, vault_key: SecretKey) -> Result<Vault> {
         let mut vault = Vault::open(store, header, vault_key);
+        vault.merge_header_copies()?;
         if vault.header.version < HEADER_VERSION {
             vault.upgrade()?;
         }
@@ -250,6 +246,45 @@ impl Vault {
             }
         }
         self.update_header(|header, key| header.upgrade(key))
+    }
+
+    /// Merges sync-conflict copies of `vault.json` into it and deletes them.
+    /// Copies that don't verify with this vault's key are left alone, except
+    /// ones from an earlier epoch, which a re-key made obsolete.
+    fn merge_header_copies(&mut self) -> Result<()> {
+        // Only write when there's something to merge or clean up.
+        if self.mergeable_copies(&self.header)?.1.is_empty() {
+            return Ok(());
+        }
+        // `update_header` folds the copies in on every write.
+        self.update_header(|_, _| Ok(()))
+    }
+
+    /// The conflict copies of `vault.json` that can be merged into `header`
+    /// (same vault and epoch, verified with this vault's key), and every copy
+    /// that can be deleted once it's written: those, plus copies from an
+    /// earlier epoch.
+    fn mergeable_copies(&self, header: &VaultHeader) -> Result<(Vec<VaultHeader>, Vec<String>)> {
+        let (mut merge, mut done) = (Vec::new(), Vec::new());
+        for key in header_copies(&*self.store)? {
+            let Some(object) = self.store.get(&key)? else { continue };
+            let Ok(copy) = serde_json::from_slice::<VaultHeader>(&object.bytes) else { continue };
+            if copy.check_version().is_err() || copy.vault_id != header.vault_id {
+                continue;
+            }
+            match copy.current_epoch().cmp(&header.current_epoch()) {
+                std::cmp::Ordering::Less => done.push(key),
+                // Another device re-keyed; this key can't check it.
+                std::cmp::Ordering::Greater => {}
+                std::cmp::Ordering::Equal => {
+                    if copy.unlock_with_key(self.vault_key.clone()).is_ok() {
+                        merge.push(copy);
+                        done.push(key);
+                    }
+                }
+            }
+        }
+        Ok((merge, done))
     }
 
     pub fn id(&self) -> Uuid {
@@ -292,6 +327,7 @@ impl Vault {
         if !self.read_head()?.copies.is_empty() {
             self.compact_head()?;
         }
+
         // Push the merges.
         self.store.sync()?;
         Ok(changed)
@@ -413,10 +449,17 @@ impl Vault {
                 .unlock_with_key(self.vault_key.clone())
                 .map_err(|_| Error::Invalid("the vault's key changed on another device; lock and unlock again".into()))?;
             header.prune_enrollments(now_ms());
+            let (copies, done) = self.mergeable_copies(&header)?;
+            if !copies.is_empty() {
+                header.merge_copies(&self.vault_key, &copies)?;
+            }
             let out = change(&mut header, &self.vault_key)?;
             let bytes = serde_json::to_vec_pretty(&header)?;
             if let Put::Written(_) = self.store.put(HEADER_KEY, &bytes, Cond::IfMatch(object.etag))? {
                 self.header = header;
+                for key in &done {
+                    let _ = self.store.delete(key);
+                }
                 return Ok(out);
             }
         }
@@ -669,6 +712,41 @@ fn now_ms() -> u64 {
 
 fn record_key(id: Uuid) -> String {
     format!("{RECORDS_DIR}/{id}.json")
+}
+
+/// Sync-conflict copies of `vault.json` (`vault 2.json`, `vault (1).json`,
+/// `vault (conflicted copy …).json`).
+fn header_copies(store: &dyn Store) -> Result<Vec<String>> {
+    Ok(store
+        .list("")?
+        .into_iter()
+        .filter(|k| k != HEADER_KEY && k.starts_with("vault") && k.ends_with(".json") && !k.contains('/'))
+        .collect())
+}
+
+/// Reads the header and unlocks it with `unlock`. If the credential doesn't
+/// fit, tries the header's conflict copies too: a password changed on
+/// another device may so far exist only in a copy.
+fn read_unlocking<T>(store: &dyn Store, unlock: impl Fn(&VaultHeader) -> Result<T>) -> Result<(VaultHeader, T)> {
+    let header = read_header(store)?;
+    let first = match unlock(&header) {
+        Ok(found) => return Ok((header, found)),
+        Err(e) => e,
+    };
+    if !matches!(first, Error::InvalidCredentials | Error::DeviceStale) {
+        return Err(first);
+    }
+    for key in header_copies(store)? {
+        let Some(object) = store.get(&key)? else { continue };
+        let Ok(copy) = serde_json::from_slice::<VaultHeader>(&object.bytes) else { continue };
+        if copy.check_version().is_err() || copy.vault_id != header.vault_id {
+            continue;
+        }
+        if let Ok(found) = unlock(&copy) {
+            return Ok((copy, found));
+        }
+    }
+    Err(first)
 }
 
 fn read_header(store: &dyn Store) -> Result<VaultHeader> {

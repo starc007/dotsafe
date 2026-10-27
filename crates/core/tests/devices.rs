@@ -46,7 +46,7 @@ fn enrolled_devices_unlock_with_their_own_key() {
 
     let unlocked = Vault::unlock_with_device(store(dir.path()), mac, &key).unwrap();
     assert!(unlocked.get(env.id).unwrap().is_some());
-    assert_eq!(header(dir.path())["version"], 3);
+    assert_eq!(header(dir.path())["version"], 4);
     let devices = vault.devices();
     assert_eq!((devices[0].name.as_str(), devices[0].stale), ("Studio Mac", false));
 
