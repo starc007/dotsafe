@@ -98,6 +98,7 @@ pub fn run() {
             devices::set_touch_id_unlock,
             devices::list_devices,
             devices::create_enrollment_code,
+            devices::copy_enrollment_code,
             devices::revoke_device,
             devices::connect_with_code,
             broker::answer_agent_request,

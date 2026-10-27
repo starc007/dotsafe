@@ -250,6 +250,8 @@ export const api = {
   setTouchIdUnlock: (enabled: boolean) => call<void>("set_touch_id_unlock", { enabled }),
   listDevices: () => call<DevicesView>("list_devices"),
   createEnrollmentCode: () => call<{ code: string; expiresAt: number }>("create_enrollment_code"),
+  /** Copies the code just made; the clipboard clears like any copied secret. */
+  copyEnrollmentCode: () => call<void>("copy_enrollment_code"),
   /** Re-keys the vault; returns the new recovery key. */
   revokeDevice: (deviceId: string, password: string) => call<string>("revoke_device", { deviceId, password }),
   connectWithCode: (where: { path: string } | { bucket: BucketInput }, code: string) =>

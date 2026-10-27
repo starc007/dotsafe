@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 /// Lock the vault after this long without any command from the UI.
 pub const IDLE_LOCK: Duration = Duration::from_secs(15 * 60);
@@ -39,6 +40,8 @@ pub struct Session {
     pub must_change_password: bool,
     /// Commands agents may run without asking again. Ends with the unlock.
     pub agent_grants: Grants,
+    /// The last enrollment code made here, so it can be copied in Rust.
+    pub enrollment_code: Option<Zeroizing<String>>,
 }
 
 impl Default for Session {
@@ -52,6 +55,7 @@ impl Default for Session {
             import_files: Vec::new(),
             must_change_password: false,
             agent_grants: Grants::default(),
+            enrollment_code: None,
         }
     }
 }
@@ -114,6 +118,7 @@ impl Session {
         self.vault = None;
         self.import_files.clear();
         self.agent_grants.clear();
+        self.enrollment_code = None;
         self.must_change_password = false;
     }
 

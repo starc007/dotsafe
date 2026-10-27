@@ -245,7 +245,10 @@ export function installMockBackend() {
             touchIdUnlock,
             touchIdAvailable: true,
           };
+        case "copy_enrollment_code":
+          return null;
         case "create_enrollment_code":
+          await delay(600);
           return { code: "7QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5Z", expiresAt: Date.now() + 10 * 60_000 };
         case "revoke_device": {
           await delay(800);

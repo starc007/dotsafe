@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { Fingerprint, KeyRound, Lock } from "lucide-react";
 import { api, message } from "@/lib/api";
@@ -47,17 +47,6 @@ export function Unlock({
       input.current?.focus();
     }
   }
-
-  // Ask for Touch ID straight away, like macOS's own lock screens. Cancelling
-  // leaves the password field ready.
-  const asked = useRef(false);
-  useEffect(() => {
-    if (touchId && !asked.current) {
-      asked.current = true;
-      unlockWithTouchId();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [touchId]);
 
   function switchMode(next: Mode) {
     setMode(next);
