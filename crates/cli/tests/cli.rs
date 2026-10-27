@@ -482,3 +482,44 @@ fn rotation_queue_lists_what_a_removed_device_could_read() {
     m.ok(&project, &["secret", "queue", "--dismiss"]);
     assert!(stderr(&m.run(&project, &["secret", "queue"])).contains("Nothing to rotate"));
 }
+
+#[test]
+fn guided_and_aws_providers_from_the_cli() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "STRIPE_KEY=sk_live_1", "AWS_SECRET_ACCESS_KEY=s1", "AWS_ACCESS_KEY_ID=AKIA1"]);
+    for key in ["STRIPE_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID"] {
+        m.ok(&project, &["secret", "share", key]);
+    }
+
+    // Stripe needs no token: nothing is asked for or stored.
+    let out = m.run(&project, &["connect", "stripe"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("stored"), "{}", stderr(&out));
+    m.ok(&project, &["secret", "provider", "STRIPE_KEY", "--connection", "Stripe"]);
+    // A by-hand rotation, then the old key can only be retired by hand.
+    let mut rotate = m.cmd(&project, &["secret", "rotate", "STRIPE_KEY", "--generate"]);
+    assert!(rotate.output().unwrap().status.success());
+    let refused = m.run(&project, &["secret", "retire", "STRIPE_KEY"]);
+    assert!(stderr(&refused).contains("only be revoked in its dashboard"), "{}", stderr(&refused));
+    assert!(stderr(&m.run(&project, &["secret", "retire", "STRIPE_KEY", "--by-hand"])).contains("Marked the previous key"));
+
+    // AWS's key-ID setting names a shared secret.
+    let mut cmd = m.cmd(&project, &["connect", "aws_iam", "--name", "AWS", "--set", "access_key_id=AKIAADMIN", "--token-stdin"]);
+    cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    {
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(b"admin-secret\n").unwrap();
+    }
+    assert!(child.wait_with_output().unwrap().status.success());
+    let missing = m.run(
+        &project,
+        &["secret", "provider", "AWS_SECRET_ACCESS_KEY", "--connection", "AWS", "--set", "user_name=ci", "--set", "access_key_id_secret=NOPE"],
+    );
+    assert!(stderr(&missing).contains("no shared secret named \"NOPE\""), "{}", stderr(&missing));
+    m.ok(
+        &project,
+        &["secret", "provider", "AWS_SECRET_ACCESS_KEY", "--connection", "AWS", "--set", "user_name=ci", "--set", "access_key_id_secret=AWS_ACCESS_KEY_ID"],
+    );
+}

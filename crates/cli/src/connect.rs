@@ -37,6 +37,14 @@ pub fn connections(ctx: &Ctx) -> Result<Vec<Connection>> {
     Ok(list)
 }
 
+/// A connection by id.
+pub fn by_id(ctx: &Ctx, id: uuid::Uuid) -> Result<Connection> {
+    match ctx.vault.get(id)? {
+        Some(Record::Connection(c)) if !c.deleted => Ok(c),
+        _ => bail!("the connection this secret used was removed"),
+    }
+}
+
 /// A connection by name.
 pub fn find(ctx: &Ctx, name: &str) -> Result<Connection> {
     let matches: Vec<Connection> = connections(ctx)?.into_iter().filter(|c| c.name == name).collect();
@@ -64,17 +72,22 @@ pub fn connect(service_id: &str, name: Option<String>, set: &[String], token_std
     }
 
     eprintln!("{}", svc.token_help);
-    let token = read_token(&format!("{} admin token: ", svc.label), token_stdin)?;
-
-    let credential = Secret::new(format!("{name} admin token"), token.as_str(), ctx.stamp());
-    ctx.vault.put(Record::Secret(credential.clone()))?;
-    let connection = Connection::new(svc.id, &name, credential.id, settings, ctx.stamp());
+    let credential = if svc.needs_token {
+        let token = read_token(&format!("{} admin token: ", svc.label), token_stdin)?;
+        let credential = Secret::new(format!("{name} admin token"), token.as_str(), ctx.stamp());
+        ctx.vault.put(Record::Secret(credential.clone()))?;
+        Some(credential.id)
+    } else {
+        None
+    };
+    let connection = Connection::new(svc.id, &name, credential, settings, ctx.stamp());
     ctx.vault.put(Record::Connection(connection))?;
     let next = match svc.kind {
         Kind::Provider => format!("`dotsafe secret provider SECRET --connection {name:?}`"),
         Kind::Target => format!("`dotsafe secret target add SECRET --connection {name:?}`"),
     };
-    eprintln!("Connected {name}. The token is kept as the shared secret \"{}\". Next: {next}.", credential.name);
+    let stored = if credential.is_some() { " The token is stored in the vault." } else { "" };
+    eprintln!("Connected {name}.{stored} Next: {next}.");
     Ok(())
 }
 
@@ -84,7 +97,10 @@ pub fn reconnect(name: &str, token_stdin: bool) -> Result<()> {
     let ctx = Ctx::open()?;
     let connection = find(&ctx, name)?;
     let token = read_token(&format!("New admin token for {name}: "), token_stdin)?;
-    let Some(Record::Secret(mut secret)) = ctx.vault.get(connection.credential)? else {
+    let Some(credential) = connection.credential else {
+        bail!("{name} doesn't use a token");
+    };
+    let Some(Record::Secret(mut secret)) = ctx.vault.get(credential)? else {
         bail!("{name}'s stored token is missing; disconnect and connect again");
     };
     secret.rotate(token.as_str(), Some("Replaced".into()), ctx.stamp())?;
@@ -140,7 +156,7 @@ pub fn disconnect(name: &str) -> Result<()> {
     connection.updated = ctx.stamp();
     let credential = connection.credential;
     ctx.vault.put(Record::Connection(connection))?;
-    if let Some(Record::Secret(mut token)) = ctx.vault.get(credential)? {
+    if let Some(Record::Secret(mut token)) = credential.map(|id| ctx.vault.get(id)).transpose()?.flatten() {
         token.delete(ctx.stamp());
         ctx.vault.put(Record::Secret(token))?;
     }
