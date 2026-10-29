@@ -43,10 +43,13 @@ pub fn copy_to_empty(src: &dyn Store, dst: &dyn Store) -> Result<usize> {
 /// Writes a dated snapshot of `src` into `dir` and deletes the oldest beyond
 /// [`KEEP`]. `stamp` names it, e.g. `2026-10-27-1430`.
 pub fn snapshot(src: &dyn Store, dir: &Path, stamp: &str) -> Result<PathBuf> {
-    let path = dir.join(format!("{PREFIX}{stamp}"));
-    // A second backup in the same minute replaces the first.
-    if path.exists() {
-        fs::remove_dir_all(&path)?;
+    // A second backup in the same minute gets its own folder (`…-1430-2`),
+    // which still sorts after the first and before the next minute's.
+    let mut path = dir.join(format!("{PREFIX}{stamp}"));
+    let mut n = 1;
+    while path.exists() {
+        n += 1;
+        path = dir.join(format!("{PREFIX}{stamp}-{n}"));
     }
     fs::create_dir_all(path.join("records"))?;
     copy_all(src, &FolderStore::new(&path))?;

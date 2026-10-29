@@ -24,10 +24,28 @@ const PLAIN_WORDS: &[&str] = &[
     "development", "production", "staging", "localhost", "debug", "info", "warning", "error", "enabled", "disabled",
 ];
 
-const HOOK: &str = "#!/bin/sh\n\
+/// The pre-commit hook. It uses `dotsafe` from PATH, and falls back to the
+/// binary that installed it, since git GUIs often run hooks with a bare PATH.
+fn hook(fallback: &Path) -> String {
+    let quoted = fallback.display().to_string().replace('\'', "'\\''");
+    format!(
+        "#!/bin/sh\n\
 # Added by `dotsafe scan --install-hook`: stops commits that contain a value\n\
 # from your dotsafe vault. Skip it once with `git commit --no-verify`.\n\
-exec dotsafe scan --staged\n";
+if command -v dotsafe >/dev/null 2>&1; then exec dotsafe scan --staged; fi\n\
+exec '{quoted}' scan --staged\n"
+    )
+}
+
+/// A plain web address, like `API_URL=https://api.example.com`, isn't a
+/// secret, and flagging it everywhere it's mentioned is noise. One carrying a
+/// login (`https://user:pass@…`) or a query string (`?key=…`) still counts.
+fn plain_url(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("https://").or_else(|| value.strip_prefix("http://")) else {
+        return false;
+    };
+    !rest.contains(['@', '?', '#']) && !rest.chars().any(char::is_whitespace)
+}
 
 /// Every value in the vault worth looking for, named for the report:
 /// `project/environment/KEY` for variables and `secret NAME` for shared
@@ -40,7 +58,7 @@ pub fn matcher(vault: &Vault) -> Result<Redactor> {
             plain.insert(env.name.to_lowercase());
         }
     }
-    let secretish = |value: &str| !plain.contains(&value.trim().to_lowercase());
+    let secretish = |value: &str| !plain.contains(&value.trim().to_lowercase()) && !plain_url(value.trim());
     let mut values = Vec::new();
     for record in &records {
         if let Record::Secret(secret) = record
@@ -170,7 +188,8 @@ pub fn install_hook() -> Result<PathBuf> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    fs::write(&path, HOOK).with_context(|| format!("writing {}", path.display()))?;
+    let exe = std::env::current_exe().context("couldn't find the dotsafe binary")?;
+    fs::write(&path, hook(&exe)).with_context(|| format!("writing {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

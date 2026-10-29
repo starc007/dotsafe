@@ -252,7 +252,7 @@ fn shared_secrets_link_rotate_and_unlink() {
 
     // Linked variables can't be overwritten by accident.
     let out = m.run(&web, &["set", "STRIPE_KEY=oops"]);
-    assert!(!out.status.success() && stderr(&out).contains("linked to a shared secret"));
+    assert!(!out.status.success() && stderr(&out).contains("linked to a secret"));
 
     let history = m.ok(&api, &["secret", "history", "STRIPE_KEY"]);
     assert!(history.starts_with("1\tcurrent\ttoday\tquarterly\n2\tprevious\ttoday"), "{history}");
@@ -405,19 +405,24 @@ fn scan_finds_vault_values_without_printing_them() {
     m.ok(&project, &["set", "SHARED=tok_shared_987654"]);
     m.ok(&project, &["secret", "share", "SHARED"]);
     // Plain config words aren't secrets, and the link file names the environment.
-    m.ok(&project, &["set", "NODE_ENV=development", "LOG_LEVEL=debug"]);
-    fs::write(project.join("clean.js"), "listen(3000)\nif (env === 'development') log('debug')\n").unwrap();
+    m.ok(&project, &["set", "NODE_ENV=development", "LOG_LEVEL=debug", "API_URL=https://api.example.com"]);
+    fs::write(project.join("clean.js"), "listen(3000)\nif (env === 'development') log('debug')\nfetch('https://api.example.com')\n").unwrap();
     assert!(project.join(".dotsafe.json").exists());
     assert!(m.run(&project, &["scan"]).status.success());
 
     fs::create_dir(project.join("src")).unwrap();
     fs::write(project.join("src/config.js"), "const a = 1;\n  key: 'sk_live_scanme123',\n").unwrap();
     fs::write(project.join("notes.txt"), "dG9rX3NoYXJlZF85ODc2NTQ=\n").unwrap();
+    // A web address with a login in it is still a secret.
+    m.ok(&project, &["set", "HOOK_URL=https://bot:pw-scan-77@hooks.example.com/x"]);
+    fs::write(project.join("hook.txt"), "https://bot:pw-scan-77@hooks.example.com/x\n").unwrap();
     let out = m.run(&project, &["scan"]);
     assert_eq!(out.status.code(), Some(1));
     let report = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(report.contains("config.js:2:9\tmy-api/development/STRIPE_KEY"), "{report}");
     assert!(report.contains("notes.txt:1:1\tsecret SHARED"), "base64 is caught too: {report}");
+    assert!(report.contains("hook.txt:1:1\tmy-api/development/HOOK_URL"), "{report}");
+    assert!(!report.contains("API_URL"), "plain web addresses aren't flagged: {report}");
     assert!(!report.contains("sk_live") && !stderr(&out).contains("sk_live"), "values are never printed");
 }
 
@@ -430,6 +435,8 @@ fn scan_staged_and_the_pre_commit_hook() {
     m.ok(&project, &["scan", "--install-hook"]);
     let hook = fs::read_to_string(project.join(".git/hooks/pre-commit")).unwrap();
     assert!(hook.contains("dotsafe scan --staged"));
+    // Falls back to this binary when `dotsafe` isn't on PATH.
+    assert!(hook.contains(&format!("exec '{}' scan --staged", env!("CARGO_BIN_EXE_dotsafe"))), "{hook}");
 
     fs::write(project.join("a.txt"), "API_KEY=sk_live_hooked42\n").unwrap();
     fs::write(project.join("b.txt"), "fine\n").unwrap();
@@ -561,7 +568,7 @@ fn guided_and_aws_providers_from_the_cli() {
         &project,
         &["secret", "provider", "AWS_SECRET_ACCESS_KEY", "--connection", "AWS", "--set", "user_name=ci", "--set", "access_key_id_secret=NOPE"],
     );
-    assert!(stderr(&missing).contains("no shared secret named \"NOPE\""), "{}", stderr(&missing));
+    assert!(stderr(&missing).contains("no secret named \"NOPE\""), "{}", stderr(&missing));
     m.ok(
         &project,
         &["secret", "provider", "AWS_SECRET_ACCESS_KEY", "--connection", "AWS", "--set", "user_name=ci", "--set", "access_key_id_secret=AWS_ACCESS_KEY_ID"],

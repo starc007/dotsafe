@@ -38,6 +38,20 @@ fn snapshots_are_whole_vaults_and_old_ones_go() {
 }
 
 #[test]
+fn backups_in_the_same_minute_keep_both() {
+    let source = tempfile::tempdir().unwrap();
+    let _ = vault_with_a_variable(source.path());
+    let backups = tempfile::tempdir().unwrap();
+    let store = FolderStore::new(source.path());
+    let first = backup::snapshot(&store, backups.path(), "2026-10-01-0900").unwrap();
+    let second = backup::snapshot(&store, backups.path(), "2026-10-01-0900").unwrap();
+    let next = backup::snapshot(&store, backups.path(), "2026-10-01-0901").unwrap();
+    assert_ne!(first, second);
+    assert!(second.ends_with("dotsafe-backup-2026-10-01-0900-2"), "{second:?}");
+    assert_eq!(backup::snapshots(backups.path()).unwrap(), vec![first, second, next], "oldest first");
+}
+
+#[test]
 fn moving_copies_into_an_empty_place_only() {
     let source = tempfile::tempdir().unwrap();
     let (vault, env) = vault_with_a_variable(source.path());
