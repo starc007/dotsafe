@@ -32,6 +32,16 @@ impl Machine {
         self.cmd(cwd, args).output().unwrap()
     }
 
+    /// Runs with `input` piped to stdin, as in `pbpaste | dotsafe set KEY`.
+    fn piped(&self, cwd: &Path, args: &[&str], input: &str) -> Output {
+        use std::io::Write;
+        use std::process::Stdio;
+        let mut child =
+            self.cmd(cwd, args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    }
+
     fn ok(&self, cwd: &Path, args: &[&str]) -> String {
         let out = self.run(cwd, args);
         assert!(out.status.success(), "dotsafe {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
@@ -357,6 +367,37 @@ fn export_prints_and_writes_env_files() {
 }
 
 #[test]
+fn values_can_be_piped_in() {
+    let (_root, m, project) = setup();
+    m.init();
+    assert!(m.piped(&project, &["set", "TOKEN"], "tok_piped_123 \n").status.success());
+    assert_eq!(m.ok(&project, &["get", "TOKEN"]), "tok_piped_123 \n", "only the trailing newline is dropped");
+    let empty = m.piped(&project, &["set", "EMPTY"], "");
+    assert!(!empty.status.success() && stderr(&empty).contains("no value for EMPTY"));
+
+    m.ok(&project, &["secret", "share", "TOKEN"]);
+    assert!(m.piped(&project, &["secret", "rotate", "TOKEN"], "tok_rotated_456\n").status.success());
+    assert_eq!(m.ok(&project, &["get", "TOKEN"]), "tok_rotated_456\n");
+}
+
+#[test]
+fn linking_never_drops_a_different_value_silently() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "DB_PASS=shared_pw_123"]);
+    m.ok(&project, &["secret", "share", "DB_PASS"]);
+    m.ok(&project, &["set", "-e", "production", "DB_PASS=prod_own_pw_456", "SAME=shared_pw_123"]);
+
+    let out = m.run(&project, &["secret", "link", "DB_PASS", "DB_PASS", "-e", "production"]);
+    assert!(!out.status.success() && stderr(&out).contains("--replace"), "{}", stderr(&out));
+    assert_eq!(m.ok(&project, &["get", "DB_PASS", "-e", "production"]), "prod_own_pw_456\n");
+    // The same value, or a new name, links without asking.
+    m.ok(&project, &["secret", "link", "SAME", "DB_PASS", "-e", "production"]);
+    m.ok(&project, &["secret", "link", "DB_PASS", "DB_PASS", "-e", "production", "--replace"]);
+    assert_eq!(m.ok(&project, &["get", "DB_PASS", "-e", "production"]), "shared_pw_123\n");
+}
+
+#[test]
 fn scan_finds_vault_values_without_printing_them() {
     let (_root, m, project) = setup();
     m.init();
@@ -547,7 +588,7 @@ fn import_reads_other_managers_exports() {
         let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
         let out = m.cmd(&project, &["import", "--from", "doppler"]).env("PATH", path).output().unwrap();
         assert!(out.status.success(), "{}", stderr(&out));
-        assert!(stderr(&out).contains("Imported 1 variables from Doppler"), "{}", stderr(&out));
+        assert!(stderr(&out).contains("Imported 1 variable from Doppler"), "{}", stderr(&out));
         assert_eq!(m.ok(&project, &["list"]), "API_KEY\nDB_URL\n", "Doppler's own variables are left out");
     }
 

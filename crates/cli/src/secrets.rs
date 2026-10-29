@@ -35,6 +35,9 @@ pub enum SecretCmd {
     Link {
         key: String,
         secret: String,
+        /// Drop the variable's own value even though it differs from the secret's
+        #[arg(long)]
+        replace: bool,
         #[command(flatten)]
         env: EnvArg,
     },
@@ -165,7 +168,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 if matches!(due, Due::Soon | Due::Overdue) {
                     any = true;
                     let label = if due == Due::Overdue { "overdue" } else { "due soon" };
-                    println!("{}\t{label}\t{}", secret.name, describe_age(secret));
+                    println!("{}\t{label}\t{}", secret.name, rotated_ago(secret));
                 }
             }
             if !any {
@@ -207,9 +210,20 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 );
             }
         }
-        SecretCmd::Link { key, secret, env } => {
+        SecretCmd::Link { key, secret, replace, env } => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
             let mut target = ctx.target(env.env, true)?;
+            // Linking drops the variable's own value; don't lose one that differs.
+            if let Some(Entry::Value(own)) = target.env.entry(&key)
+                && Some(own) != secret.current_value()
+                && !replace
+            {
+                bail!(
+                    "{key} in {} has its own value, different from {}'s. Linking would drop it; pass --replace if that's what you want",
+                    target.label(),
+                    secret.name
+                );
+            }
             target.env.link(&key, secret.id, ctx.stamp());
             eprintln!("Linked {key} in {} to {}.", target.label(), secret.name);
             ctx.vault.put(Record::Environment(target.env))?;
@@ -277,13 +291,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             let value: Zeroizing<String> = if generate {
                 secret.policy.generator.clone().unwrap_or_default().generate()?
             } else {
-                // Not session::password: that one reads DOTSAFE_PASSWORD, which is the
-                // master password, never a value to store.
-                let value = Zeroizing::new(rpassword::prompt_password(format!("New value for {}: ", secret.name))?);
-                if value.is_empty() {
-                    bail!("the new value can't be empty");
-                }
-                value
+                read_value(&format!("New value for {}: ", secret.name), stdin)?
             };
             let note = note.or_else(|| leaked.then(|| "Leaked".to_string()));
             secret.rotate(value.as_str(), note, ctx.stamp())?;
@@ -540,9 +548,10 @@ fn env_labels(records: &[Record]) -> std::collections::HashMap<Uuid, String> {
         .collect()
 }
 
-/// A value typed privately, or read from stdin.
+/// A value typed privately, or read from stdin: with `--stdin`, or whenever
+/// it's piped in rather than a terminal.
 fn read_value(prompt: &str, from_stdin: bool) -> Result<Zeroizing<String>> {
-    let value = if from_stdin {
+    let value = if from_stdin || !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         let mut value = Zeroizing::new(String::new());
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut value)?;
         Zeroizing::new(value.trim().to_string())
@@ -604,8 +613,12 @@ fn sorted(secrets: &Secrets) -> Vec<&Secret> {
     list
 }
 
+fn rotated_ago(secret: &Secret) -> String {
+    secret.age_ms(now_ms()).map(|ms| format!("rotated {}", days_ago_ms(ms))).unwrap_or_default()
+}
+
 fn describe_age(secret: &Secret) -> String {
-    let age = secret.age_ms(now_ms()).map(|ms| format!("rotated {}", days_ago_ms(ms))).unwrap_or_default();
+    let age = rotated_ago(secret);
     match secret.due(now_ms()) {
         Due::Overdue => format!("{age}, overdue"),
         Due::Soon => format!("{age}, due soon"),
