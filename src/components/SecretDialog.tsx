@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, RotateCcw, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
 import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
+import { useFocusOnMount } from "@/lib/hooks/use-focus-on-mount";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -742,6 +743,7 @@ function RotateForm({
   // Staging is for values a service needs first, like a database password:
   // linked variables switch over only when it's promoted.
   const [stageFirst, setStageFirst] = useState(false);
+  const valueRef = useFocusOnMount<HTMLInputElement>();
   // A generated value is shown in the field, so it's visible until edited away.
   const [visible, setVisible] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -784,8 +786,8 @@ function RotateForm({
         <div className="flex gap-2">
           <Input
             id="new-value"
+            ref={valueRef}
             type={visible ? "text" : "password"}
-            autoFocus
             autoComplete="off"
             spellCheck={false}
             className={cn("h-9 bg-card", visible && "font-mono text-[12.5px] md:text-[12.5px]")}
@@ -848,6 +850,7 @@ function SettingsSection({
   const [days, setDays] = useState(String(secret.rotateEveryDays ?? 7));
   const customDays = Number(days);
   const validDays = Number.isInteger(customDays) && customDays >= 1 && customDays <= 3650;
+  const daysRef = useFocusOnMount<HTMLInputElement>(customPicked);
 
   return (
     <section aria-label="Settings" className="flex flex-col gap-5">
@@ -914,7 +917,7 @@ function SettingsSection({
             type="number"
             min={1}
             max={3650}
-            autoFocus={customPicked}
+            ref={daysRef}
             className="h-9 w-20 text-center"
             value={days}
             aria-invalid={days !== "" && !validDays}
