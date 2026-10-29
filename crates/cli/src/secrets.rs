@@ -17,9 +17,9 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 #[derive(Subcommand)]
 pub enum SecretCmd {
-    /// List shared secrets with their age and where they're used
+    /// List secrets with their age and where they're used
     List,
-    /// Turn a variable into a shared secret that other environments can link to
+    /// Turn a variable into a secret that other environments can link to
     Share {
         key: String,
         /// Name for the secret [default: the variable's name]
@@ -31,7 +31,7 @@ pub enum SecretCmd {
         #[command(flatten)]
         env: EnvArg,
     },
-    /// Link a variable to an existing shared secret
+    /// Link a variable to an existing secret
     Link {
         key: String,
         secret: String,
@@ -151,7 +151,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             let tokens = dotsafe_core::integration::credentials(&records);
             let own: Vec<&Secret> = sorted(&secrets).into_iter().filter(|s| !tokens.contains(&s.id)).collect();
             if own.is_empty() {
-                eprintln!("No shared secrets yet. Make one with `dotsafe secret share KEY`.");
+                eprintln!("No secrets yet. Make one with `dotsafe secret share KEY`.");
             }
             for secret in own {
                 let uses = usages(&records, secret.id).len();
@@ -179,7 +179,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             let mut target = ctx.target(env.env, false)?;
             let value = match target.env.entry(&key) {
                 Some(Entry::Value(value)) => value.to_owned(),
-                Some(Entry::Secret(_)) => bail!("{key} is already linked to a shared secret"),
+                Some(Entry::Secret(_)) => bail!("{key} is already linked to a secret"),
                 None => bail!("{key} is not set in {}", target.label()),
             };
             let secret = Secret::new(name.unwrap_or_else(|| key.clone()), value.clone(), ctx.stamp());
@@ -187,7 +187,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             target.env.link(&key, secret.id, ctx.stamp());
             let current_env = target.env.id;
             ctx.vault.put(Record::Environment(target.env))?;
-            eprintln!("{key} in {} is now the shared secret {}.", target.project.name, secret.name);
+            eprintln!("{key} in {} is now the secret {}.", target.project.name, secret.name);
 
             let copies: Vec<Environment> = ctx
                 .environments()?
@@ -231,7 +231,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         SecretCmd::Unlink { key, env } => {
             let mut target = ctx.target(env.env, false)?;
             let Some(Entry::Secret(id)) = target.env.entry(&key) else {
-                bail!("{key} isn't linked to a shared secret in {}", target.label());
+                bail!("{key} isn't linked to a secret in {}", target.label());
             };
             let secrets = ctx.vault.secrets()?;
             let value = secrets.value(Entry::Secret(id)).unwrap_or_default().to_owned();
@@ -589,8 +589,8 @@ fn find<'a>(secrets: &'a Secrets, name: &str) -> Result<&'a Secret> {
     let matches: Vec<&Secret> = secrets.iter().filter(|s| s.name == name).collect();
     match matches.as_slice() {
         [one] => Ok(one),
-        [] => bail!("no shared secret named {name:?}; see `dotsafe secret list`"),
-        _ => bail!("more than one shared secret is named {name:?}"),
+        [] => bail!("no secret named {name:?}; see `dotsafe secret list`"),
+        _ => bail!("more than one secret is named {name:?}"),
     }
 }
 

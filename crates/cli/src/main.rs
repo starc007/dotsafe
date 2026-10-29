@@ -187,7 +187,7 @@ enum Cmd {
         #[arg(long)]
         token_stdin: bool,
     },
-    /// Shared secrets: link one value into many environments and rotate it in one place
+    /// Secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
     /// Serve agents without the desktop app: approvals are asked in this terminal
@@ -435,7 +435,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 }
                 if let Some(Entry::Secret(_)) = target.env.entry(&key) {
                     bail!(
-                        "{key} is linked to a shared secret; rotate it with `dotsafe secret rotate`, or `dotsafe secret unlink {key}` first"
+                        "{key} is linked to a secret; rotate it with `dotsafe secret rotate`, or `dotsafe secret unlink {key}` first"
                     );
                 }
                 target.env.set(&key, value, ctx.stamp());
@@ -537,7 +537,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let mut imported = 0;
             for (key, value) in &vars {
                 if let Some(Entry::Secret(_)) = target.env.entry(key) {
-                    eprintln!("Skipped {key}: it's linked to a shared secret.");
+                    eprintln!("Skipped {key}: it's linked to a secret.");
                     continue;
                 }
                 target.env.set(key, value, stamp);

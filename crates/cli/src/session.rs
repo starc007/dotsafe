@@ -80,9 +80,10 @@ pub fn password(prompt: &str) -> Result<Zeroizing<String>> {
     if let Ok(pw) = std::env::var("DOTSAFE_PASSWORD") {
         return Ok(Zeroizing::new(pw));
     }
-    let pw = rpassword::prompt_password(prompt).context(
-        "couldn't ask for the password (no terminal?); run `dotsafe unlock` first, or set DOTSAFE_PASSWORD",
-    )?;
+    // The OS error ("Device not configured") says nothing useful here.
+    let pw = rpassword::prompt_password(prompt).map_err(|_| {
+        anyhow!("couldn't ask for the password (no terminal?); run `dotsafe unlock` first, or set DOTSAFE_PASSWORD")
+    })?;
     Ok(Zeroizing::new(pw))
 }
 

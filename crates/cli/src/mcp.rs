@@ -127,7 +127,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_variables",
-            "description": "List the names of the variables in an environment, and which are shared secrets. Never returns values.",
+            "description": "List the names of the variables in an environment, and which are linked to secrets. Never returns values.",
             "inputSchema": {"type": "object", "properties": target},
             "annotations": {"readOnlyHint": true},
         },
@@ -204,7 +204,7 @@ fn call_tool(client: &str, params: &Value) -> Value {
             let mut out = format!("{}/{}:\n", info.project, info.environment);
             for v in &info.variables {
                 match &v.shared {
-                    Some(secret) => out += &format!("{} (shared secret {secret})\n", v.name),
+                    Some(secret) => out += &format!("{} (secret {secret})\n", v.name),
                     None => out += &format!("{}\n", v.name),
                 }
             }
