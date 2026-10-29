@@ -426,7 +426,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 let (key, value) = match var.split_once('=') {
                     Some((k, v)) => (k.to_string(), v.to_string()),
                     None => {
-                        let v = rpassword::prompt_password(format!("Value for {var}: "))?;
+                        let v = private_value(&var)?;
                         (var, v)
                     }
                 };
@@ -545,7 +545,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             let label = target.label();
             ctx.vault.put(Record::Environment(target.env))?;
-            eprintln!("Imported {imported} variables from {source} into {label}.");
+            eprintln!("Imported {imported} {} from {source} into {label}.", if imported == 1 { "variable" } else { "variables" });
             if from.is_none() {
                 eprintln!("You can delete {source} and use `dotsafe run -- <command>` instead.");
             }
@@ -558,7 +558,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
             match output {
                 Some(path) => {
                     export::write(&path, &text, force)?;
-                    eprintln!("Wrote {} variables from {} to {}.", vars.len(), target.label(), path.display());
+                    eprintln!(
+                        "Wrote {} {} from {} to {}.",
+                        vars.len(),
+                        if vars.len() == 1 { "variable" } else { "variables" },
+                        target.label(),
+                        path.display()
+                    );
                 }
                 None => print!("{}", *text),
             }
@@ -584,7 +590,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 println!("{}:{}:{}\t{}", hit.file, hit.line, hit.column, hit.name);
             }
             if hits.is_empty() {
-                eprintln!("No vault values in {scanned} files.");
+                eprintln!("No vault values in {scanned} {}.", if scanned == 1 { "file" } else { "files" });
                 return Ok(ExitCode::SUCCESS);
             }
             let files = hits.iter().map(|h| &h.file).collect::<std::collections::BTreeSet<_>>().len();
@@ -927,6 +933,26 @@ fn prompt_line(prompt: &str) -> Result<String> {
         bail!("nothing entered");
     }
     Ok(line)
+}
+
+/// A value for `set KEY`: piped in (`pbpaste | dotsafe set KEY`), or typed
+/// without echo at the terminal.
+fn private_value(key: &str) -> Result<String> {
+    use std::io::{IsTerminal, Read};
+    let value = if std::io::stdin().is_terminal() {
+        rpassword::prompt_password(format!("Value for {key}: "))?
+    } else {
+        let mut piped = String::new();
+        std::io::stdin().read_to_string(&mut piped).context("couldn't read the value from stdin")?;
+        // Only the newline `echo` and most tools add; other whitespace is kept.
+        let end = piped.trim_end_matches(['\n', '\r']).len();
+        piped.truncate(end);
+        piped
+    };
+    if value.is_empty() {
+        bail!("no value for {key}; pipe one in, or set KEY=VALUE");
+    }
+    Ok(value)
 }
 
 fn show_recovery_key(recovery: &dotsafe_core::RecoveryKey) {
