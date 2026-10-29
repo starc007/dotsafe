@@ -33,6 +33,7 @@ pub fn run() {
             state.spawn_housekeeping(app.handle().clone());
             licensing::spawn_checker(state.inner().clone(), app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
+            sync::spawn_watcher(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
             storage::spawn_backups(state.inner().clone(), app.handle().clone());
             tray::setup(app)?;

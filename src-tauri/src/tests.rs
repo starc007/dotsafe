@@ -782,3 +782,26 @@ fn backups_and_moving_the_vault_from_the_app() {
     let bad = json!({ "webdav": { "url": "http://cloud.example.com/dav/", "username": "me", "password": "x" } });
     assert!(desktop.err("webdav_has_vault", bad)["message"].as_str().unwrap().contains("https://"));
 }
+
+#[test]
+fn the_app_notices_changes_made_outside_it() {
+    use dotsafe_core::{Environment, Record};
+    let dir = tempfile::tempdir().unwrap();
+    let app = Arc::new(Vault::create(FolderStore::new(dir.path()), PASSWORD, FAST).unwrap());
+    let mut watch = crate::sync::FolderWatch::default();
+    assert!(!watch.poll(&app), "the first look only takes note");
+    assert!(!watch.poll(&app), "nothing changed");
+
+    // The CLI opens the same folder and writes to it.
+    let cli = Vault::unlock(FolderStore::new(dir.path()), PASSWORD).unwrap();
+    let device = uuid::Uuid::new_v4();
+    let mut env = Environment::new(uuid::Uuid::new_v4(), "development", cli.stamp(device));
+    env.set("FROM_CLI", "1", cli.stamp(device));
+    cli.put(Record::Environment(env)).unwrap();
+    assert!(watch.poll(&app), "a write from outside is noticed");
+    assert!(!watch.poll(&app), "and reported once");
+
+    // Another vault unlocked in its place starts fresh.
+    let other = Arc::new(Vault::unlock(FolderStore::new(dir.path()), PASSWORD).unwrap());
+    assert!(!watch.poll(&other));
+}

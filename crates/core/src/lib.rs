@@ -28,7 +28,7 @@ pub use license::{License, LicenseStatus};
 pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_var_name};
 pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};
 pub use cache::CachedStore;
-pub use store::{Cond, FolderStore, Put, Store};
+pub use store::{Cond, FolderStore, ObjectMeta, Put, Store};
 pub use resolve::Resolver;
 pub use vault::Vault;
 
