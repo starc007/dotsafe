@@ -363,7 +363,10 @@ fn scan_finds_vault_values_without_printing_them() {
     m.ok(&project, &["set", "STRIPE_KEY=sk_live_scanme123", "PORT=3000"]);
     m.ok(&project, &["set", "SHARED=tok_shared_987654"]);
     m.ok(&project, &["secret", "share", "SHARED"]);
-    fs::write(project.join("clean.js"), "listen(3000)\n").unwrap();
+    // Plain config words aren't secrets, and the link file names the environment.
+    m.ok(&project, &["set", "NODE_ENV=development", "LOG_LEVEL=debug"]);
+    fs::write(project.join("clean.js"), "listen(3000)\nif (env === 'development') log('debug')\n").unwrap();
+    assert!(project.join(".dotsafe.json").exists());
     assert!(m.run(&project, &["scan"]).status.success());
 
     fs::create_dir(project.join("src")).unwrap();

@@ -3,7 +3,7 @@
 //! hex, base64, URL-encoded or JSON-escaped. Only names and locations are
 //! printed, never the values.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,10 +12,17 @@ use anyhow::{Context, Result, bail};
 use dotsafe_agent::redact::Redactor;
 use dotsafe_core::{Entry, Record, Vault, VersionState};
 
+use crate::link::LINK_FILE;
+
 /// Files bigger than this are skipped: lockfiles and build output, not code.
 const MAX_FILE: u64 = 10 * 1024 * 1024;
 /// Folders skipped when walking outside a git checkout.
 const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", "build", ".next", ".venv", "vendor"];
+/// Values too common to be secrets, like `NODE_ENV=development`, which would
+/// otherwise match wherever the word appears. Environment names are added.
+const PLAIN_WORDS: &[&str] = &[
+    "development", "production", "staging", "localhost", "debug", "info", "warning", "error", "enabled", "disabled",
+];
 
 const HOOK: &str = "#!/bin/sh\n\
 # Added by `dotsafe scan --install-hook`: stops commits that contain a value\n\
@@ -27,6 +34,13 @@ exec dotsafe scan --staged\n";
 /// secrets, including a previous value that's still valid.
 pub fn matcher(vault: &Vault) -> Result<Redactor> {
     let records = vault.list()?;
+    let mut plain: HashSet<String> = PLAIN_WORDS.iter().map(|w| w.to_string()).collect();
+    for record in &records {
+        if let Record::Environment(env) = record {
+            plain.insert(env.name.to_lowercase());
+        }
+    }
+    let secretish = |value: &str| !plain.contains(&value.trim().to_lowercase());
     let mut values = Vec::new();
     for record in &records {
         if let Record::Secret(secret) = record
@@ -35,6 +49,7 @@ pub fn matcher(vault: &Vault) -> Result<Redactor> {
             for (_, version) in secret.versions() {
                 if let Some(value) = &version.value
                     && version.state != VersionState::Retired
+                    && secretish(value)
                 {
                     values.push((format!("secret {}", secret.name), value.clone()));
                 }
@@ -55,7 +70,9 @@ pub fn matcher(vault: &Vault) -> Result<Redactor> {
         {
             for (key, entry) in env.entries() {
                 // Linked variables are covered by their secret above.
-                if let Entry::Value(value) = entry {
+                if let Entry::Value(value) = entry
+                    && secretish(value)
+                {
                     values.push((format!("{project}/{}/{key}", env.name), value.to_string()));
                 }
             }
@@ -118,6 +135,10 @@ pub fn scan(matcher: &Redactor, sources: Vec<(String, Source)>) -> Result<(Vec<H
     let mut hits = Vec::new();
     let mut scanned = 0;
     for (label, source) in sources {
+        // dotsafe's own link file holds a project id and an environment name, never a value.
+        if Path::new(&label).file_name().is_some_and(|name| name == LINK_FILE) {
+            continue;
+        }
         let Some(bytes) = read(&source)? else { continue };
         if bytes.iter().take(8000).any(|&b| b == 0) {
             continue;
