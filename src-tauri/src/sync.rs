@@ -1,16 +1,20 @@
 //! Background sync for vaults in a bucket. Runs off the session lock: the
 //! vault is shared, so a slow or unreachable bucket never freezes the app.
-//! Folder vaults are kept in sync by the OS sync client and skip all this.
+//! Folder vaults are kept in sync by the OS sync client; for those the app
+//! only watches for changes made outside it (the CLI, or a synced edit from
+//! another Mac) and tells the UI to reload.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use dotsafe_core::{Error, Vault};
+use dotsafe_core::{Error, ObjectMeta, Vault};
 use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::state::{AppState, SyncStatus};
 
 const INTERVAL: Duration = Duration::from_secs(60);
+/// How often a folder vault is checked for changes made outside the app.
+const WATCH_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Syncs the unlocked vault, if it lives in a bucket, and records the result.
 /// Returns whether anything came in. Emits `vault-synced` when it did.
@@ -45,9 +49,56 @@ pub fn spawn_syncer(state: AppState, app: AppHandle) {
     });
 }
 
+/// Emits `vault-synced` when a folder vault changes outside the app.
+pub fn spawn_watcher(state: AppState, app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut watch = FolderWatch::default();
+        loop {
+            std::thread::sleep(WATCH_INTERVAL);
+            let Some(vault) = folder_vault(&state) else {
+                watch = FolderWatch::default();
+                continue;
+            };
+            // Reads outside the session lock; the vault is shared.
+            if watch.poll(&vault) {
+                let _ = app.emit("vault-synced", ());
+            }
+        }
+    });
+}
+
+/// Notices changes to a folder vault. Every write rewrites `head.json`, so
+/// the top-level files' versions are enough, without decrypting anything.
+/// The app's own writes count too, which only reloads lists that are already
+/// up to date.
+#[derive(Default)]
+pub struct FolderWatch {
+    last: Option<(Arc<Vault>, Vec<ObjectMeta>)>,
+}
+
+impl FolderWatch {
+    /// Whether the vault changed since the last poll. The first poll of a
+    /// vault (just unlocked) only takes note.
+    pub fn poll(&mut self, vault: &Arc<Vault>) -> bool {
+        let Ok(mut now) = vault.store().list_meta("") else { return false };
+        now.sort_by(|a, b| a.key.cmp(&b.key));
+        let changed = matches!(&self.last, Some((seen, before)) if Arc::ptr_eq(seen, vault) && *before != now);
+        self.last = Some((vault.clone(), now));
+        changed
+    }
+}
+
 fn shared_vault(state: &AppState) -> Option<Arc<Vault>> {
     let session = state.0.lock().ok()?;
     if !session.config.as_ref()?.is_remote() {
+        return None;
+    }
+    session.vault.clone()
+}
+
+fn folder_vault(state: &AppState) -> Option<Arc<Vault>> {
+    let session = state.0.lock().ok()?;
+    if session.config.as_ref()?.is_remote() {
         return None;
     }
     session.vault.clone()
