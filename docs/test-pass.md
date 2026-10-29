@@ -72,14 +72,14 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### CLI
 
-- [ ] **C1** `init`, `link` in a project directory, `set` (including `set KEY` to type the value privately), `get`, `list`, `unset`, `inherit`.
-- [ ] **C2** `unlock` / `lock`: after `unlock`, commands don't ask for the password; after `lock`, they do.
-- [ ] **C3** `run -- <cmd>` gets the resolved variables. `export` prints `.env` lines.
-- [ ] **C4** `scan` finds a vault value pasted into a file.
-- [ ] **C5** `import --from doppler`, `--from infisical` and `--from 1password --item <item>` (whichever you have installed), plus a Doppler/Infisical/1Password JSON export file.
-- [ ] **C6** `secret` subcommands: share, link, rotate, retire, rollback, history, restore, policy, due, queue.
-- [ ] **C7** `backup` and `move` (to a folder).
-- [ ] **C8** Changes made in the CLI show up in the open app, and the other way round.
+- [x] **C1** `init`, `link` in a project directory, `set` (including `set KEY` to type the value privately), `get`, `list`, `unset`, `inherit`.
+- [x] **C2** `unlock` / `lock`: after `unlock`, commands don't ask for the password; after `lock`, they do.
+- [x] **C3** `run -- <cmd>` gets the resolved variables. `export` prints `.env` lines.
+- [x] **C4** `scan` finds a vault value pasted into a file.
+- [x] **C5** `import --from doppler`, `--from infisical` and `--from 1password --item <item>` (whichever you have installed), plus a Doppler/Infisical/1Password JSON export file.
+- [x] **C6** `secret` subcommands: share, link, rotate, retire, rollback, history, restore, policy, due, queue.
+- [x] **C7** `backup` and `move` (to a folder).
+- [x] **C8** Changes made in the CLI show up in the open app, and the other way round.
 
 ### Agents (MCP)
 
