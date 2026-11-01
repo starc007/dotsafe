@@ -204,11 +204,11 @@ pub async fn connect_bucket_vault(state: State<'_, AppState>, bucket: BucketInpu
         .await
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncView {
-    last_synced_at: Option<u64>,
-    error: Option<String>,
+    pub(crate) last_synced_at: Option<u64>,
+    pub(crate) error: Option<String>,
 }
 
 /// Syncs a bucket vault now, instead of waiting for the background sync.

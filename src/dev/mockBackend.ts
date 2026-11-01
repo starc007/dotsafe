@@ -20,6 +20,9 @@ let storage = new URLSearchParams(location.search).has("bucket")
   ? { kind: "s3", path: "s3://my-vaults/dotsafe" }
   : { kind: "folder", path: "/Users/you/Library/Mobile Documents/com~apple~CloudDocs/dotsafe" };
 let lastSyncedAt: number | null = Date.now() - 3 * 60_000;
+// `?syncoffline` makes the bucket unreachable (use with `?bucket`).
+const syncOffline = new URLSearchParams(location.search).has("syncoffline");
+const OFFLINE_SYNC = "Offline. Changes are saved on this Mac and sync when you're back.";
 // Backups.
 let backupDir: string | null = null;
 let lastBackup: number | null = null;
@@ -966,6 +969,7 @@ export function installMockBackend() {
         }
         case "sync_now":
           await delay(600);
+          if (syncOffline) fail("offline", OFFLINE_SYNC);
           lastSyncedAt = Date.now();
           return { lastSyncedAt, error: null };
         case "set_auto_lock":
@@ -976,7 +980,7 @@ export function installMockBackend() {
             vaultPath: storage.path,
             storage: storage.kind,
             lastSyncedAt: storage.kind !== "folder" ? lastSyncedAt : null,
-            syncError: null,
+            syncError: syncOffline && storage.kind !== "folder" ? OFFLINE_SYNC : null,
             backupDir,
             lastBackup,
             license,

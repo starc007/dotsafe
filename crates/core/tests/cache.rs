@@ -140,12 +140,15 @@ fn offline_changes_are_pushed_on_sync() {
     edited.set("B", "offline", vault.stamp(a.id));
     vault.put(Record::Environment(edited)).unwrap();
     assert_eq!(get_env(&vault, env.id).value("B"), Some("offline"));
+    // The app asks this through the vault's store to sync soon after an edit.
+    assert!(vault.store().has_unpushed());
 
     let b = Device::new();
     remote.0.offline.store(false, Ordering::SeqCst);
     assert_eq!(get_env(&b.unlock(&remote), env.id).value("B"), None, "not pushed yet");
 
     vault.sync().unwrap();
+    assert!(!vault.store().has_unpushed());
     assert_eq!(get_env(&b.unlock(&remote), env.id).value("B"), Some("offline"));
 }
 

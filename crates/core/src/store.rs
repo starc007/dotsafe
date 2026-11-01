@@ -78,6 +78,12 @@ pub trait Store: Send + Sync {
     fn sync(&self) -> Result<bool> {
         Ok(false)
     }
+
+    /// Whether there are local changes the remote hasn't seen yet, so the
+    /// app can sync soon after an edit. Only stores with a local copy have any.
+    fn has_unpushed(&self) -> bool {
+        false
+    }
 }
 
 impl Store for Box<dyn Store> {
@@ -101,6 +107,9 @@ impl Store for Box<dyn Store> {
     }
     fn sync(&self) -> Result<bool> {
         (**self).sync()
+    }
+    fn has_unpushed(&self) -> bool {
+        (**self).has_unpushed()
     }
 }
 

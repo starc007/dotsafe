@@ -83,11 +83,6 @@ impl CachedStore {
         }
     }
 
-    /// Whether there are local changes the remote hasn't seen yet.
-    pub fn has_unpushed(&self) -> bool {
-        self.lock().entries.values().any(|e| e.dirty)
-    }
-
     fn lock(&self) -> std::sync::MutexGuard<'_, Index> {
         self.index.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -322,6 +317,10 @@ impl Store for CachedStore {
 
     /// Pushes unpushed changes, then pulls whatever changed remotely, then
     /// re-uploads anything the pull found missing.
+    fn has_unpushed(&self) -> bool {
+        self.lock().entries.values().any(|e| e.dirty)
+    }
+
     fn sync(&self) -> Result<bool> {
         self.push()?;
         let changed = self.pull()?;
