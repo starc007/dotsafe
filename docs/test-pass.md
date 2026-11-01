@@ -105,10 +105,10 @@ Use a second config directory, or better a second Mac.
 
 ## Round 4: storage servers
 
-- [ ] **S1** Cloudflare R2 (or S3) bucket: create a vault from the app, connect a second device, and sync both ways. Work offline, then sync.
+- [x] **S1** Cloudflare R2 (or S3) bucket: create a vault from the app, connect a second device, and sync both ways. Work offline, then sync.
 - [ ] **S2** WebDAV with Nextcloud, Fastmail or a NAS (use an app password): create, connect a second device, edit both sides. A wrong password says so clearly.
 - [ ] **S3** Move a vault from a folder to a bucket and to WebDAV (`dotsafe move --s3 …`, `--webdav …`).
-- [ ] **S4** Storage credentials are in the keychain, not in `config.json`.
+- [x] **S4** Storage credentials are in the keychain, not in `config.json`.
 
 ## Round 5: provider accounts
 
