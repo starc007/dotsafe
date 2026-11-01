@@ -1,5 +1,5 @@
 //! Activates, checks and deactivates licenses through the dotsafe API (see
-//! api/ in the repo). Requests block, so call them off the UI thread and never
+//! apps/api/ in the repo). Requests block, so call them off the UI thread and never
 //! while holding the session lock: a slow network must not freeze the vault.
 
 use std::time::Duration;

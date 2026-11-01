@@ -55,7 +55,7 @@ Every design choice here serves one of these. Where they conflict, security wins
 - **Store backends:** one crate per backend that needs network code (`crates/store-s3`, …), so core stays small and auditable.
 - **Desktop app and CLI:** both are clients of core. The desktop app also hosts the broker. A headless `dotsafe daemon` hosts it on machines without the app.
 - **Broker:** the one process that decrypts on behalf of anything that isn't a human at the UI. Agents, the MCP server and CI-style automation all go through it.
-- **dotsafe API:** licensing and checkout only (`api/`). Nothing here depends on it being online.
+- **dotsafe API:** licensing and checkout only (`apps/api/`). Nothing here depends on it being online.
 
 ## Principles
 

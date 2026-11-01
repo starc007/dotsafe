@@ -34,10 +34,13 @@ if [[ "$what" == all || "$what" == rust ]]; then
   cargo clippy --version
   bun --version
 
-  # The desktop crate embeds the built frontend (dist/) at compile time.
+  # The desktop crate embeds the built frontend (apps/desktop/dist) at compile time.
   step "Frontend: install and build"
   bun install --frozen-lockfile
+  rm -rf apps/desktop/dist
   bun run build
+  # A wrong bun invocation prints its help and exits 0, so check it built.
+  test -f apps/desktop/dist/index.html || { echo "the frontend didn't build" >&2; exit 1; }
 
   step "Clippy"
   cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -48,9 +51,9 @@ fi
 
 if [[ "$what" == all || "$what" == api ]]; then
   step "API: install, typecheck, tests"
+  bun install --frozen-lockfile
   (
-    cd api
-    bun install --frozen-lockfile
+    cd apps/api
     bun run typecheck
     bun run test
   )
