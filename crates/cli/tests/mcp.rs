@@ -130,7 +130,7 @@ fn tools_are_forwarded_to_the_broker() {
     );
     let text = |i: usize| replies[i]["result"]["content"][0]["text"].as_str().unwrap().to_string();
     assert_eq!(text(1), "my-api: development");
-    assert!(text(2).starts_with("Exit code 0. 1 secret value(s) were replaced"), "{}", text(2));
+    assert!(text(2).starts_with("Exit code 0. 1 secret value was replaced"), "{}", text(2));
     assert!(text(2).contains("connected to [dotsafe:DATABASE_URL]"));
     assert!(text(2).contains("OPENAI_API_KEY went through dotsafe's proxy"), "{}", text(2));
     assert!(text(5).starts_with("Added JWT_SECRET to my-api/development (48 random characters)."), "{}", text(5));

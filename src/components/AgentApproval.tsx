@@ -96,7 +96,7 @@ export function AgentApproval() {
           ? undefined
           : request.kind === "generate"
             ? `To ${request.project}/${request.environment}`
-            : `With ${request.variables.length} variables from ${request.project}/${request.environment}`
+            : `With ${request.variables.length} ${request.variables.length === 1 ? "variable" : "variables"} from ${request.project}/${request.environment}`
       }
       className="sm:max-w-lg"
     >
