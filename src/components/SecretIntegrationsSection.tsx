@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Field } from "@/components/Field";
 import { IconButton } from "@/components/IconButton";
 import { ServiceFields, fieldsComplete } from "@/components/ServiceFields";
+import { ServiceLogo } from "@/components/ServiceLogo";
 import { SurfaceFooter } from "@/components/Surface";
 
 /** Toasts each push's outcome. */
@@ -94,13 +95,16 @@ export function SecretIntegrationsSection({
           label="Provider"
           help="Issues new keys when you rotate, and revokes old ones. OpenAI, Anthropic, Stripe, Cloudflare or AWS."
         >
-          <span className="min-w-0 flex-1 truncate">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
             {provider ? (
               <>
-                <span className="font-medium">{provider.connectionName}</span>
-                {provider.connectionName !== provider.serviceLabel && (
-                  <span className="text-muted-foreground"> · {provider.serviceLabel}</span>
-                )}
+                <ServiceLogo service={provider.serviceId} className="size-6 bg-card" />
+                <span className="truncate">
+                  <span className="font-medium">{provider.connectionName}</span>
+                  {provider.connectionName !== provider.serviceLabel && (
+                    <span className="text-muted-foreground"> · {provider.serviceLabel}</span>
+                  )}
+                </span>
               </>
             ) : (
               <span className="text-muted-foreground">None</span>
@@ -214,7 +218,7 @@ function Row({ label, help, children }: { label: string; help: string; children:
   );
 }
 
-/** A choice of connection, as pill radios. */
+/** A choice of connection: its logo, its name and which service it is. */
 function ConnectionPicker({
   connections,
   value,
@@ -225,7 +229,7 @@ function ConnectionPicker({
   onChange: (id: string) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Connection" className="flex flex-wrap gap-2">
+    <div role="radiogroup" aria-label="Connection" className="grid grid-cols-2 gap-1.5">
       {connections.map((c) => (
         <button
           key={c.id}
@@ -234,12 +238,18 @@ function ConnectionPicker({
           aria-checked={c.id === value}
           onClick={() => onChange(c.id)}
           className={cn(
-            "rounded-full bg-card px-3 py-1 text-[13px] outline-none transition-colors",
+            "flex min-w-0 items-center gap-2.5 rounded-xl bg-card p-2 pr-3 text-left outline-none transition-colors",
             "hover:bg-card/70 focus-visible:ring-2 focus-visible:ring-ring",
-            "aria-checked:bg-primary/10 aria-checked:text-primary",
+            "aria-checked:bg-primary/10",
           )}
         >
-          {c.name}
+          <ServiceLogo service={c.service} className="bg-muted" />
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-[13px] font-medium" title={c.name}>
+              {c.name}
+            </span>
+            <span className="truncate text-xs text-muted-foreground">{c.serviceLabel}</span>
+          </span>
         </button>
       ))}
     </div>
