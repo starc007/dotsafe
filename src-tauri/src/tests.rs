@@ -330,7 +330,7 @@ fn quick_copy_lists_every_variable_by_name() {
     assert_eq!(rows, ["api/development/A linked=false", "api/development/LINKED linked=true", "web/development/B linked=false"]);
     assert_eq!(hits[0]["projectId"], json!(api));
     assert_eq!(hits[0]["environmentId"], json!(api_dev));
-    assert_eq!(desktop.ok("vault_health", json!({})), json!({ "stale": 0, "unreadable": 0 }));
+    assert_eq!(desktop.ok("vault_health", json!({})), json!({ "stale": 0, "unreadable": 0, "damaged": 0 }));
 }
 
 #[test]

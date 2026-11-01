@@ -753,7 +753,7 @@ export function installMockBackend() {
           rotationQueue = null;
           return null;
         case "vault_health":
-          return integrity ? { stale: 1, unreadable: 2 } : { stale: 0, unreadable: 0 };
+          return integrity ? { stale: 1, unreadable: 2, damaged: 1 } : { stale: 0, unreadable: 0, damaged: 0 };
         case "reveal_variable": {
           const e = env(a.environmentId);
           if (!effective(e).has(a.key)) fail("other", `${a.key} isn't set.`);

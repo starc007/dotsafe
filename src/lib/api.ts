@@ -56,6 +56,8 @@ export type VaultHealth = {
   stale: number;
   /** Records sealed with a key the vault no longer has. */
   unreadable: number;
+  /** Records that failed authentication or aren't valid. */
+  damaged: number;
 };
 
 /** A setting a service needs. */

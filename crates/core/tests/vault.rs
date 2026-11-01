@@ -157,6 +157,17 @@ fn tampered_record_is_detected() {
     fs::write(&path, serde_json::to_vec(&file).unwrap()).unwrap();
 
     assert!(matches!(vault.get(env.id), Err(Error::RecordTampered(id)) if id == env.id));
+
+    // Listing skips it and says so, instead of hiding the whole vault.
+    let other = env_with(Uuid::new_v4(), &[("B", "2")], 1);
+    vault.put(Record::Environment(other.clone())).unwrap();
+    fs::write(record_path(dir.path(), Uuid::new_v4()), b"not a record").unwrap();
+    let listed = vault.list().unwrap();
+    assert_eq!(listed.iter().map(Record::id).collect::<Vec<_>>(), vec![other.id]);
+    assert_eq!(vault.damaged_records().len(), 2);
+    assert!(vault.damaged_records().contains(&env.id));
+    // Writing over it still fails.
+    assert!(vault.put(Record::Environment(env.clone())).is_err());
 }
 
 #[test]
