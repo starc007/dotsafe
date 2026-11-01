@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plug, Plus } from "lucide-react";
+import { ServiceLogo } from "@/components/ServiceLogo";
 import { api, message, type ConnectionView, type ServiceView } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -84,7 +85,8 @@ export function IntegrationSettings() {
           ) : (
             <ul className="divide-y">
               {connections.map((c) => (
-                <li key={c.id} className="flex items-center gap-3 px-4 py-2.5">
+                <li key={c.id} className="flex items-center gap-3 py-2.5 pr-4 pl-3">
+                  <ServiceLogo service={c.service} className="bg-muted" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{c.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">
@@ -93,14 +95,14 @@ export function IntegrationSettings() {
                     </span>
                   </span>
                   <Button variant="ghost" onClick={() => setReplacing(c)}>
-                    Replace token…
+                    Replace token
                   </Button>
                   <Button
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
                     onClick={() => setRemoving(c)}
                   >
-                    Remove…
+                    Remove
                   </Button>
                 </li>
               ))}

@@ -10,6 +10,12 @@ import { Field } from "@/components/Field";
 import { ServiceFields, fieldsComplete } from "@/components/ServiceFields";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
+import { ServiceLogo } from "@/components/ServiceLogo";
+
+const GROUPS = [
+  { kind: "provider", title: "Rotate keys with" },
+  { kind: "target", title: "Push new values to" },
+] as const;
 
 /** Connects an account at a provider or deploy target. The admin token goes
  * to Rust once and is kept as a shared secret. */
@@ -75,26 +81,42 @@ export function AddConnectionDialog({
       description="dotsafe calls the service from this Mac with your own token. Nothing goes through a dotsafe server."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <div role="radiogroup" aria-label="Service" className="grid grid-cols-2 gap-2">
-          {services.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="radio"
-              aria-checked={s.id === serviceId}
-              onClick={() => pick(s)}
-              className={cn(
-                "flex flex-col items-start rounded-2xl bg-muted/60 px-3 py-2 text-left outline-none transition-colors",
-                "hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-                "aria-checked:bg-primary/10 aria-checked:text-primary",
-              )}
-            >
-              <span className="font-medium">{s.label}</span>
-              <span className="text-xs text-muted-foreground">
-                {s.kind === "target" ? "Gets every rotation" : s.guided ? "Checks keys you make" : "Issues new keys"}
-              </span>
-            </button>
-          ))}
+        <div role="radiogroup" aria-label="Service" className="flex flex-col gap-3">
+          {GROUPS.map((group) => {
+            const members = services.filter((s) => s.kind === group.kind);
+            if (members.length === 0) return null;
+            return (
+              <div key={group.kind} className="flex flex-col gap-1.5">
+                <p className="px-1 text-xs font-medium text-muted-foreground">{group.title}</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {members.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={s.id === serviceId}
+                      onClick={() => pick(s)}
+                      className={cn(
+                        "flex min-w-0 items-center gap-2.5 rounded-xl bg-muted/60 p-2 pr-3 text-left outline-none transition-colors",
+                        "hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+                        "aria-checked:bg-primary/10",
+                      )}
+                    >
+                      <ServiceLogo service={s.id} />
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate text-[13px] font-medium" title={s.label}>
+                          {s.label}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {s.kind === "target" ? "Updated on rotation" : s.guided ? "Checks keys you make" : "Makes new keys"}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
         {service && (
           <>
