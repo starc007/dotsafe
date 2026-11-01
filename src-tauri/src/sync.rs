@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::{Error, ObjectMeta, Vault};
 use tauri::{AppHandle, Emitter, Runtime};
+use uuid::Uuid;
 
 use crate::state::{AppState, SyncStatus};
 
@@ -71,19 +72,22 @@ pub fn spawn_watcher(state: AppState, app: AppHandle) {
 /// the top-level files' versions are enough, without decrypting anything.
 /// The app's own writes count too, which only reloads lists that are already
 /// up to date.
+///
+/// It remembers the vault by id, never by holding it: changes like adding a
+/// device need the only reference (`Session::vault_mut`).
 #[derive(Default)]
 pub struct FolderWatch {
-    last: Option<(Arc<Vault>, Vec<ObjectMeta>)>,
+    last: Option<(Uuid, Vec<ObjectMeta>)>,
 }
 
 impl FolderWatch {
     /// Whether the vault changed since the last poll. The first poll of a
     /// vault (just unlocked) only takes note.
-    pub fn poll(&mut self, vault: &Arc<Vault>) -> bool {
+    pub fn poll(&mut self, vault: &Vault) -> bool {
         let Ok(mut now) = vault.store().list_meta("") else { return false };
         now.sort_by(|a, b| a.key.cmp(&b.key));
-        let changed = matches!(&self.last, Some((seen, before)) if Arc::ptr_eq(seen, vault) && *before != now);
-        self.last = Some((vault.clone(), now));
+        let changed = matches!(&self.last, Some((seen, before)) if *seen == vault.id() && *before != now);
+        self.last = Some((vault.id(), now));
         changed
     }
 }
