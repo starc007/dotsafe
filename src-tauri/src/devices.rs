@@ -50,7 +50,11 @@ fn load_key(device_id: Uuid) -> CmdResult<DeviceKey> {
     let bytes = Zeroizing::new(
         entry(device_id)?
             .get_secret()
-            .map_err(|_| CmdError::other("This Mac's Touch ID key is missing. Use your password."))?,
+            .map_err(|e| match e {
+                keyring::Error::NoEntry => CmdError::other("This Mac's Touch ID key is missing. Use your password."),
+                // Usually the keychain asked whether dotsafe may read it and got no yes.
+                e => CmdError::other(format!("Couldn't read this Mac's Touch ID key ({e}). Use your password.")),
+            })?,
     );
     let bytes: [u8; 32] =
         bytes.as_slice().try_into().map_err(|_| CmdError::other("This Mac's Touch ID key is damaged."))?;
