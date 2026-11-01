@@ -637,7 +637,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
             if proxied.names.is_empty() {
                 eprintln!("dotsafe: no API key with a proxy profile here; running normally.");
             } else {
-                eprintln!("dotsafe: {} go through a local proxy; the process never has the key.", proxied.names.join(", "));
+                let (verb, keys) = if proxied.names.len() == 1 { ("goes", "the key") } else { ("go", "the keys") };
+                eprintln!("dotsafe: {} {verb} through a local proxy; the process never has {keys}.", proxied.names.join(", "));
             }
             cmd.envs(proxied.env.iter().cloned());
             let status = cmd.status().with_context(|| format!("couldn't run {}", command[0]))?;
