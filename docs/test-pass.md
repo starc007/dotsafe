@@ -84,7 +84,7 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 ### Agents (MCP)
 
 - [x] **A1** Add `dotsafe mcp` to Claude Code (or Cursor). Ask the agent to list projects and variables: names only, never values.
-- [ ] **A2** Ask it to run a command with secrets. The approval dialog shows the program, arguments, directory and secrets. Approving needs Touch ID. Try once, 15 minutes and until lock.
+- [x] **A2** Ask it to run a command with secrets. The approval dialog shows the program, arguments, directory and secrets. Approving needs Touch ID. Try once, 15 minutes and until lock.
 - [x] **A3** Deny, and check the agent gets a refusal. Commands on the refusal list (for example `env`, `printenv`) are refused without asking.
 - [x] **A4** Output that contains a secret value comes back redacted.
 - [x] **A5** Secret proxy: `run --proxy` with an OpenAI key. The process never sees the real key, and requests still work. Add a custom proxy profile in Settings and use it.
