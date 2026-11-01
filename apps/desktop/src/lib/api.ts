@@ -216,6 +216,11 @@ export type WebDavInput = { url: string; username: string; password: string };
 
 export type SyncView = { lastSyncedAt: number | null; error: string | null };
 
+/** A newer version of the app, found by a check. */
+export type UpdateView = { version: string; currentVersion: string; notes: string | null };
+/** Download progress in bytes; `total` is null when unknown. */
+export type UpdateProgress = { downloaded: number; total: number | null };
+
 /** An agent asking to run a command with secrets, or to add a generated
  * secret (from the broker). */
 export type ApprovalRequest = {
@@ -379,6 +384,10 @@ export const api = {
   connectBucketVault: (bucket: BucketInput, password: string) =>
     call<void>("connect_bucket_vault", { bucket, password }),
   syncNow: () => call<SyncView>("sync_now"),
+  /** `null` when this is the latest version. */
+  checkForUpdate: () => call<UpdateView | null>("check_for_update"),
+  /** Downloads, installs and restarts the app; emits `update-progress`. */
+  installUpdate: () => call<void>("install_update"),
   webdavHasVault: (webdav: WebDavInput) => call<boolean>("webdav_has_vault", { webdav }),
   createWebdavVault: (webdav: WebDavInput, password: string) => call<string>("create_webdav_vault", { webdav, password }),
   connectWebdavVault: (webdav: WebDavInput, password: string) => call<void>("connect_webdav_vault", { webdav, password }),

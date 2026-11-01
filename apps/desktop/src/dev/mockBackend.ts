@@ -23,6 +23,13 @@ let lastSyncedAt: number | null = Date.now() - 3 * 60_000;
 // `?syncoffline` makes the bucket unreachable (use with `?bucket`).
 const syncOffline = new URLSearchParams(location.search).has("syncoffline");
 const OFFLINE_SYNC = "Offline. Changes are saved on this Mac and sync when you're back.";
+// `?update` acts as if a newer version was released.
+const mockUpdate = new URLSearchParams(location.search).has("update");
+const MOCK_UPDATE = {
+  version: "0.2.0",
+  currentVersion: "0.1.0",
+  notes: "- Offline indicator for bucket vaults\n- Service logos when connecting accounts\n- Fixes from the test pass",
+};
 // Backups.
 let backupDir: string | null = null;
 let lastBackup: number | null = null;
@@ -470,6 +477,7 @@ export function installMockBackend() {
           configured = unlocked = true;
           mustChangePassword = false;
           if (new URLSearchParams(location.search).has("agent")) setTimeout(fakeAgentRequest, 1500);
+          if (mockUpdate) setTimeout(() => emit("update-available", MOCK_UPDATE), 1500);
           return null;
         case "answer_agent_request": {
           if ((raw as { lifetime: string | null }).lifetime && agentApprovalAuth) await delay(700);
@@ -966,6 +974,19 @@ export function installMockBackend() {
           storage = { kind: "s3", path: `s3://${b.bucket.bucket}${b.bucket.prefix ? `/${b.bucket.prefix}` : ""}` };
           lastSyncedAt = Date.now();
           return cmd === "create_bucket_vault" ? recoveryKey : null;
+        }
+        case "check_for_update":
+          await delay(500);
+          return mockUpdate ? MOCK_UPDATE : null;
+        case "install_update": {
+          // Pretend to download 8 MB, then "restart".
+          const total = 8_000_000;
+          for (let downloaded = 0; downloaded <= total; downloaded += 1_000_000) {
+            emit("update-progress", { downloaded, total });
+            await delay(250);
+          }
+          location.reload();
+          return null;
         }
         case "sync_now":
           await delay(600);

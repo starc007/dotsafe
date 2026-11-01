@@ -16,6 +16,7 @@ import { IntegrationSettings } from "@/components/settings/IntegrationSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { SecuritySettings } from "@/components/settings/SecuritySettings";
 import { ShortcutsSettings } from "@/components/settings/ShortcutsSettings";
+import { VersionFooter } from "@/components/settings/VersionFooter";
 
 /** One settings section, chosen in the sidebar (SettingsNav). Esc closes. */
 export function SettingsPage({
@@ -109,7 +110,7 @@ export function SettingsPage({
                 {section === "integrations" && <IntegrationSettings />}
                 {section === "agents" && <AgentSettings />}
                 {section === "shortcuts" && <ShortcutsSettings />}
-                <p className="pt-2 text-center text-xs text-muted-foreground">dotsafe {settings.version}</p>
+                <VersionFooter version={settings.version} />
               </motion.div>
             </AnimatePresence>
           )}
