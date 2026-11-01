@@ -114,7 +114,7 @@ Use a second config directory, or better a second Mac.
 
 With throwaway keys. Each one: connect, set as a secret's provider, rotate, check the new key works, retire or revoke the old one.
 
-- [ ] **P1** OpenAI (admin key).
+- [x] **P1** OpenAI (admin key).
 - [ ] **P2** Cloudflare API token.
 - [ ] **P3** Anthropic (guided). Check the admin key header works; the code sends `x-api-key`.
 - [ ] **P4** Stripe (guided, revoke by hand in the dashboard).
