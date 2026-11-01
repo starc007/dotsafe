@@ -95,13 +95,13 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 Use a second config directory, or better a second Mac.
 
-- [ ] **M1** On device 1, Settings → Devices → Add device: a code appears and **can be copied** (earlier feedback). The countdown is clear about what it means (earlier feedback: "what is this timer").
-- [ ] **M2** On device 2, join with the code within 10 minutes (earlier feedback: it errored inside the window). Device 2 can unlock with Touch ID straight away.
-- [ ] **M3** Edit on both devices. Changes appear on the other side and nothing is lost.
-- [ ] **M4** Both devices edit the same variable offline, then reconnect: the newer edit wins, and nothing breaks.
+- [x] **M1** On device 1, Settings → Devices → Add device: a code appears and **can be copied** (earlier feedback). The countdown is clear about what it means (earlier feedback: "what is this timer").
+- [x] **M2** On device 2, join with the code within 10 minutes (earlier feedback: it errored inside the window). Device 2 can unlock with Touch ID straight away.
+- [x] **M3** Edit on both devices. Changes appear on the other side and nothing is lost.
+- [x] **M4** Both devices edit the same variable offline, then reconnect: the newer edit wins, and nothing breaks.
 - [ ] **M5** Vault in iCloud Drive (a test folder in iCloud, not the default location) on two real Macs: edit on both, and check iCloud conflict copies of `vault.json` get merged (no "unreadable" warnings).
-- [ ] **M6** Remove device 2 from device 1. Device 2 can't read new changes, a new recovery key is shown, and the rotation queue lists what device 2 could read. Rotate from the queue.
-- [ ] **M7** The integrity notice: tamper with a record file, or delete one, and the app reports it rather than crashing.
+- [x] **M6** Remove device 2 from device 1. Device 2 can't read new changes, a new recovery key is shown, and the rotation queue lists what device 2 could read. Rotate from the queue.
+- [x] **M7** The integrity notice: tamper with a record file, or delete one, and the app reports it rather than crashing.
 
 ## Round 4: storage servers
 
