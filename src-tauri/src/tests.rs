@@ -800,8 +800,7 @@ fn the_app_notices_changes_made_outside_it() {
     cli.put(Record::Environment(env)).unwrap();
     assert!(watch.poll(&app), "a write from outside is noticed");
     assert!(!watch.poll(&app), "and reported once");
-
-    // Another vault unlocked in its place starts fresh.
-    let other = Arc::new(Vault::unlock(FolderStore::new(dir.path()), PASSWORD).unwrap());
-    assert!(!watch.poll(&other));
+    // It never keeps hold of the vault: changes like adding a device need
+    // the only reference.
+    assert_eq!(Arc::strong_count(&app), 1);
 }
