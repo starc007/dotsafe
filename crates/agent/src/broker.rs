@@ -18,6 +18,7 @@ use dotsafe_core::{Charset, Environment, Generator, Project, Record, Vault, is_v
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::files;
 use crate::grants::{Lifetime, Scope};
 use crate::policy;
 use crate::protocol::{
@@ -46,8 +47,20 @@ pub struct ApprovalRequest {
     pub variables: Vec<String>,
     /// Run: variables that go through the secret proxy instead.
     pub proxied: Vec<String>,
+    /// Run: scripts it runs, with when each last changed. An agent may have
+    /// just written one.
+    pub files: Vec<ApprovalFile>,
     /// Generate: what kind of value, for example "48 random characters".
     pub generated: Option<String>,
+}
+
+/// A script in an approval.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalFile {
+    pub path: String,
+    /// When it last changed, in Unix milliseconds.
+    pub modified_ms: Option<u64>,
 }
 
 /// Where the broker runs: the desktop app, or `dotsafe daemon` in a
@@ -149,6 +162,8 @@ impl<H: Host> Broker<H> {
         let Some(program) = policy::resolve_program(&request.command[0], request.path.as_deref(), &cwd) else {
             return Response::error(ErrorCode::NotFound, format!("Couldn't find {} on PATH.", request.command[0]));
         };
+        // Read before taking the vault, so a big file never holds it up.
+        let run_files = files::files_run(&program, &request.command[1..], &cwd);
 
         // Work out what would run, under the lock, without any values.
         let (scope, project, environment, approved, profiles) = {
@@ -185,6 +200,7 @@ impl<H: Host> Broker<H> {
                 cwd: cwd.clone(),
                 environment: env.id.to_string(),
                 variables,
+                files: run_files.iter().map(|f| (f.path.clone(), f.fingerprint.clone())).collect(),
             };
             let approved = self.host.allows(&scope, Instant::now());
             // Built-in and custom profiles; custom ones come from the vault,
@@ -211,6 +227,10 @@ impl<H: Host> Broker<H> {
                 cwd: scope.cwd.display().to_string(),
                 variables: scope.variables.clone(),
                 proxied: proxied_names.clone(),
+                files: run_files
+                    .iter()
+                    .map(|f| ApprovalFile { path: f.path.display().to_string(), modified_ms: f.modified_ms })
+                    .collect(),
                 generated: None,
             };
             match self.ask(prompt) {
@@ -339,6 +359,7 @@ impl<H: Host> Broker<H> {
             cwd: String::new(),
             variables: vec![name.clone()],
             proxied: Vec::new(),
+            files: Vec::new(),
             generated: Some(description.clone()),
         };
         if self.ask(prompt).is_none() {

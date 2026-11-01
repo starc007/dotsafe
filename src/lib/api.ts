@@ -230,6 +230,8 @@ export type ApprovalRequest = {
   variables: string[];
   /** Run: keys that go through the secret proxy instead. */
   proxied: string[];
+  /** Run: scripts it runs, and when each last changed (Unix ms). */
+  files: { path: string; modifiedMs: number | null }[];
   /** Generate: what kind of value. */
   generated: string | null;
 };

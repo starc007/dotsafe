@@ -6,6 +6,7 @@ import { api, message, type ApprovalRequest, type GrantLifetime } from "@/lib/ap
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { ApprovalFiles } from "@/components/ApprovalFiles";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
 
@@ -133,6 +134,8 @@ export function AgentApproval() {
               </dd>
             </dl>
           </div>
+
+          <ApprovalFiles files={request.files} cwd={request.cwd} />
 
           <div className="flex flex-col gap-1.5">
             <p className="text-xs font-medium text-muted-foreground">It will get these variables</p>

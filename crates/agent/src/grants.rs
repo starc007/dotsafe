@@ -1,6 +1,6 @@
 //! Standing permissions the user gave in an approval: this exact command, in
-//! this directory, with these variables from this environment, for a while.
-//! Anything different asks again. Grants live in memory only and end when the
+//! this directory, with these variables from this environment, running these
+//! files as they were, for a while. Anything different asks again. Grants live in memory only and end when the
 //! vault locks.
 
 use std::path::PathBuf;
@@ -15,6 +15,9 @@ pub struct Scope {
     pub environment: String,
     /// Sorted variable names.
     pub variables: Vec<String>,
+    /// Scripts it runs and their fingerprints ([`crate::files`]), so an
+    /// edited script isn't covered by an approval of the old one.
+    pub files: Vec<(PathBuf, String)>,
 }
 
 /// How long an approval lasts.
@@ -83,6 +86,7 @@ mod tests {
             cwd: "/work/app".into(),
             environment: "env-1".into(),
             variables: vec!["API_KEY".into()],
+            files: Vec::new(),
         }
     }
 
