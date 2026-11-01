@@ -238,7 +238,8 @@ fn describe_run(output: &RunOutput) -> String {
         (false, None) => "Ended by a signal.".to_string(),
     };
     if output.redactions > 0 {
-        out += &format!(" {} secret value(s) were replaced with [dotsafe:NAME].", output.redactions);
+        let n = output.redactions;
+        out += &format!(" {n} secret {} replaced with [dotsafe:NAME].", if n == 1 { "value was" } else { "values were" });
     }
     if !output.proxied.is_empty() {
         out += &format!(" {} went through dotsafe's proxy; the process never had the key.", output.proxied.join(", "));
