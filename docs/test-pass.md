@@ -83,13 +83,13 @@ Rounds go from no accounts needed to the most setup needed. Rounds 1 and 2 cover
 
 ### Agents (MCP)
 
-- [ ] **A1** Add `dotsafe mcp` to Claude Code (or Cursor). Ask the agent to list projects and variables: names only, never values.
+- [x] **A1** Add `dotsafe mcp` to Claude Code (or Cursor). Ask the agent to list projects and variables: names only, never values.
 - [ ] **A2** Ask it to run a command with secrets. The approval dialog shows the program, arguments, directory and secrets. Approving needs Touch ID. Try once, 15 minutes and until lock.
-- [ ] **A3** Deny, and check the agent gets a refusal. Commands on the refusal list (for example `env`, `printenv`) are refused without asking.
-- [ ] **A4** Output that contains a secret value comes back redacted.
-- [ ] **A5** Secret proxy: `run --proxy` with an OpenAI key. The process never sees the real key, and requests still work. Add a custom proxy profile in Settings and use it.
-- [ ] **A6** Settings → Agents shows the activity; `dotsafe audit` shows the same, names only. Revoking grants makes the next request ask again.
-- [ ] **A7** `dotsafe daemon` with the app quit: approvals are asked in the terminal. With the app running, the daemon refuses to start.
+- [x] **A3** Deny, and check the agent gets a refusal. Commands on the refusal list (for example `env`, `printenv`) are refused without asking.
+- [x] **A4** Output that contains a secret value comes back redacted.
+- [x] **A5** Secret proxy: `run --proxy` with an OpenAI key. The process never sees the real key, and requests still work. Add a custom proxy profile in Settings and use it.
+- [x] **A6** Settings → Agents shows the activity; `dotsafe audit` shows the same, names only. Revoking grants makes the next request ask again.
+- [x] **A7** `dotsafe daemon` with the app quit: approvals are asked in the terminal. With the app running, the daemon refuses to start.
 
 ## Round 3: two devices
 
