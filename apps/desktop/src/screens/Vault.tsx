@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { CloudOff, FolderLock, KeyRound, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, TriangleAlert } from "lucide-react";
-import { api, message, type ProjectView, type QueueView, type SyncView, type VaultHealth } from "@/lib/api";
+import { ArrowDownToLine, CloudOff, FolderLock, KeyRound, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, TriangleAlert } from "lucide-react";
+import {
+  api,
+  message,
+  type ProjectView,
+  type QueueView,
+  type SyncView,
+  type UpdateView,
+  type VaultHealth,
+} from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
 import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
@@ -15,6 +23,7 @@ import { InlineCreate } from "@/components/InlineCreate";
 import { ProjectPane } from "@/components/ProjectPane";
 import { QuickCopy } from "@/components/QuickCopy";
 import { RotationQueueDialog } from "@/components/RotationQueueDialog";
+import { UpdateDialog } from "@/components/UpdateDialog";
 import { SecretDialog } from "@/components/SecretDialog";
 import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
@@ -45,6 +54,9 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [queueOpen, setQueueOpen] = useState(false);
   // A bucket vault that couldn't sync; changes wait on this Mac.
   const [syncError, setSyncError] = useState<string | null>(null);
+  // A newer version of the app; nothing downloads until asked.
+  const [update, setUpdate] = useState<UpdateView | null>(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
@@ -88,10 +100,20 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     const unlistenQuick = listen("open-quick-copy", () => setQuickCopyOpen(true));
     // Each background sync of a bucket vault reports how it went.
     const unlistenSync = listen<SyncView>("sync-status", (e) => setSyncError(e.payload.error));
+    // The background check (release builds) found a newer version.
+    const unlistenUpdate = listen<UpdateView>("update-available", (e) => setUpdate(e.payload));
+    // Settings' "Check for updates" found one: show it now.
+    const onFound = (e: Event) => {
+      setUpdate((e as CustomEvent<UpdateView>).detail);
+      setUpdateOpen(true);
+    };
+    window.addEventListener("dotsafe:update-found", onFound);
     return () => {
       unlisten.then((f) => f());
       unlistenQuick.then((f) => f());
       unlistenSync.then((f) => f());
+      unlistenUpdate.then((f) => f());
+      window.removeEventListener("dotsafe:update-found", onFound);
       window.removeEventListener("dotsafe:vault-changed", load);
     };
   }, [load]);
@@ -266,6 +288,17 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               <span className="flex-1 truncate">Vault needs a look</span>
             </button>
           )}
+          {update && (
+            <button
+              type="button"
+              onClick={() => setUpdateOpen(true)}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left font-medium outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <ArrowDownToLine aria-hidden className="text-primary" />
+              <span className="flex-1 truncate">Update available</span>
+              <span className="text-xs text-muted-foreground tabular-nums">{update.version}</span>
+            </button>
+          )}
           {syncError && (
             <button
               type="button"
@@ -385,6 +418,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           openEnvironment(projectId, environmentId);
         }}
       />
+      {update && <UpdateDialog update={update} open={updateOpen} onOpenChange={setUpdateOpen} />}
       <RotationQueueDialog
         open={queueOpen}
         onOpenChange={setQueueOpen}

@@ -11,6 +11,7 @@ mod state;
 mod storage;
 mod sync;
 mod tray;
+mod updates;
 #[cfg(test)]
 mod tests;
 
@@ -26,8 +27,10 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tray::shortcut_plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .manage(broker::Approvals::default())
+        .manage(updates::PendingUpdate::default())
         .setup(|app| {
             let state = app.state::<AppState>();
             state.spawn_housekeeping(app.handle().clone());
@@ -36,6 +39,7 @@ pub fn run() {
             sync::spawn_watcher(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
             storage::spawn_backups(state.inner().clone(), app.handle().clone());
+            updates::spawn_checker(app.handle().clone());
             tray::setup(app)?;
             let approvals = app.state::<broker::Approvals>().inner().clone();
             broker::spawn(state.inner().clone(), approvals, app.handle().clone());
@@ -72,6 +76,8 @@ pub fn run() {
             storage::set_backup_dir,
             storage::back_up_now,
             storage::move_vault_to_folder,
+            updates::check_for_update,
+            updates::install_update,
             commands::sync_now,
             commands::unlock,
             commands::unlock_with_recovery,
