@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, RotateCcw, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
+import {
+  ArrowUpCircle,
+  Ban,
+  Check,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  KeyRound,
+  RotateCcw,
+  ShieldAlert,
+  Sparkles,
+  TriangleAlert,
+  Undo2,
+  X,
+} from "lucide-react";
 import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { useFocusOnMount } from "@/lib/hooks/use-focus-on-mount";
@@ -558,11 +573,11 @@ function RotationSection({
         body="Linked variables still use the current value. Update it wherever else it's needed, then promote it."
       >
         <Button variant="ghost" onClick={onCancel} disabled={busy !== null}>
-          {busy === "cancel" && <Spinner />}
+          {busy === "cancel" ? <Spinner /> : <X aria-hidden />}
           Discard
         </Button>
         <Button onClick={onPromote} disabled={busy !== null}>
-          {busy === "promote" && <Spinner />}
+          {busy === "promote" ? <Spinner /> : <ArrowUpCircle aria-hidden />}
           Promote
         </Button>
       </Banner>
@@ -575,7 +590,7 @@ function RotationSection({
         body={`${provider.serviceLabel} keys can only be revoked in its dashboard. Once nothing uses the old one, revoke it there and mark it retired here.`}
       >
         <Button variant="ghost" onClick={onRollBack} disabled={busy !== null}>
-          {busy === "rollback" && <Spinner />}
+          {busy === "rollback" ? <Spinner /> : <Undo2 aria-hidden />}
           Roll back
         </Button>
         <Button variant="ghost" onClick={() => api.openProviderConsole(provider.serviceId)}>
@@ -583,7 +598,7 @@ function RotationSection({
           Open {provider.serviceLabel}
         </Button>
         <Button variant="outline" onClick={() => onRevoke(true)} disabled={busy !== null}>
-          {busy === "retire" && <Spinner />}
+          {busy === "retire" ? <Spinner /> : <Check aria-hidden />}
           Mark retired
         </Button>
       </Banner>
@@ -600,7 +615,7 @@ function RotationSection({
         }
       >
         <Button variant="ghost" onClick={onRollBack} disabled={busy !== null}>
-          {busy === "rollback" && <Spinner />}
+          {busy === "rollback" ? <Spinner /> : <Undo2 aria-hidden />}
           Roll back
         </Button>
         {provider && (
@@ -609,14 +624,14 @@ function RotationSection({
           </Button>
         )}
         <Button variant="outline" onClick={provider ? () => onRevoke(false) : onRetire} disabled={busy !== null}>
-          {busy === "retire" && <Spinner />}
+          {busy === "retire" ? <Spinner /> : provider ? <Ban aria-hidden /> : <Check aria-hidden />}
           {provider ? "Revoke old key" : "Mark retired"}
         </Button>
       </Banner>
     );
   }
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={() => onMode("leaked")}>
         <ShieldAlert aria-hidden />
         It leaked
@@ -624,7 +639,7 @@ function RotationSection({
       {provider?.guided ? (
         <Button onClick={() => onMode("guided")} disabled={busy !== null}>
           <RotateCcw aria-hidden />
-          New key from {provider.serviceLabel}
+          Generate new key from {provider.serviceLabel}
         </Button>
       ) : provider ? (
         <>
@@ -633,7 +648,7 @@ function RotationSection({
           </Button>
           <Button onClick={() => onProviderRotate(false)} disabled={busy !== null}>
             {busy === "provider" ? <Spinner /> : <RotateCcw aria-hidden />}
-            New key from {provider.connectionName}
+            Generate new key from {provider.serviceLabel}
           </Button>
         </>
       ) : (
@@ -671,7 +686,7 @@ function GuidedForm({
       className="flex flex-col gap-3 rounded-2xl bg-muted/60 p-3.5"
     >
       <div>
-        <p className="font-medium">{leaked ? "Replace a leaked key" : `New key from ${provider.serviceLabel}`}</p>
+        <p className="font-medium">{leaked ? "Replace a leaked key" : `Generate new key from ${provider.serviceLabel}`}</p>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
           {provider.serviceLabel} keys are made in its console. Make one there and paste it here. dotsafe checks it works
           before anything uses it
@@ -718,7 +733,7 @@ function Banner({ title, body, children }: { title: string; body: string; childr
         <p className="font-medium">{title}</p>
         <p className="mt-0.5 text-[13px] text-muted-foreground">{body}</p>
       </div>
-      <div className="flex justify-end gap-2">{children}</div>
+      <div className="flex flex-wrap justify-end gap-2">{children}</div>
     </div>
   );
 }
