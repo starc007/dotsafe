@@ -25,7 +25,7 @@ pub fn shortcut_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 /// Adds the menu bar icon and registers the shortcut. Neither is essential:
 /// if the shortcut is taken by another app, dotsafe works without it.
 pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
-    let find = MenuItem::with_id(app, "find", "Find and copy…", true, Some(QUICK_COPY))?;
+    let find = MenuItem::with_id(app, "find", "Find and copy", true, Some(QUICK_COPY))?;
     let open = MenuItem::with_id(app, "open", "Open dotsafe", true, None::<&str>)?;
     let lock = MenuItem::with_id(app, "lock", "Lock", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;

@@ -151,7 +151,7 @@ function FolderSetup({ defaultPath, canJoinWithCode, onCreated, onConnected, onC
             <span className="truncate">{path ? displayPath(path) : "No folder chosen"}</span>
           </div>
           <Button type="button" variant="outline" className="h-9" onClick={chooseFolder}>
-            Change…
+            Change
           </Button>
         </div>
       </Field>

@@ -74,7 +74,7 @@ export function AgentApproval() {
   const allowLabel = (label: string) => (
     <>
       {busy === "allow" ? <Spinner /> : needsAuth && <Fingerprint aria-hidden />}
-      {busy === "allow" && needsAuth ? "Confirm with Touch ID…" : label}
+      {busy === "allow" && needsAuth ? "Confirm with Touch ID" : label}
     </>
   );
 

@@ -114,12 +114,12 @@ export function SecuritySettings({
         <SurfaceBody className="divide-y">
           <SettingsRow label="Master password" detail="Unlocks this vault on every device.">
             <Button variant="outline" onClick={() => setDialog("password")}>
-              Change…
+              Change
             </Button>
           </SettingsRow>
           <SettingsRow label="Recovery key" detail="Gets you back in if you forget your password.">
             <Button variant="outline" onClick={() => setDialog("recovery")}>
-              Create new key…
+              Create new key
             </Button>
           </SettingsRow>
           <SettingsRow label="Lock now" detail="You'll need your master password to get back in.">
@@ -174,14 +174,14 @@ export function SecuritySettings({
             ) : (
               <Button variant="outline" onClick={chooseBackupFolder}>
                 <Archive aria-hidden />
-                Choose folder…
+                Choose folder
               </Button>
             )}
           </SettingsRow>
           <SettingsRow label="Move vault" detail="Copy it to another folder and use that. The old copy stays until you delete it.">
             <Button variant="outline" onClick={moveVault} disabled={moving}>
               {moving ? <Spinner /> : <FolderInput aria-hidden />}
-              Move…
+              Move
             </Button>
           </SettingsRow>
           <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while. Set on this Mac.">

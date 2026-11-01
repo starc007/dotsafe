@@ -123,7 +123,7 @@ export function DeviceSettings() {
                     className="text-destructive hover:text-destructive"
                     onClick={() => setRemoving(d)}
                   >
-                    Remove…
+                    Remove
                   </Button>
                 </li>
               ))}
