@@ -654,7 +654,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             for d in devices {
                 let this = if d.device_id == ctx.device_id { "\tthis machine" } else { "" };
                 let stale = if d.stale { "\tneeds the password once" } else { "" };
-                println!("{}\tadded {}{this}{stale}", d.name, utc(d.added));
+                println!("{}\tadded {}{this}{stale}", d.name, local_time(d.added));
             }
         }
         Cmd::Device(DeviceCmd::Remove { name }) => {
@@ -691,7 +691,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             for e in events {
                 let outcome = format!("{:?}", e.outcome).to_lowercase();
                 let detail = e.detail.map(|d| format!("\t{d}")).unwrap_or_default();
-                println!("{}\t{}\t{outcome}\t{}\t{}{detail}", utc(e.at), e.actor, e.summary, e.environment);
+                println!("{}\t{}\t{outcome}\t{}\t{}{detail}", local_time(e.at), e.actor, e.summary, e.environment);
             }
         }
     }
@@ -1101,21 +1101,16 @@ fn dir_name(dir: &Path) -> Result<String> {
         .context("can't name a project after this directory; pass a name to `dotsafe link`")
 }
 
-/// Unix milliseconds as `YYYY-MM-DD HH:MM` UTC.
-fn utc(ms: u64) -> String {
-    let secs = ms / 1000;
-    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
-    // Days since 1970-01-01 to a civil date (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
+/// Unix milliseconds as `YYYY-MM-DD HH:MM` in this machine's time zone.
+fn local_time(ms: u64) -> String {
+    time_in(ms, &jiff::tz::TimeZone::system())
+}
+
+fn time_in(ms: u64, tz: &jiff::tz::TimeZone) -> String {
+    match jiff::Timestamp::from_millisecond(ms as i64) {
+        Ok(at) => at.to_zoned(tz.clone()).strftime("%Y-%m-%d %H:%M").to_string(),
+        Err(_) => "unknown time".to_string(),
+    }
 }
 
 fn human(d: Duration) -> String {
@@ -1130,12 +1125,14 @@ fn human(d: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::utc;
+    use super::time_in;
+    use jiff::tz::TimeZone;
 
     #[test]
-    fn utc_dates() {
-        assert_eq!(utc(0), "1970-01-01 00:00");
-        assert_eq!(utc(951_782_400_000), "2000-02-29 00:00");
-        assert_eq!(utc(1_793_015_254_719), "2026-10-26 11:47");
+    fn times_in_a_zone() {
+        assert_eq!(time_in(0, &TimeZone::UTC), "1970-01-01 00:00");
+        assert_eq!(time_in(951_782_400_000, &TimeZone::UTC), "2000-02-29 00:00");
+        let kolkata = TimeZone::get("Asia/Kolkata").unwrap();
+        assert_eq!(time_in(1_793_015_254_719, &kolkata), "2026-10-26 17:17");
     }
 }
