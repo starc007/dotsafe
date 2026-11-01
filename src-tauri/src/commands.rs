@@ -671,6 +671,9 @@ pub struct VaultHealth {
     /// Records sealed with a key this vault doesn't have (written by a
     /// removed device after the re-key).
     unreadable: usize,
+    /// Records that failed authentication or aren't valid: damaged in sync,
+    /// or changed outside dotsafe.
+    damaged: usize,
 }
 
 /// What the integrity checks found while reading the vault this session.
@@ -681,7 +684,11 @@ pub async fn vault_health(state: State<'_, AppState>) -> CmdResult<VaultHealth> 
             let vault = s.vault()?;
             // Reading everything runs the checks on every record.
             vault.list()?;
-            Ok(VaultHealth { stale: vault.stale_records().len(), unreadable: vault.unreadable_records().len() })
+            Ok(VaultHealth {
+                stale: vault.stale_records().len(),
+                unreadable: vault.unreadable_records().len(),
+                damaged: vault.damaged_records().len(),
+            })
         })
         .await
 }

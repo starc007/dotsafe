@@ -128,6 +128,10 @@ pub struct Vault {
     /// Records sealed with a key this vault no longer has (written by a
     /// device that hadn't seen a re-key, or by a removed one). Skipped.
     unreadable: Mutex<BTreeSet<Uuid>>,
+    /// Records that failed authentication or aren't valid record files, as
+    /// of the last [`Vault::list`]. Listing skips them; reading or writing
+    /// one still fails, so nothing is written over it.
+    damaged: Mutex<BTreeSet<Uuid>>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -222,6 +226,7 @@ impl Vault {
             known: Mutex::default(),
             stale: Mutex::default(),
             unreadable: Mutex::default(),
+            damaged: Mutex::default(),
         }
     }
 
@@ -440,6 +445,13 @@ impl Vault {
         lock(&self.unreadable).iter().copied().collect()
     }
 
+    /// Records the last [`Vault::list`] skipped because they failed
+    /// authentication or weren't valid: damaged in sync, or changed outside
+    /// dotsafe.
+    pub fn damaged_records(&self) -> Vec<Uuid> {
+        lock(&self.damaged).iter().copied().collect()
+    }
+
     /// Applies `change` to the newest header and writes it only if nobody
     /// else changed it meanwhile; otherwise re-reads and applies it again, so
     /// two devices changing the header at once both keep their change. (On
@@ -486,13 +498,23 @@ impl Vault {
         Ok(Secrets::from_records(&self.list()?))
     }
 
-    /// Reads every record, merging any sync-conflict copies.
+    /// Reads every record, merging any sync-conflict copies. A damaged
+    /// record is skipped and noted ([`Vault::damaged_records`]), so one bad
+    /// file doesn't hide the rest of the vault.
     pub fn list(&self) -> Result<Vec<Record>> {
         self.refresh_head()?;
         let mut records = Vec::new();
+        let mut damaged = BTreeSet::new();
         for (id, keys) in self.record_keys()? {
-            records.extend(self.read_record_group(id, &keys)?.value);
+            match self.read_record_group(id, &keys) {
+                Ok(group) => records.extend(group.value),
+                Err(Error::RecordTampered(_) | Error::Json(_) | Error::Format(_)) => {
+                    damaged.insert(id);
+                }
+                Err(e) => return Err(e),
+            }
         }
+        *lock(&self.damaged) = damaged;
         Ok(records)
     }
 

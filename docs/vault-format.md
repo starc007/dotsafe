@@ -84,6 +84,7 @@ All are RustCrypto crates. Keys are wiped from memory on drop (`zeroize`).
   
   A client that unlocks while `previous_keys` isn't empty finishes the re-seal first.
 - **Records from a dropped epoch** fail to open with no key, and are skipped, not trusted (`Vault::unreadable_records`).
+- **Damaged records** (failed authentication, or not a valid record file) are skipped when listing, so one bad file doesn't hide the vault, and reported (`Vault::damaged_records`). Reading that record directly, or writing to it, still fails, so nothing is written over it.
 - **`head.json`** gains an `epoch` field (omitted means 1). A head from an epoch the client has no key for is replaced on the next write.
 - **Header writes** re-read the newest header, re-apply the change and write it conditionally on its ETag, retrying on conflict.
 

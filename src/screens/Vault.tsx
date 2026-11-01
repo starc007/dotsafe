@@ -247,7 +247,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
           </AnimatePresence>
         </div>
         <div className="flex flex-col gap-0.5 border-t border-sidebar-border p-2">
-          {health && (health.stale > 0 || health.unreadable > 0) && (
+          {health && (health.stale > 0 || health.unreadable > 0 || health.damaged > 0) && (
             <button
               type="button"
               onClick={() => {

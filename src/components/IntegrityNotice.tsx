@@ -5,7 +5,7 @@ import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle }
 /** Explains what the vault's integrity checks found. Shown only when they
  * found something. */
 export function IntegrityNotice({ health }: { health: VaultHealth }) {
-  if (!health.stale && !health.unreadable) return null;
+  if (!health.stale && !health.unreadable && !health.damaged) return null;
   return (
     <Surface aria-labelledby="integrity-title" role="alert">
       <SurfaceHeader icon={<TriangleAlert aria-hidden className="text-destructive" />}>
@@ -28,6 +28,15 @@ export function IntegrityNotice({ health }: { health: VaultHealth }) {
             <span className="text-muted-foreground">
               They're sealed with the vault's old key, so a removed device probably wrote them after it was removed.
               dotsafe ignores them; nothing in them was applied.
+            </span>
+          </p>
+        )}
+        {health.damaged > 0 && (
+          <p>
+            <span className="font-medium">{plural(health.damaged, "record couldn't", "records couldn't")} be opened.</span>{" "}
+            <span className="text-muted-foreground">
+              They failed dotsafe's check: damaged in sync, or changed outside dotsafe. What they held is hidden until
+              they're fixed. Restore the vault from a backup if you have one.
             </span>
           </p>
         )}
