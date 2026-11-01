@@ -202,6 +202,15 @@ const EMPTY_BUCKET: BucketInput = {
   secretAccessKey: "",
 };
 
+/** `abc123.r2.cloudflarestorage.com` from the endpoint URL. */
+function endpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint.trim()).host;
+  } catch {
+    return endpoint.trim();
+  }
+}
+
 function BucketSetup({ canJoinWithCode, onCreated, onConnected, onConnectingChange }: FormProps) {
   const [useCode, setUseCode] = useState(false);
   const [code, setCode] = useState("");
@@ -326,10 +335,14 @@ function BucketSetup({ canJoinWithCode, onCreated, onConnected, onConnectingChan
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
-      <p className="truncate rounded-full bg-muted/50 px-3 py-2 text-muted-foreground" title={bucket.endpoint}>
-        s3://{bucket.bucket.trim()}
-        {bucket.prefix.trim() && `/${bucket.prefix.trim().replace(/^\/+|\/+$/g, "")}`}
-      </p>
+      {/* Where the vault goes: the bucket and folder, and the service. */}
+      <div className="rounded-2xl bg-muted/50 px-3.5 py-2 text-muted-foreground" title={bucket.endpoint}>
+        <p className="truncate text-foreground">
+          s3://{bucket.bucket.trim()}
+          {bucket.prefix.trim() && `/${bucket.prefix.trim().replace(/^\/+|\/+$/g, "")}`}
+        </p>
+        <p className="truncate text-xs">{endpointHost(bucket.endpoint)}</p>
+      </div>
       {hasVault && useCode ? (
         <CodeField code={code} error={error} onCode={setCode} />
       ) : (

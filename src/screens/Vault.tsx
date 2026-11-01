@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AnimatePresence, motion } from "motion/react";
-import { FolderLock, KeyRound, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, TriangleAlert } from "lucide-react";
-import { api, message, type ProjectView, type QueueView, type VaultHealth } from "@/lib/api";
+import { CloudOff, FolderLock, KeyRound, ListChecks, Lock, Plus, Search, Settings as SettingsIcon, TriangleAlert } from "lucide-react";
+import { api, message, type ProjectView, type QueueView, type SyncView, type VaultHealth } from "@/lib/api";
 import { base, snappy } from "@/lib/motion";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settingsSections";
 import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
@@ -43,6 +43,8 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   const [health, setHealth] = useState<VaultHealth | null>(null);
   const [queue, setQueue] = useState<QueueView | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
+  // A bucket vault that couldn't sync; changes wait on this Mac.
+  const [syncError, setSyncError] = useState<string | null>(null);
   // The open settings section, or null when Settings is closed.
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
   const settingsOpen = settingsSection !== null;
@@ -73,6 +75,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     }
     api.vaultHealth().then(setHealth, () => {});
     api.rotationQueue().then(setQueue, () => {});
+    api.getSettings().then((s) => setSyncError(s.syncError), () => {});
   }, []);
 
   useEffect(() => {
@@ -83,9 +86,12 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     window.addEventListener("dotsafe:vault-changed", load);
     // The menu bar icon or the global shortcut (⌥⌘K) asked for quick copy.
     const unlistenQuick = listen("open-quick-copy", () => setQuickCopyOpen(true));
+    // Each background sync of a bucket vault reports how it went.
+    const unlistenSync = listen<SyncView>("sync-status", (e) => setSyncError(e.payload.error));
     return () => {
       unlisten.then((f) => f());
       unlistenQuick.then((f) => f());
+      unlistenSync.then((f) => f());
       window.removeEventListener("dotsafe:vault-changed", load);
     };
   }, [load]);
@@ -258,6 +264,21 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             >
               <TriangleAlert aria-hidden />
               <span className="flex-1 truncate">Vault needs a look</span>
+            </button>
+          )}
+          {syncError && (
+            <button
+              type="button"
+              title={syncError}
+              onClick={() => {
+                setSecretsOpen(false);
+                setSettingsSection("security");
+              }}
+              className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left font-medium outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <CloudOff aria-hidden />
+              <span className="flex-1 truncate">{syncError.startsWith("Offline") ? "Offline" : "Sync failed"}</span>
+              <span className="text-xs text-muted-foreground">Saved here</span>
             </button>
           )}
           {queue && (

@@ -42,8 +42,9 @@ export function SettingsPage({
 
   useEffect(() => {
     load();
-    // The background license check or a sync found a change.
-    const unlisteners = [listen("license-changed", load), listen("vault-synced", load)];
+    // The background license check or a sync found a change, or a sync
+    // went online or offline.
+    const unlisteners = [listen("license-changed", load), listen("vault-synced", load), listen("sync-status", load)];
     return () => {
       unlisteners.forEach((u) => u.then((f) => f()));
     };
