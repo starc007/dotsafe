@@ -5,13 +5,17 @@ Local-first, zero-knowledge secret manager for developers. Secrets are encrypted
 ## Layout
 
 ```
-crates/core   # vault format, encryption, sync engine (shared)
-crates/stores # S3/R2 storage backend and the keychain-backed store opener
-crates/cli    # `dotsafe` command-line tool
-src-tauri     # desktop app (Tauri 2)
-src           # desktop UI (React + Vite)
-api           # licensing and checkout API (Cloudflare Worker), see api/README.md
+crates/core                # vault format, encryption, sync engine (shared)
+crates/stores              # S3/R2 and WebDAV storage, and the keychain-backed store opener
+crates/agent               # agent access: broker, MCP, redaction, secret proxy
+crates/integrations        # provider key rotation and deploy-target pushes
+crates/cli                 # `dotsafe` command-line tool
+apps/desktop/src-tauri     # desktop app (Tauri 2)
+apps/desktop/src           # desktop UI (React + Vite)
+apps/api                   # licensing and checkout API (Cloudflare Worker), see apps/api/README.md
 ```
+
+A bun workspace: run `bun install` once at the root. `bun run tauri dev`, `bun run dev` and `bun run build` work from the root.
 
 ## CLI
 
@@ -98,4 +102,4 @@ Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testi
 
 ### Licensing
 
-Settings → License activates a key through the dotsafe API (`api/`), which talks to Dodo Payments. Only the key and an activation id are stored, in the machine's config, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.
+Settings → License activates a key through the dotsafe API (`apps/api/`), which talks to Dodo Payments. Only the key and an activation id are stored, in the machine's config, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.

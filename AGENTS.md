@@ -4,7 +4,7 @@ Guidance for AI coding agents working in this repo. `README.md` covers the produ
 
 ## What this is
 
-dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets are encrypted on the device and synced through storage the user already owns (iCloud Drive, Google Drive, Dropbox, any synced folder). The only dotsafe server is the licensing API in `api/`, and it never sees vaults or secrets. It ships as a Tauri 2 desktop app and a `dotsafe` CLI that share one Rust core.
+dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets are encrypted on the device and synced through storage the user already owns (iCloud Drive, Google Drive, Dropbox, any synced folder). The only dotsafe server is the licensing API in `apps/api/`, and it never sees vaults or secrets. It ships as a Tauri 2 desktop app and a `dotsafe` CLI that share one Rust core.
 
 ## Layout
 
@@ -14,32 +14,34 @@ crates/agent  Agent access: the broker (shared by the app and `dotsafe daemon` t
 crates/stores Network storage backends (S3/R2, WebDAV) and `open(config)`, which picks the right store and reads keys from the keychain.
 crates/integrations Provider key rotation (OpenAI, Cloudflare tokens, AWS IAM; Anthropic and Stripe guided) and deploy-target pushes (Vercel, Cloudflare Workers): the HTTP client, AWS SigV4 signing, and the rotate/retire/push flow.
 crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
-src-tauri     Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
-src           Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
-api           Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See api/README.md.
+apps/desktop/src-tauri  Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
+apps/desktop/src        Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
+apps/api      Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See apps/api/README.md.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
 docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
 ```
 
 ## Commands
 
+A bun workspace (`apps/*`) with one lockfile at the root; the root scripts forward to `apps/desktop`. Use `bun run --cwd <dir> <script>` (the flag goes after `run`) for anything else.
+
 ```bash
-bun install
+bun install                                         # once, at the root
 bun run tauri dev                                   # desktop app
 bun run dev                                         # UI only, in a browser, with a mock backend
 bun run build                                       # tsc + vite build
 cargo run -p dotsafe-cli -- <args>                  # CLI
 cargo test --workspace                              # all Rust tests
 cargo clippy --workspace --all-targets -- -D warnings
-cd api && bun run test && bun run typecheck         # API
+cd apps/api && bun run test && bun run typecheck    # API
 scripts/check.sh                                    # everything below, in one go
 ```
 
 **Run `scripts/check.sh` before every push and merge, and make sure it passes.** GitHub Actions is switched off for this repo (out of quota), so nothing else will catch a failure. The script does what CI did (`.github/workflows/ci.yml`, kept for when it's turned back on):
 
-- Builds the frontend first, because the desktop crate embeds `dist/` at compile time.
+- Builds the frontend first, because the desktop crate embeds `apps/desktop/dist` at compile time.
 - Runs clippy with `-D warnings`, then the Rust tests.
-- Typechecks and tests `api/`.
+- Typechecks and tests `apps/api`.
 
 `scripts/check.sh rust` or `scripts/check.sh api` runs half.
 
@@ -67,7 +69,7 @@ scripts/check.sh                                    # everything below, in one g
 - **Keep AAD bindings.** Wrapped keys and records are bound to the vault id and their own id via AAD. Keep it that way.
 - **Decrypted values only reach the webview through `reveal_variable` and `reveal_secret`** (and a freshly generated, not yet saved value through `generate_secret_value`, so the rotate form can show it). Listing commands return names and metadata only. Copying happens in Rust (`copy_variable`, `copy_secret`), never via the JS clipboard API.
 - **Values resolve through `Resolver`.** An environment's final variables come from `core::resolve::Resolver` (parent chain, hidden variables, linked secrets, `${{ NAME }}` references). Use `resolver.resolve(env_id)`, `.value(env_id, key)` or `.entries(env_id)` anywhere values or names reach a command, the clipboard, the webview or an agent. `Environment::entry`/`value`/`entries` are the environment's own variables only. A broken reference is an `Error::Reference`; surface it, never fall back to the raw text. Editing uses `reveal_variable` with `raw: true` so references survive.
-- **Webview permissions stay minimal.** `src-tauri/capabilities/default.json` grants core, window dragging and the folder picker only. Plugins used only from Rust (clipboard, notifications) need no webview permission; keep it that way. Don't grant clipboard, filesystem or shell access to the webview. Keep the strict CSP in `tauri.conf.json`.
+- **Webview permissions stay minimal.** `apps/desktop/src-tauri/capabilities/default.json` grants core, window dragging and the folder picker only. Plugins used only from Rust (clipboard, notifications) need no webview permission; keep it that way. Don't grant clipboard, filesystem or shell access to the webview. Keep the strict CSP in `tauri.conf.json`.
 - **Wipe key material.** Wrap passwords and key material in `Zeroizing`. `SecretKey` is zeroized on drop; don't copy its bytes into plain `Vec`s or `String`s.
 - **No test backdoors.** Never add a bypass to the unlock flow (env vars, debug passwords, skip flags) for testing.
 
@@ -80,6 +82,8 @@ scripts/check.sh                                    # everything below, in one g
 - **Don't run `cargo remove` blindly.** It silently deletes the `[profile.dev.package.blake2]` override in the root `Cargo.toml`. That override keeps Argon2 fast in debug builds; without it, tests get about 10× slower. Re-add it if it disappears.
 
 ### Frontend
+
+Paths in this section and the next are under `apps/desktop/`.
 
 - **Use shadcn/ui components.** Install them with `bunx --bun shadcn@latest add <name>`; they land in `src/components/ui/`. Reuse what's there before adding more. Don't hand-roll primitives (buttons, inputs, dialogs, menus), and don't put several components in one file. App-specific components go in `src/components/`, one per file.
 - **beUI components** (the user's library, https://beui.dev) take precedence where one exists. Tabs use beUI's motion tabs in `src/components/motion/tabs.tsx`. Get beUI source through the beUI MCP server (`get_component`) or `bunx --bun shadcn add @beui/<name>`.

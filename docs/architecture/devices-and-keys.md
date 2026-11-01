@@ -115,7 +115,7 @@ The proposal is A:
 - **No enforced roles at first.** Anyone holding the vault key can change the header, so admin-only actions would need signatures (Ed25519, another algorithm). Every member can invite and remove; the audit log records who did what.
 - **Seats** are license activations: a team license allows N, and each member activates it. The license server never learns who is in a vault.
 
-Build order: several vaults in config, CLI and sidebar; identity keys and member slots; team setup and members screens; seat licensing in `api/`.
+Build order: several vaults in config, CLI and sidebar; identity keys and member slots; team setup and members screens; seat licensing in `apps/api/`.
 
 ## Open questions
 
