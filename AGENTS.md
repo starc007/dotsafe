@@ -17,6 +17,7 @@ crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
 apps/desktop/src-tauri  Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
 apps/desktop/src        Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 apps/api      Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See apps/api/README.md.
+apps/web      The site and the docs: Next.js with Fumadocs. Docs pages are MDX in apps/web/content/docs.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
 docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
 ```
@@ -34,6 +35,7 @@ cargo run -p dotsafe-cli -- <args>                  # CLI
 cargo test --workspace                              # all Rust tests
 cargo clippy --workspace --all-targets -- -D warnings
 cd apps/api && bun run test && bun run typecheck    # API
+bun run web                                         # site and docs at http://localhost:3000
 scripts/check.sh                                    # everything below, in one go
 ```
 
@@ -43,7 +45,7 @@ scripts/check.sh                                    # everything below, in one g
 - Runs clippy with `-D warnings`, then the Rust tests.
 - Typechecks and tests `apps/api`.
 
-`scripts/check.sh rust` or `scripts/check.sh api` runs half.
+`scripts/check.sh rust`, `api` or `web` runs one part.
 
 - **Use the current stable Rust.** Newer clippy releases add lints, so an old toolchain can pass locally and fail CI. Run `rustup update stable` when in doubt.
 - **It only covers your own OS.** CI also built on Linux and Windows, so keep `cfg(unix)` code and paths obviously correct for the others. The agent crate can be clippy-checked for Windows with `cargo clippy -p dotsafe-agent --target x86_64-pc-windows-msvc`.

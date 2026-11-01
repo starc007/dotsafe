@@ -5,6 +5,7 @@
 #   scripts/check.sh          everything
 #   scripts/check.sh rust     frontend build, clippy, Rust tests
 #   scripts/check.sh api      API typecheck and tests
+#   scripts/check.sh web      site and docs typecheck
 #
 # It covers this OS only. CI also built on Linux and Windows, so keep
 # platform-specific code (cfg(unix), paths, permissions) obviously correct.
@@ -15,9 +16,9 @@ cd "$(dirname "$0")/.."
 
 what="${1:-all}"
 case "$what" in
-  all | rust | api) ;;
+  all | rust | api | web) ;;
   *)
-    echo "usage: scripts/check.sh [all|rust|api]" >&2
+    echo "usage: scripts/check.sh [all|rust|api|web]" >&2
     exit 2
     ;;
 esac
@@ -57,6 +58,12 @@ if [[ "$what" == all || "$what" == api ]]; then
     bun run typecheck
     bun run test
   )
+fi
+
+if [[ "$what" == all || "$what" == web ]]; then
+  step "Web: install, typecheck"
+  bun install --frozen-lockfile
+  bun run --cwd apps/web types:check
 fi
 
 printf '\n\033[1;32m✓ All checks passed\033[0m (%ss)\n' "$((SECONDS - started))"
