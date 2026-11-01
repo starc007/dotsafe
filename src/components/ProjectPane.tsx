@@ -155,12 +155,12 @@ export function ProjectPane({
             {env && (
               <DropdownMenuItem variant="destructive" onSelect={() => setConfirm("environment")}>
                 <Trash2 aria-hidden />
-                Delete {env.name}…
+                Delete {env.name}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem variant="destructive" onSelect={() => setConfirm("project")}>
               <Trash2 aria-hidden />
-              Delete project…
+              Delete project
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

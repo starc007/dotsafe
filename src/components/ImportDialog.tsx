@@ -189,7 +189,7 @@ export function ImportForm({
                 <p className="mt-0.5 text-muted-foreground">or choose one or more from disk</p>
               </div>
               <Button variant="outline" onClick={chooseFiles} className="bg-card">
-                Choose files…
+                Choose files
               </Button>
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
                 Can't see .env? Press <Kbd>⌘</Kbd>
@@ -204,7 +204,7 @@ export function ImportForm({
                 {files.join(", ")}
               </p>
               <Button size="sm" variant="ghost" onClick={chooseFiles}>
-                Change…
+                Change
               </Button>
             </div>
           )}
