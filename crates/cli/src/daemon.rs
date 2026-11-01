@@ -95,7 +95,24 @@ fn describe(p: &ApprovalRequest) -> String {
     if !p.proxied.is_empty() {
         text.push_str(&format!("\n  through the secret proxy: {}", p.proxied.join(", ")));
     }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    for file in &p.files {
+        let changed = file.modified_ms.map_or(String::new(), |ms| format!(", changed {}", ago(now.saturating_sub(ms))));
+        text.push_str(&format!("\n  runs {}{changed}", file.path));
+    }
     text
+}
+
+/// "20 seconds ago", "5 minutes ago", "3 days ago".
+fn ago(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (n, unit) = match secs {
+        0..60 => (secs, "second"),
+        60..3600 => (secs / 60, "minute"),
+        3600..86_400 => (secs / 3600, "hour"),
+        _ => (secs / 86_400, "day"),
+    };
+    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
 }
 
 pub fn run(stop_after: Option<Duration>) -> Result<()> {

@@ -8,6 +8,7 @@
 //! See docs/architecture/agents.md.
 
 pub mod broker;
+pub mod files;
 pub mod grants;
 #[cfg(unix)]
 pub mod ipc;

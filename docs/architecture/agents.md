@@ -79,7 +79,7 @@ Grant {
   - Commands that dump the environment: `env`, `printenv`, `set`, `export -p`.
   - `dotsafe` itself: `get` and `export` print values, and a vault left open by `dotsafe unlock` would let them run without a password.
   - These are a speed bump, not a boundary. See [Limits](#limits).
-- **Repo files the agent can edit:** when the command runs a script in the workspace (`bun test`, `npm run dev`), the dialog warns that the agent can change that script. It shows uncommitted changes in the files the command will run, using `git status`.
+- **Scripts the agent can edit:** when the command runs a file (`node check.js`, or a program inside the working directory), the dialog lists it with when it last changed, and warns when that was in the last 10 minutes, since the agent may have just written it. A grant covers each file's contents as approved (SHA-256, or size and change time above 10 MB): edit the file and the next run asks again. Files reached indirectly (`bun test`, `npm run dev`, `--require x.js`) aren't detected.
 - **Headless policies (proposed):** for a daemon with nobody at its terminal, standing grants created by the user and stored in the vault (not the repo, which the agent can edit). Until then, an unattended daemon refuses everything.
 
 ## Runner

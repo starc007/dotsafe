@@ -247,13 +247,15 @@ function fakeAgentRequest() {
     id: id(),
     kind: "run",
     client: "Claude Code",
-    command: ["bun", "test"],
+    command: ["bun", "scripts/seed.ts"],
     programPath: "/opt/homebrew/bin/bun",
     cwd: "/Users/you/code/my-api",
     project: "my-api",
     environment: "development",
     variables: ["DATABASE_URL", "JWT_SECRET", "OPENAI_API_KEY", "STRIPE_SECRET_KEY"],
     proxied: ["OPENAI_API_KEY"],
+    // Written by the agent a moment ago.
+    files: [{ path: "/Users/you/code/my-api/scripts/seed.ts", modifiedMs: Date.now() - 20_000 }],
     generated: null,
   };
   pendingAgent.set(req.id, { command: req.command, cwd: req.cwd, variables: req.variables.length });
@@ -268,6 +270,7 @@ function fakeAgentRequest() {
     cwd: "",
     variables: ["SESSION_SECRET"],
     proxied: [],
+    files: [],
     generated: "48 random characters",
   };
   pendingAgent.set(gen.id, { command: ["SESSION_SECRET"], cwd: "", variables: 1 });
