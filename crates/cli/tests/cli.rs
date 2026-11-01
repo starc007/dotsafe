@@ -295,7 +295,7 @@ fn run_with_proxy_keeps_known_keys_out_of_the_process() {
     assert!(parts[1].starts_with("http://127.0.0.1:") && parts[1].ends_with("/v1"), "{seen}");
     assert_eq!(parts[2], "1", "other variables are injected as usual");
     assert!(!seen.contains("sk-real-key"));
-    assert!(stderr(&out).contains("OPENAI_API_KEY go through a local proxy"));
+    assert!(stderr(&out).contains("OPENAI_API_KEY goes through a local proxy"));
 
     // Exit codes come through.
     let out = m.run(&api, &["run", "--proxy", "--", "sh", "-c", "exit 7"]);
