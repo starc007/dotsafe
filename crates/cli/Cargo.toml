@@ -16,6 +16,7 @@ dotsafe-agent.workspace = true
 dotsafe-core.workspace = true
 dotsafe-integrations.workspace = true
 dotsafe-stores.workspace = true
+jiff = "0.2.38"
 keyring = "4.2.0"
 rpassword = "7.5.4"
 serde = { version = "1.0.229", features = ["derive"] }

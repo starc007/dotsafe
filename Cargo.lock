@@ -1190,6 +1190,7 @@ dependencies = [
  "dotsafe-core",
  "dotsafe-integrations",
  "dotsafe-stores",
+ "jiff",
  "keyring",
  "rpassword",
  "serde",
