@@ -6,6 +6,3 @@ export const fadeUp = {
   hidden: { opacity: 0, y: 16 },
   shown: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
 };
-
-/** The brand colours the shader blends, white to acid lime. */
-export const SHADER_COLORS = ['#ffffff', '#ecfccb', '#bef264', '#84cc16'];

@@ -56,7 +56,7 @@ function Flow({ reduce, delay = 0 }: { reduce: boolean; delay?: number }) {
   const travel = { duration: 1.4, repeat: Infinity, ease: 'easeInOut' as const, delay };
   const dot = 'absolute size-1.5 rounded-full bg-ds-accent';
   return (
-    <div aria-hidden className="relative mx-auto h-8 w-px bg-ds-line md:h-px md:w-12">
+    <div aria-hidden className="relative mx-auto h-8 w-px bg-ds-fg/20 md:h-px md:w-12">
       {!reduce && (
         <>
           <motion.span

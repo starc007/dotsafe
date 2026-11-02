@@ -1,5 +1,6 @@
+import { links } from '@/lib/site';
 import { AgentDemo } from '@/components/landing/AgentDemo';
-import { FeatureCard } from '@/components/landing/FeatureCard';
+import { FeatureRow } from '@/components/landing/FeatureRow';
 import { OpenSourceDemo } from '@/components/landing/OpenSourceDemo';
 import { RotationDemo } from '@/components/landing/RotationDemo';
 import { SectionHeading } from '@/components/landing/SectionHeading';
@@ -11,23 +12,23 @@ export function Features() {
       <SectionHeading eyebrow="Features" title="One vault for every key.">
         In the app and in your terminal, with secrets that rotate in one place and agents that never see them.
       </SectionHeading>
-      <div className="mt-10 grid gap-4 md:grid-cols-5">
-        <FeatureCard className="md:col-span-3" title="One secret, linked everywhere" demo={<RotationDemo />}>
+      <div className="mt-10 flex flex-col gap-4">
+        <FeatureRow scene="grove" title="One secret, linked everywhere." demo={<RotationDemo />}>
           Link a key into every environment that uses it. Rotate it once, through OpenAI, Cloudflare or AWS, and every
           project picks up the new value.
-        </FeatureCard>
-        <FeatureCard className="md:col-span-2" delay={0.08} title="Agents never see the values" demo={<AgentDemo />}>
+        </FeatureRow>
+        <FeatureRow scene="dune" flip title="Agents never see the values." demo={<AgentDemo />}>
           Claude Code and Cursor run commands with your secrets after you approve them with Touch ID. What they read back
           has the values taken out.
-        </FeatureCard>
-        <FeatureCard className="md:col-span-2" title="A CLI for your terminal" demo={<TerminalDemo />}>
+        </FeatureRow>
+        <FeatureRow scene="tide" bare title="A CLI for your terminal." demo={<TerminalDemo />} href={links.docs}>
           Run anything with your variables, catch keys before you commit, or import from Doppler, Infisical and
           1Password.
-        </FeatureCard>
-        <FeatureCard className="md:col-span-3" delay={0.08} title="Open source, nothing to trust" demo={<OpenSourceDemo />}>
+        </FeatureRow>
+        <FeatureRow scene="moss" flip title="Open source, nothing to trust." demo={<OpenSourceDemo />} href={links.github}>
           Read every line. Your vault is encrypted before it leaves your Mac, and there&apos;s no dotsafe server holding
           it.
-        </FeatureCard>
+        </FeatureRow>
       </div>
     </section>
   );

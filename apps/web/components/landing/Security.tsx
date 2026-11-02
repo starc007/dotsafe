@@ -1,6 +1,7 @@
 import { EncryptDemo } from '@/components/landing/EncryptDemo';
 import { Reveal } from '@/components/landing/Reveal';
 import { SectionHeading } from '@/components/landing/SectionHeading';
+import { Wallpaper } from '@/components/landing/Wallpaper';
 
 const STEPS = [
   { title: 'Sealed on your Mac', body: 'You save a value. dotsafe encrypts it with your key before it touches the disk.' },
@@ -14,8 +15,10 @@ export function Security() {
       <SectionHeading eyebrow="Security" title="Encrypted before it leaves your Mac.">
         Your storage only ever holds noise, and there&apos;s no dotsafe server to break into.
       </SectionHeading>
-      <Reveal className="mt-10 rounded-2xl border border-ds-line bg-ds-bg p-4 sm:p-8">
-        <EncryptDemo />
+      <Reveal className="mt-10 rounded-3xl border border-ds-line p-2">
+        <Wallpaper scene="meadow" className="px-4 py-12 sm:px-10 sm:py-20">
+          <EncryptDemo />
+        </Wallpaper>
       </Reveal>
       <ol className="mt-10 grid gap-8 sm:grid-cols-3">
         {STEPS.map((step, i) => (

@@ -28,12 +28,15 @@ const SERVICES: { name: string; path?: string }[] = [
 
 export function StorageStrip() {
   return (
-    <section className="mx-auto max-w-6xl px-4 pt-20 sm:px-6">
+    <section className="mx-auto max-w-6xl px-4 pt-16 sm:px-6">
       <Reveal>
         <p className="text-center text-sm text-ds-muted">Syncs through storage you already have</p>
-        <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
+        <ul className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {SERVICES.map((s) => (
-            <li key={s.name} className="flex items-center gap-2 text-sm font-medium text-ds-muted/80">
+            <li
+              key={s.name}
+              className="flex h-20 items-center justify-center gap-2 rounded-2xl border border-ds-line text-sm font-medium text-ds-muted"
+            >
               {s.path ? (
                 <svg viewBox="0 0 24 24" aria-hidden className="size-5 fill-current">
                   <path d={s.path} />
