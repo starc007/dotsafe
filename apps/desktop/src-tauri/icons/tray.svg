@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
+  <!-- The menu bar icon on macOS, used as a template: only its shape counts and
+       macOS colours it to match the menu bar. Render to tray.png at 44px (22pt @2x)
+       with a transparent background. -->
+  <g fill="#000" transform="translate(22 22) scale(0.72) translate(-31.5 -30.5)">
+    <circle cx="25" cy="39" r="14"/>
+    <rect x="44" y="8" width="8" height="45" rx="4"/>
+  </g>
+</svg>
