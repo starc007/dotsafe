@@ -57,7 +57,7 @@ export function RotationDemo() {
               <span className="flex size-5 items-center justify-center">
                 {updated ? (
                   <motion.span key={`${round}-${shown}`} initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.3, ease: EASE }}>
-                    <Check aria-hidden className="size-4 text-ds-primary" />
+                    <Check aria-hidden className="size-4 text-ds-accent" />
                   </motion.span>
                 ) : (
                   <LoaderCircle aria-hidden className="size-4 animate-spin text-ds-muted" />

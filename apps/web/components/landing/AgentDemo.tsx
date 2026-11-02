@@ -43,7 +43,7 @@ export function AgentDemo() {
       <div className="mt-4 flex h-8 items-center">
         <AnimatePresence mode="wait" initial={false}>
           {approved ? (
-            <motion.p key="ok" {...appear} className="flex items-center gap-1.5 text-xs font-medium text-ds-primary">
+            <motion.p key="ok" {...appear} className="flex items-center gap-1.5 text-xs font-medium text-ds-accent">
               <Fingerprint aria-hidden className="size-4" />
               Approved with Touch ID
             </motion.p>
@@ -69,13 +69,13 @@ export function AgentDemo() {
         <AnimatePresence initial={false}>
           {lines >= 1 && (
             <motion.p key="l1" {...appear} className="flex items-center gap-1.5 text-ds-muted">
-              <Check aria-hidden className="size-3.5 text-ds-primary" />
+              <Check aria-hidden className="size-3.5 text-ds-accent" />
               42 tests passed
             </motion.p>
           )}
           {lines >= 2 && (
             <motion.p key="l2" {...appear} className="truncate text-ds-muted">
-              charged card with <span className="rounded bg-ds-primary/10 px-1 text-ds-primary">[dotsafe:STRIPE_KEY]</span>
+              charged card with <span className="rounded bg-ds-primary/30 px-1 text-ds-accent">[dotsafe:STRIPE_KEY]</span>
             </motion.p>
           )}
         </AnimatePresence>

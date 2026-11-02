@@ -43,7 +43,7 @@ function Place({ icon, name, value, noisy }: { icon: React.ReactNode; name: stri
       <p className="flex items-center gap-2 text-xs text-ds-muted [&_svg]:size-4">
         {icon}
         {name}
-        {noisy && <Lock aria-hidden className="ml-auto text-ds-primary" />}
+        {noisy && <Lock aria-hidden className="ml-auto text-ds-accent" />}
       </p>
       <p className={`mt-3 truncate font-mono text-[13px] ${noisy ? 'text-ds-muted' : ''}`}>{value}</p>
     </div>
@@ -54,7 +54,7 @@ function Place({ icon, name, value, noisy }: { icon: React.ReactNode; name: stri
  * on wide screens, down on narrow ones, where the places stack. */
 function Flow({ reduce, delay = 0 }: { reduce: boolean; delay?: number }) {
   const travel = { duration: 1.4, repeat: Infinity, ease: 'easeInOut' as const, delay };
-  const dot = 'absolute size-1.5 rounded-full bg-ds-primary';
+  const dot = 'absolute size-1.5 rounded-full bg-ds-accent';
   return (
     <div aria-hidden className="relative mx-auto h-8 w-px bg-ds-line md:h-px md:w-12">
       {!reduce && (

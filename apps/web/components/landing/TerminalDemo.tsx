@@ -55,7 +55,7 @@ export function TerminalDemo() {
           return (
             <div key={entry.cmd} className={i ? 'mt-1.5' : undefined}>
               <p className="whitespace-pre">
-                <span className="text-ds-primary select-none">$ </span>
+                <span className="text-ds-accent select-none">$ </span>
                 {typing ? entry.cmd.slice(0, shown.chars) : entry.cmd}
                 {typing && <span className="ml-px inline-block h-4 w-[7px] translate-y-[3px] animate-pulse bg-ds-fg/70" />}
               </p>

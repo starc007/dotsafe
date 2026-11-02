@@ -34,7 +34,7 @@ export function Pricing() {
           <Reveal
             key={plan.name}
             delay={i * 0.08}
-            className={`flex flex-col rounded-2xl border p-6 ${plan.primary ? 'border-ds-primary/40' : 'border-ds-line'}`}
+            className={`flex flex-col rounded-2xl border p-6 ${plan.primary ? 'border-ds-accent/40' : 'border-ds-line'}`}
           >
             <p className="text-sm font-medium">{plan.name}</p>
             <p className="mt-3 flex items-baseline gap-1.5">
@@ -44,7 +44,7 @@ export function Pricing() {
             <ul className="mt-6 flex flex-1 flex-col gap-2.5 text-sm">
               {plan.perks.map((perk) => (
                 <li key={perk} className="flex items-center gap-2.5">
-                  <Check aria-hidden className="size-4 text-ds-primary" />
+                  <Check aria-hidden className="size-4 text-ds-accent" />
                   {perk}
                 </li>
               ))}
