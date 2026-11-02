@@ -41,7 +41,7 @@ export function TerminalDemo() {
 
   const shown = reduce ? { line: SESSION.length, chars: 0 } : pos;
   return (
-    <div ref={ref} className="w-full max-w-md overflow-hidden rounded-xl border border-ds-line">
+    <div ref={ref} className="w-full max-w-md overflow-hidden rounded-xl border border-ds-line bg-white">
       <div className="flex items-center gap-1.5 border-b border-ds-line px-3.5 py-2.5">
         {[0, 1, 2].map((i) => (
           <span key={i} className="size-2.5 rounded-full border border-ds-line" />
