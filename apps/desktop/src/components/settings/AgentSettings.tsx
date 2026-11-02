@@ -194,7 +194,7 @@ export function AgentSettings() {
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize",
-                      e.outcome === "allowed" && "bg-primary/10 text-primary",
+                      e.outcome === "allowed" && "bg-primary/20 text-primary-ink",
                       e.outcome === "refused" && "bg-destructive/10 text-destructive",
                       (e.outcome === "denied" || e.outcome === "failed") && "bg-muted text-muted-foreground",
                     )}

@@ -294,7 +294,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
               onClick={() => setUpdateOpen(true)}
               className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left font-medium outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:shrink-0"
             >
-              <ArrowDownToLine aria-hidden className="text-primary" />
+              <ArrowDownToLine aria-hidden className="text-primary-ink" />
               <span className="flex-1 truncate">Update available</span>
               <span className="text-xs text-muted-foreground tabular-nums">{update.version}</span>
             </button>

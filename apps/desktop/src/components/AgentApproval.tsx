@@ -145,7 +145,7 @@ export function AgentApproval() {
                   <li
                     key={v}
                     title="Goes through dotsafe's proxy: the process gets a placeholder, never the key."
-                    className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[11.5px] text-primary"
+                    className="flex items-center gap-1 rounded-full bg-primary/20 px-2 py-0.5 font-mono text-[11.5px] text-primary-ink"
                   >
                     <ArrowLeftRight aria-hidden className="size-3" />
                     {v}

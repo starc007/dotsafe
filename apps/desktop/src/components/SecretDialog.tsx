@@ -270,7 +270,7 @@ export function SecretDialog({
                       <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">Overdue</span>
                     )}
                     {secret.due === "soon" && (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">Due soon</span>
+                      <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-medium text-primary-ink">Due soon</span>
                     )}
                   </SummaryRow>
                   <SummaryRow label="Reminder">
@@ -401,7 +401,7 @@ export function SecretDialog({
                       <span
                         className={cn(
                           "w-18 shrink-0 rounded-full px-2 py-0.5 text-center text-[11px] font-medium",
-                          v.state === "current" && "bg-primary/10 text-primary",
+                          v.state === "current" && "bg-primary/20 text-primary-ink",
                           v.state === "pending" && "bg-foreground/10 text-foreground",
                           v.state === "previous" && "bg-muted text-foreground",
                           v.state === "retired" && "text-muted-foreground",

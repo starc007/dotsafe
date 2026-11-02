@@ -247,7 +247,7 @@ export function ImportForm({
                         <span
                           className={cn(
                             "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            e.change === "new" && "bg-primary/10 text-primary",
+                            e.change === "new" && "bg-primary/20 text-primary-ink",
                             e.change === "update" && "bg-foreground/10 text-foreground",
                             (e.change === "unchanged" || e.change === "linked") && "text-muted-foreground",
                           )}
