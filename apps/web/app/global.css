@@ -2,6 +2,34 @@
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
+/* The landing page: light only, in the desktop app's own colours (its light
+   theme in apps/desktop/src/index.css). The docs keep Fumadocs' themes. */
+@theme inline {
+  --color-ds-bg: var(--ds-bg);
+  --color-ds-fg: var(--ds-fg);
+  --color-ds-muted: var(--ds-muted);
+  --color-ds-shell: var(--ds-shell);
+  --color-ds-card: var(--ds-card);
+  --color-ds-line: var(--ds-line);
+  --color-ds-primary: var(--ds-primary);
+  --color-ds-primary-fg: var(--ds-primary-fg);
+}
+
+.landing {
+  --ds-bg: oklch(1 0 0);
+  --ds-fg: oklch(0.145 0 0);
+  --ds-muted: oklch(0.556 0 0);
+  /* Outer shell of cards; the content sits on --ds-card inside it. */
+  --ds-shell: oklch(0.965 0 0);
+  --ds-card: oklch(1 0 0);
+  --ds-line: oklch(0.922 0 0);
+  --ds-primary: oklch(0.546 0.245 262.881);
+  --ds-primary-fg: oklch(0.985 0 0);
+  color-scheme: light;
+  background: var(--ds-bg);
+  color: var(--ds-fg);
+}
+
 html {
   scrollbar-gutter: stable;
 }
