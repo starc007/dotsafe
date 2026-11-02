@@ -37,4 +37,4 @@ bunx wrangler secret put DODO_WEBHOOK_KEY --env production
 bunx wrangler deploy --env production
 ```
 
-Also set `DODO_PRODUCT_ID` for production in `wrangler.jsonc`, and point `api.dotsafe.app` at the Worker. Release builds of the app call `https://api.dotsafe.app` unless built with `DOTSAFE_API_URL`.
+Also set `DODO_PRODUCT_ID` for production in `wrangler.jsonc`, and point `api.dotsafe.dev` at the Worker. Release builds of the app call `https://api.dotsafe.dev` unless built with `DOTSAFE_API_URL`.

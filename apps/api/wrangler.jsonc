@@ -9,16 +9,16 @@
   "vars": {
     "DODO_MODE": "test_mode",
     "DODO_PRODUCT_ID": "",
-    "CHECKOUT_RETURN_URL": "https://dotsafe.app/thanks",
-    "ALLOWED_ORIGINS": "https://dotsafe.app,http://localhost:3000"
+    "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
+    "ALLOWED_ORIGINS": "https://dotsafe.dev,http://localhost:3000"
   },
   "env": {
     "production": {
       "vars": {
         "DODO_MODE": "live_mode",
         "DODO_PRODUCT_ID": "",
-        "CHECKOUT_RETURN_URL": "https://dotsafe.app/thanks",
-        "ALLOWED_ORIGINS": "https://dotsafe.app"
+        "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
+        "ALLOWED_ORIGINS": "https://dotsafe.dev"
       }
     }
   }
