@@ -1,76 +1,63 @@
 import { Check, Download } from 'lucide-react';
 import { links } from '@/lib/site';
-import { cn } from '@/lib/cn';
 import { ButtonLink } from '@/components/landing/ButtonLink';
 import { Reveal } from '@/components/landing/Reveal';
 import { Wallpaper } from '@/components/landing/Wallpaper';
 
-// Placeholder pricing until the real plans are set.
-const PLANS = [
-  {
-    name: 'Free',
-    price: '$0',
-    term: 'forever',
-    blurb: 'Everything you need for your own projects on one Mac.',
-    perks: ['1 Mac', 'Unlimited variables and environments', 'The dotsafe CLI', 'Any storage you already use', 'Import from .env, Doppler, Infisical and 1Password'],
-    cta: 'Download',
-  },
-  {
-    name: 'Pro',
-    price: '$39',
-    term: 'one-time',
-    blurb: 'For keys you share across projects, rotate often, or hand to agents.',
-    perks: ['Up to 3 Macs', 'Secrets linked across environments', 'Key rotation through OpenAI, Cloudflare and AWS', 'Agent access approved with Touch ID', 'A year of updates'],
-    cta: 'Download and try Pro',
-    featured: true,
-  },
-];
+// One paid plan: there's no free version. The price is a placeholder until launch.
+const PLAN = {
+  was: '$79',
+  price: '$49',
+  term: 'one-time',
+  blurb: 'Everything dotsafe does, on up to 2 Macs. Pay once, keep your version.',
+  perks: [
+    'Up to 2 Macs',
+    'Unlimited projects, variables and environments',
+    'The dotsafe CLI',
+    'iCloud, Google Drive, Dropbox, S3 and WebDAV',
+    'Imports from .env, Doppler, Infisical and 1Password',
+    'Secrets linked across environments',
+    'Key rotation through OpenAI, Cloudflare and AWS',
+    'Agent access approved with Touch ID',
+    'A year of updates',
+  ],
+};
 
-/** The two plans side by side. Pro's header sits on a painted wallpaper. */
+/** The one plan: its price on a painted wallpaper, everything it includes beside it. */
 export function PricingPlans() {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {PLANS.map((plan, i) => {
-        const header = (
-          <>
-            <p className={cn('text-sm font-medium', plan.featured ? 'text-white' : 'text-ds-fg')}>{plan.name}</p>
-            <p className="mt-4 flex items-baseline gap-1.5">
-              <span className={cn('text-4xl font-medium tracking-[-0.02em] tabular-nums', plan.featured && 'text-white')}>
-                {plan.price}
-              </span>
-              <span className={cn('text-sm', plan.featured ? 'text-white/75' : 'text-ds-muted')}>{plan.term}</span>
-            </p>
-            <p className={cn('mt-3 max-w-xs text-sm text-pretty', plan.featured ? 'text-white/80' : 'text-ds-muted')}>
-              {plan.blurb}
-            </p>
-            <ButtonLink href={links.download} variant={plan.featured ? 'primary' : 'outline'} className="mt-6 w-full">
-              {plan.cta}
+    <Reveal className="grid gap-2 rounded-3xl border border-ds-line p-2 md:grid-cols-2">
+      <Wallpaper scene="grove" className="p-6 sm:p-8">
+        {/* Darkens the paint behind the copy so white text holds where it turns pale. */}
+        <div aria-hidden className="absolute inset-0 bg-[linear-gradient(110deg,rgb(26_46_5/0.65),rgb(26_46_5/0.15))]" />
+        <div className="relative flex h-full flex-col">
+          <p className="text-sm font-medium text-white">dotsafe</p>
+          <p className="mt-4 flex items-baseline gap-2.5">
+            <span className="text-5xl font-medium tracking-[-0.03em] text-white tabular-nums sm:text-6xl">{PLAN.price}</span>
+            <s className="text-xl tracking-[-0.01em] text-white/55 tabular-nums decoration-white/55 decoration-1">
+              <span className="sr-only">instead of </span>
+              {PLAN.was}
+            </s>
+            <span className="text-sm text-white/75">{PLAN.term}</span>
+          </p>
+          <p className="mt-3 max-w-xs text-sm text-pretty text-white/80">{PLAN.blurb}</p>
+          <div className="mt-auto pt-8">
+            <ButtonLink href={links.download} variant="primary" className="w-full">
+              Download for macOS
               <Download aria-hidden />
             </ButtonLink>
-          </>
-        );
-        return (
-          <Reveal key={plan.name} delay={i * 0.08} className="flex flex-col rounded-3xl border border-ds-line p-2">
-            {plan.featured ? (
-              <Wallpaper scene="grove" className="p-6">
-                {/* Darkens the paint behind the copy so white text holds where it turns pale. */}
-                <div aria-hidden className="absolute inset-0 bg-[linear-gradient(110deg,rgb(26_46_5/0.65),rgb(26_46_5/0.15))]" />
-                <div className="relative">{header}</div>
-              </Wallpaper>
-            ) : (
-              <div className="p-6">{header}</div>
-            )}
-            <ul className="flex flex-col gap-3 p-6 text-sm">
-              {plan.perks.map((perk) => (
-                <li key={perk} className="flex gap-2.5">
-                  <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-ds-accent" />
-                  {perk}
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-        );
-      })}
-    </div>
+            <p className="mt-3 text-center text-xs text-white/75">Activate it with the key from your purchase email.</p>
+          </div>
+        </div>
+      </Wallpaper>
+      <ul className="flex flex-col gap-3 p-6 text-sm sm:p-8">
+        {PLAN.perks.map((perk) => (
+          <li key={perk} className="flex gap-2.5">
+            <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-ds-accent" />
+            {perk}
+          </li>
+        ))}
+      </ul>
+    </Reveal>
   );
 }

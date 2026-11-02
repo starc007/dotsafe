@@ -24,6 +24,10 @@ const QUESTIONS = [
     a: "Yes. Your vault lives on your Mac. If the license can't be checked for 30 days, the app asks you to go online. It never locks you out.",
   },
   {
+    q: 'Is there a free version?',
+    a: "No. dotsafe is $49, paid once, for up to 2 Macs. You enter your license key the first time you open the app or the CLI.",
+  },
+  {
     q: 'Can I move my license to another Mac?',
     a: 'Yes. Remove it in Settings on the old Mac to free the slot, then activate it on the new one.',
   },
