@@ -14,15 +14,15 @@ describe("POST /v1/checkout", () => {
     expect(calls[0].headers.authorization).toBe("Bearer dodo_test_secret");
     expect(calls[0].body).toEqual({
       product_cart: [{ product_id: "pdt_dotsafe", quantity: 1 }],
-      return_url: "https://dotsafe.app/thanks",
+      return_url: "https://dotsafe.dev/thanks",
       customer: { email: "buyer@example.com" },
     });
   });
 
   it("allows the website origin and no other", async () => {
     mockDodo({ status: 200, body: { session_id: "cks_1", checkout_url: "https://x" } }, { status: 200, body: { session_id: "cks_2", checkout_url: "https://y" } });
-    const ok = await app.request(post("/v1/checkout", {}, { origin: "https://dotsafe.app" }), undefined, env);
-    expect(ok.headers.get("access-control-allow-origin")).toBe("https://dotsafe.app");
+    const ok = await app.request(post("/v1/checkout", {}, { origin: "https://dotsafe.dev" }), undefined, env);
+    expect(ok.headers.get("access-control-allow-origin")).toBe("https://dotsafe.dev");
     const other = await app.request(post("/v1/checkout", {}, { origin: "https://evil.example" }), undefined, env);
     expect(other.headers.get("access-control-allow-origin")).toBeNull();
   });

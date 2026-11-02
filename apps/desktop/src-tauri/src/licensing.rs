@@ -16,7 +16,7 @@ use crate::state::{AppState, CmdError, ErrorKind};
 const API_URL: &str = match option_env!("DOTSAFE_API_URL") {
     Some(url) => url,
     None if cfg!(debug_assertions) => "http://localhost:8787",
-    None => "https://api.dotsafe.app",
+    None => "https://api.dotsafe.dev",
 };
 
 const OFFLINE_MESSAGE: &str = "Couldn't reach the license server. Check your connection and try again.";

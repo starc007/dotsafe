@@ -4,8 +4,8 @@ import type { Env } from "../src/env";
 export const env: Env = {
   DODO_MODE: "test_mode",
   DODO_PRODUCT_ID: "pdt_dotsafe",
-  CHECKOUT_RETURN_URL: "https://dotsafe.app/thanks",
-  ALLOWED_ORIGINS: "https://dotsafe.app",
+  CHECKOUT_RETURN_URL: "https://dotsafe.dev/thanks",
+  ALLOWED_ORIGINS: "https://dotsafe.dev",
   DODO_API_KEY: "dodo_test_secret",
   // base64 of "test-webhook-signing-key-0123456789"
   DODO_WEBHOOK_KEY: "whsec_dGVzdC13ZWJob29rLXNpZ25pbmcta2V5LTAxMjM0NTY3ODk=",
