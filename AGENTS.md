@@ -59,7 +59,7 @@ scripts/check.sh                                    # everything below, in one g
 - Conventional Commits (`feat(cli): …`, `fix(core): …`, `refactor(desktop): …`, `ci: …`, `docs: …`).
 - No `Co-Authored-By` or other AI attribution trailers in commits.
 - Work on a branch and open a PR into `main`; don't commit to `main` directly.
-- **Deploys come from `main`.** Cloudflare Workers Builds deploys the site (Worker `dotsafe-web`, `apps/web`) and the API (Worker `dotsafe-api`, `apps/api`, production env) on every push to `main`. Never run `wrangler deploy` by hand.
+- **Deploys come from `main`.** Cloudflare Workers Builds deploys the site (Worker `dotsafe-website`, `apps/web`) and the API (Worker `dotsafe-api`, `apps/api`, production env) on every push to `main`. Never run `wrangler deploy` by hand.
 
 ### Security (this is a secrets app; treat these as hard rules)
 

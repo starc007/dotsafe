@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   // The site is a static export (`next build` writes `out/`), served as static
   // assets by a Worker with no code of its own.
-  "name": "dotsafe-web",
+  "name": "dotsafe-website",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./out",
