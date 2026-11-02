@@ -5,6 +5,8 @@ import { ImageResponse } from 'next/og';
 export const alt = 'dotsafe: secrets that never leave your Mac';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
+// Rendered once at build time: the site is a static export.
+export const dynamic = 'force-static';
 
 const fonts = join(process.cwd(), 'node_modules/@fontsource/inter/files');
 

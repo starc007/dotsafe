@@ -17,7 +17,7 @@ crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
 apps/desktop/src-tauri  Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license checks; the client itself is `dotsafe_integrations::licensing`, shared with the CLI), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
 apps/desktop/src        Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 apps/api      Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See apps/api/README.md.
-apps/web      The site and the docs: plain Next.js. Docs pages are routes under apps/web/app/(home)/docs.
+apps/web      The site and the docs: plain Next.js, built as a static export (`output: 'export'`) and served from Cloudflare as static assets. Docs pages are routes under apps/web/app/(home)/docs. Every route must stay static: no route handlers, middleware or request-time data.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
 docs/design.md         The brand and the website: logo, colour, type, shader scenes, layout and motion.
 docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
@@ -37,6 +37,7 @@ cargo test --workspace                              # all Rust tests
 cargo clippy --workspace --all-targets -- -D warnings
 cd apps/api && bun run test && bun run typecheck    # API
 bun run web                                         # site and docs at http://localhost:3000
+bun run --cwd apps/web preview                      # the built static site, served by wrangler as on Cloudflare
 scripts/check.sh                                    # everything below, in one go
 ```
 
@@ -58,6 +59,7 @@ scripts/check.sh                                    # everything below, in one g
 - Conventional Commits (`feat(cli): …`, `fix(core): …`, `refactor(desktop): …`, `ci: …`, `docs: …`).
 - No `Co-Authored-By` or other AI attribution trailers in commits.
 - Work on a branch and open a PR into `main`; don't commit to `main` directly.
+- **Deploys come from `main`.** Cloudflare Workers Builds deploys the site (Worker `dotsafe-web`, `apps/web`) and the API (Worker `dotsafe-api`, `apps/api`, production env) on every push to `main`. Never run `wrangler deploy` by hand.
 
 ### Security (this is a secrets app; treat these as hard rules)
 
