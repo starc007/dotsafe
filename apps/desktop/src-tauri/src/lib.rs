@@ -34,7 +34,7 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             state.spawn_housekeeping(app.handle().clone());
-            licensing::spawn_checker(state.inner().clone(), app.handle().clone());
+            licensing::spawn_checker(app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
             sync::spawn_watcher(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
@@ -156,6 +156,7 @@ pub fn run() {
             commands::activate_license,
             commands::check_license,
             commands::remove_license,
+            commands::open_purchase_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

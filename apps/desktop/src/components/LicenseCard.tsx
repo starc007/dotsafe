@@ -78,7 +78,8 @@ function SavedLicense({ license, onChanged }: { license: License; onChanged: () 
       await api.removeLicense(confirming === "offline");
       toast("License removed from this Mac");
       setConfirming(false);
-      onChanged();
+      // dotsafe needs a license, so the app goes back to the activation screen.
+      window.dispatchEvent(new Event("dotsafe:unlicensed"));
     } catch (e) {
       if (e instanceof ApiError && e.kind === "offline") setConfirming("offline");
       else {
@@ -141,7 +142,7 @@ function SavedLicense({ license, onChanged }: { license: License; onChanged: () 
         description={
           confirming === "offline"
             ? "dotsafe couldn't reach the license server, so this Mac's activation can't be freed right now. If you remove the key anyway, it keeps counting toward your device limit."
-            : "This frees the activation so you can use the key on another device. Your vault and secrets aren't affected."
+            : "This frees the activation so you can use the key on another Mac. dotsafe asks for a key again here; your vault and secrets aren't affected."
         }
         confirmLabel={confirming === "offline" ? "Remove anyway" : "Deactivate"}
         onConfirm={remove}

@@ -21,6 +21,7 @@ A bun workspace: run `bun install` once at the root. `bun run tauri dev`, `bun r
 ## CLI
 
 ```bash
+dotsafe license activate <key>    # dotsafe is paid: activate your key first (or in the app)
 dotsafe init                      # create a vault (iCloud Drive by default) or connect to one
 dotsafe import                    # import ./.env into this project's development env
 dotsafe import --from doppler     # or --from infisical, or --from 1password --item NAME (or a JSON export file)
@@ -103,4 +104,4 @@ Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testi
 
 ### Licensing
 
-Settings → License activates a key through the dotsafe API (`apps/api/`), which talks to Dodo Payments. Only the key and an activation id are stored, in the machine's config, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.
+dotsafe is paid, with no free version: one license ($49, up to 2 Macs). The app asks for a key on its first screen, before setup, and the CLI refuses every command but `dotsafe license` until one is activated. Activating in either is enough, since both read `license.json` in the config directory. Keys are activated through the dotsafe API (`apps/api/`), which talks to Dodo Payments. Only the key and an activation id are stored, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified, and a revoked license only shows a notice. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.

@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
-use crate::license::License;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -22,9 +21,6 @@ pub struct Config {
     pub webdav: Option<WebDavLocation>,
     /// Identifies this machine in change stamps.
     pub device_id: Uuid,
-    /// The license activated on this machine, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub license: Option<License>,
     /// Approve agents' requests with a click alone, without Touch ID or the
     /// login password. Off unless the user turns it on.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -83,7 +79,7 @@ impl Config {
     }
 
     /// A config pointing at `vault_path`, keeping this machine's device id and
-    /// license from any existing config.
+    /// settings from any existing config.
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
             // A queue belongs to the vault it was made for.
@@ -93,7 +89,6 @@ impl Config {
                 s3: None,
                 webdav: None,
                 device_id: Uuid::new_v4(),
-                license: None,
                 agent_approvals_without_auth: false,
                 device_unlock: false,
                 last_password_unlock: None,
@@ -106,7 +101,7 @@ impl Config {
     }
 
     /// A config for a vault in `s3`, cached locally, keeping this machine's
-    /// device id and license.
+    /// device id and settings.
     pub fn for_s3(s3: S3Location) -> Result<Config> {
         let mut config = Config::for_vault(cache_dir(&s3)?);
         config.s3 = Some(s3);

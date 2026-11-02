@@ -2,6 +2,7 @@ mod connect;
 #[cfg(unix)]
 mod daemon;
 mod export;
+mod license;
 mod link;
 mod mcp;
 mod scan;
@@ -220,6 +221,9 @@ enum Cmd {
         #[arg(long, default_value_t = 30)]
         limit: usize,
     },
+    /// Activate, show or remove the license on this machine
+    #[command(subcommand)]
+    License(license::LicenseCmd),
 }
 
 /// Keep the vault in an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze
@@ -347,7 +351,21 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<ExitCode> {
-    match cli.command {
+    // dotsafe is paid: everything but `license` needs one on this machine.
+    // `mcp` only relays to the app or `dotsafe daemon`, which need one already.
+    let command = match cli.command {
+        Cmd::License(cmd) => {
+            license::run(cmd)?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        command @ Cmd::Mcp { .. } => command,
+        command => {
+            license::require()?;
+            command
+        }
+    };
+    match command {
+        Cmd::License(_) => unreachable!("handled above"),
         Cmd::Init { path, s3, webdav, user } => match (s3.bucket, s3.endpoint, webdav, user) {
             (Some(bucket), Some(endpoint), _, _) => {
                 let prefix = s3.prefix.trim_matches('/').to_owned();

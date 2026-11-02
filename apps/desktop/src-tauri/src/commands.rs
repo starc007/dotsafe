@@ -29,6 +29,9 @@ const DEFAULT_ENV: &str = "development";
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// A license is activated on this machine. dotsafe is paid: without one,
+    /// the UI asks for a key before anything else.
+    licensed: bool,
     configured: bool,
     unlocked: bool,
     /// Where the vault lives, for display: a folder path or `s3://bucket/prefix`.
@@ -70,9 +73,11 @@ impl From<&Environment> for EnvironmentView {
 
 #[tauri::command]
 pub async fn status(state: State<'_, AppState>) -> CmdResult<Status> {
+    let licensed = License::load()?.is_some();
     state
-        .run(|s| {
+        .run(move |s| {
             Ok(Status {
+                licensed,
                 configured: s.config.is_some(),
                 unlocked: s.vault.is_some(),
                 vault_path: s.config.as_ref().map(Config::describe_location),
@@ -951,8 +956,9 @@ impl From<&License> for LicenseView {
 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
+    let license = License::load()?.as_ref().map(LicenseView::from);
     state
-        .run(|s| {
+        .run(move |s| {
             Ok(Settings {
                 vault_path: s.config.as_ref().map(Config::describe_location),
                 storage: match s.config.as_ref() {
@@ -964,7 +970,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 last_backup: s.config.as_ref().and_then(|c| c.last_backup),
                 last_synced_at: s.sync.last_synced_at,
                 sync_error: s.sync.error.clone(),
-                license: s.config.as_ref().and_then(|c| c.license.as_ref()).map(LicenseView::from),
+                license,
                 version: env!("CARGO_PKG_VERSION"),
                 auto_lock_minutes: s
                     .config
@@ -997,64 +1003,60 @@ pub async fn set_auto_lock(state: State<'_, AppState>, minutes: u32) -> CmdResul
 /// Activates a license key for this machine with the license server and
 /// saves the activation.
 #[tauri::command]
-pub async fn activate_license(state: State<'_, AppState>, key: String) -> CmdResult<LicenseView> {
-    let key = normalize_license(&key).map_err(CmdError::other)?;
-    state.run(|s| s.config().map(|_| ())).await?;
+pub async fn activate_license(key: String) -> CmdResult<LicenseView> {
+    let key = licensing::normalize_key(&key).map_err(CmdError::other)?;
     let device_name = licensing::device_name();
     let instance_id = {
         let (key, device_name) = (key.clone(), device_name.clone());
         off_thread(move || licensing::activate(&key, &device_name)).await?
     };
-    state
-        .run(move |s| {
-            let now = unix_now();
-            let license = License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false };
-            let view = LicenseView::from(&license);
-            let mut config = s.config()?.clone();
-            config.license = Some(license);
-            config.save()?;
-            s.config = Some(config);
-            Ok(view)
-        })
-        .await
+    let now = unix_now();
+    let license = License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false };
+    license.save()?;
+    Ok(LicenseView::from(&license))
 }
 
 /// Asks the license server about the saved license now. Errors with kind
 /// `offline` if it can't be reached, leaving the license as it was.
 #[tauri::command]
-pub async fn check_license(state: State<'_, AppState>) -> CmdResult<Option<LicenseView>> {
-    let Some(license) = state.run(|s| Ok(s.config()?.license.clone())).await? else { return Ok(None) };
+pub async fn check_license() -> CmdResult<Option<LicenseView>> {
+    let Some(license) = License::load()? else { return Ok(None) };
     let valid = {
         let license = license.clone();
         off_thread(move || licensing::validate(&license)).await?
     };
-    let inner = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || licensing::record_check(&inner, &license.instance_id, valid))
-        .await
-        .map_err(|e| CmdError::other(e.to_string()))??;
-    state.run(|s| Ok(s.config()?.license.as_ref().map(LicenseView::from))).await
+    licensing::record_check(&license.instance_id, valid)?;
+    Ok(License::load()?.as_ref().map(LicenseView::from))
 }
 
 /// Deactivates the license on the server, freeing this device's slot, then
 /// forgets it here. With `force`, forgets it even when the server can't be
 /// reached (the slot then stays taken).
 #[tauri::command]
-pub async fn remove_license(state: State<'_, AppState>, force: bool) -> CmdResult<()> {
-    let Some(license) = state.run(|s| Ok(s.config()?.license.clone())).await? else { return Ok(()) };
+pub async fn remove_license(force: bool) -> CmdResult<()> {
+    let Some(license) = License::load()? else { return Ok(()) };
     match off_thread(move || licensing::deactivate(&license)).await {
         Ok(()) => {}
         Err(e) if force && matches!(e.kind, ErrorKind::Offline) => {}
         Err(e) => return Err(e),
     }
-    state
-        .run(|s| {
-            let mut config = s.config()?.clone();
-            config.license = None;
-            config.save()?;
-            s.config = Some(config);
-            Ok(())
-        })
-        .await
+    License::remove()?;
+    Ok(())
+}
+
+/// Opens the pricing page in the browser, where licenses are bought. A fixed
+/// address, never one from the webview.
+#[tauri::command]
+pub async fn open_purchase_page<R: Runtime>(app: AppHandle<R>) -> CmdResult<()> {
+    let url = "https://dotsafe.dev/pricing";
+    #[cfg(not(test))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
+    }
+    #[cfg(test)]
+    let _ = (app, url);
+    Ok(())
 }
 
 /// Runs a license server request on a worker thread without holding the
@@ -1068,18 +1070,6 @@ pub(crate) fn check_new_password(password: &str) -> Result<(), String> {
         return Err(format!("Use at least {MIN_PASSWORD_LEN} characters."));
     }
     Ok(())
-}
-
-/// Trims a pasted key and rejects anything that can't be a license key.
-fn normalize_license(input: &str) -> Result<String, &'static str> {
-    let key = input.trim();
-    if key.is_empty() {
-        return Err("Enter your license key.");
-    }
-    if key.chars().any(char::is_whitespace) || key.len() < 8 || key.len() > 128 {
-        return Err("That doesn't look like a license key. Copy it again from your purchase email.");
-    }
-    Ok(key.to_string())
 }
 
 fn absolute(path: String) -> CmdResult<PathBuf> {
@@ -1118,14 +1108,5 @@ mod tests {
         assert!(check_new_password("12345678").is_ok());
         // Counted in characters, not bytes.
         assert!(check_new_password("pässwörd").is_ok());
-    }
-
-    #[test]
-    fn license_keys_are_trimmed_and_shape_checked() {
-        assert_eq!(normalize_license("  DOTSAFE-ABCD-1234-EFGH \n"), Ok("DOTSAFE-ABCD-1234-EFGH".into()));
-        assert!(normalize_license("").is_err());
-        assert!(normalize_license("short").is_err());
-        assert!(normalize_license("has a space in it").is_err());
-        assert!(normalize_license(&"x".repeat(129)).is_err());
     }
 }

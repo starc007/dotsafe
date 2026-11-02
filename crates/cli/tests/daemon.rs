@@ -37,6 +37,10 @@ fn the_daemon_serves_agents_and_refuses_without_a_terminal() {
     let project = root.path().join("my-api");
     std::fs::create_dir_all(&project).unwrap();
     let vault = root.path().join("vault");
+    std::fs::create_dir_all(&config).unwrap();
+    // A licensed machine, as after `dotsafe license activate`.
+    let license = r#"{"key":"DOTSAFE-TEST-KEY","instance_id":"lki_test","device_name":"Test","activated_at":1,"checked_at":1}"#;
+    std::fs::write(config.join("license.json"), license).unwrap();
     assert!(dotsafe(&config, root.path(), &["init", "--path", vault.to_str().unwrap()]).output().unwrap().status.success());
     assert!(dotsafe(&config, &project, &["set", "API_KEY=sk_daemon_test"]).output().unwrap().status.success());
 
