@@ -17,7 +17,7 @@ crates/cli    `dotsafe` binary (clap). End-to-end tests in crates/cli/tests.
 apps/desktop/src-tauri  Desktop backend: commands.rs (UI-callable commands), secrets.rs (shared secret commands), state.rs (session, auto-lock, clipboard), licensing.rs (license API client), sync.rs (background sync for bucket vaults), broker.rs (agent broker and approvals), presence.rs (Touch ID / login password check), devices.rs (Touch ID unlock, enrollment codes, removing devices), integrations.rs (connections, providers, targets, rotation through them, proxy profiles), tray.rs (menu bar icon and the global ⌥⌘K shortcut), storage.rs (WebDAV setup, backups, moving the vault), reminders.rs (due-for-rotation notifications).
 apps/desktop/src        Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + motion.
 apps/api      Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See apps/api/README.md.
-apps/web      The site and the docs: Next.js with Fumadocs. Docs pages are MDX in apps/web/content/docs.
+apps/web      The site and the docs: plain Next.js. Docs pages are routes under apps/web/app/(home)/docs.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
 docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
 ```
