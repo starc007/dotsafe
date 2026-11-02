@@ -1,8 +1,6 @@
 @import 'tailwindcss';
-@import 'fumadocs-ui/css/neutral.css';
-@import 'fumadocs-ui/css/preset.css';
 
-/* The landing page: light only. The docs keep Fumadocs' themes. */
+/* The site is light only. */
 @theme inline {
   --color-ds-bg: var(--ds-bg);
   --color-ds-fg: var(--ds-fg);
@@ -15,7 +13,7 @@
   --color-ds-accent: var(--ds-accent);
 }
 
-.landing {
+:root {
   --ds-bg: oklch(1 0 0);
   --ds-fg: oklch(0.145 0 0);
   --ds-muted: oklch(0.556 0 0);
@@ -32,13 +30,5 @@
   color-scheme: light;
   background: var(--ds-bg);
   color: var(--ds-fg);
-}
-
-html {
   scrollbar-gutter: stable;
-}
-
-html > body[data-scroll-locked] {
-  margin-right: 0px !important;
-  --removed-body-scroll-bar-size: 0px !important;
 }

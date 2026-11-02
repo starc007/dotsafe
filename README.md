@@ -13,7 +13,7 @@ crates/cli                 # `dotsafe` command-line tool
 apps/desktop/src-tauri     # desktop app (Tauri 2)
 apps/desktop/src           # desktop UI (React + Vite)
 apps/api                   # licensing and checkout API (Cloudflare Worker), see apps/api/README.md
-apps/web                   # site and docs (Next.js + Fumadocs), `bun run web`
+apps/web                   # site and docs (Next.js), `bun run web`
 ```
 
 A bun workspace: run `bun install` once at the root. `bun run tauri dev`, `bun run dev` and `bun run build` work from the root.
