@@ -7,6 +7,10 @@ export const links = {
   docs: '/docs',
 };
 
+/** The licensing API (apps/api). Set NEXT_PUBLIC_API_URL to try checkout against
+ * a local `wrangler dev` (http://localhost:8787). */
+export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dotsafe.dev';
+
 /** The site itself, for metadata, the sitemap and structured data. */
 export const site = {
   url: 'https://dotsafe.dev',

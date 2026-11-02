@@ -1,5 +1,6 @@
 import { Check, Download } from 'lucide-react';
 import { links } from '@/lib/site';
+import { BuyButton } from '@/components/landing/BuyButton';
 import { ButtonLink } from '@/components/landing/ButtonLink';
 import { Reveal } from '@/components/landing/Reveal';
 import { Wallpaper } from '@/components/landing/Wallpaper';
@@ -41,12 +42,13 @@ export function PricingPlans() {
             <span className="text-sm text-white/75">{PLAN.term}</span>
           </p>
           <p className="mt-3 max-w-xs text-sm text-pretty text-white/80">{PLAN.blurb}</p>
-          <div className="mt-auto pt-8">
-            <ButtonLink href={links.download} variant="primary" className="w-full">
+          <div className="mt-auto flex flex-col gap-2 pt-8">
+            <BuyButton label={`Buy dotsafe for ${PLAN.price}`} className="w-full" />
+            <ButtonLink href={links.download} variant="outline" className="w-full">
               Download for macOS
               <Download aria-hidden />
             </ButtonLink>
-            <p className="mt-3 text-center text-xs text-white/75">Activate it with the key from your purchase email.</p>
+            <p className="mt-1 text-center text-xs text-white/75">Your license key arrives by email.</p>
           </div>
         </div>
       </Wallpaper>
