@@ -14,7 +14,15 @@ struct Machine {
 }
 
 impl Machine {
+    /// A licensed machine, as after `dotsafe license activate`.
     fn new(vault: &Path) -> Machine {
+        let m = Machine::unlicensed(vault);
+        let license = r#"{"key":"DOTSAFE-TEST-KEY","instance_id":"lki_test","device_name":"Test","activated_at":1,"checked_at":1}"#;
+        fs::write(m.config.path().join("license.json"), license).unwrap();
+        m
+    }
+
+    fn unlicensed(vault: &Path) -> Machine {
         Machine { config: tempfile::tempdir().unwrap(), vault: vault.to_path_buf() }
     }
 
@@ -63,6 +71,23 @@ fn setup() -> (tempfile::TempDir, Machine, PathBuf) {
     let project = root.path().join("my-api");
     fs::create_dir(&project).unwrap();
     (root, machine, project)
+}
+
+#[test]
+fn commands_need_a_license_first() {
+    let root = tempfile::tempdir().unwrap();
+    let m = Machine::unlicensed(&root.path().join("vault"));
+    let out = m.run(root.path(), &["init", "--path", m.vault.to_str().unwrap()]);
+    assert!(!out.status.success());
+    assert!(stderr(&out).contains("dotsafe license activate"), "{}", stderr(&out));
+    assert!(!m.vault.exists());
+
+    // `license` itself works without one.
+    let out = m.run(root.path(), &["license", "status"]);
+    assert!(out.status.success());
+    assert!(stderr(&out).contains("No license"));
+    let bad = m.run(root.path(), &["license", "activate", "short"]);
+    assert!(stderr(&bad).contains("doesn't look like a license key"), "{}", stderr(&bad));
 }
 
 #[test]

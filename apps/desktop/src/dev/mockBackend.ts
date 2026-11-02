@@ -38,7 +38,11 @@ let autoLockMinutes = 15;
 // `?offline` makes every license server call fail. Keys containing LIMIT or
 // REVOKED act out those answers.
 const licenseOffline = new URLSearchParams(location.search).has("offline");
-let license: { key: string; deviceName: string; activatedAt: number; checkedAt: number; status: string } | null = null;
+// `?nolicense` starts at the activation screen; otherwise this Mac is licensed.
+let license: { key: string; deviceName: string; activatedAt: number; checkedAt: number; status: string } | null =
+  new URLSearchParams(location.search).has("nolicense")
+    ? null
+    : { key: "DOTSAFE-7K2M-9QXP-4HTV", deviceName: "Your MacBook Pro", activatedAt: Date.now() - 864e5 * 20, checkedAt: Date.now() - 36e5, status: "active" };
 let mustChangePassword = false;
 let password = PASSWORD;
 let recoveryKey = "7K2M-9QXP-4HTV-W3NB-8RJD-6YFC-2GAS-5ZEK-1MPQ-0VXT-3HBN-9WCR-4DQA";
@@ -415,12 +419,15 @@ export function installMockBackend() {
         "unlock",
         "unlock_with_recovery",
         "lock",
+        "activate_license",
+        "open_purchase_page",
       ].includes(cmd);
       if (needsUnlock && !unlocked) fail("locked", "The vault is locked.");
 
       switch (cmd) {
         case "status":
           return {
+            licensed: license !== null,
             configured,
             unlocked,
             mustChangePassword,
@@ -1032,6 +1039,9 @@ export function installMockBackend() {
           if (licenseOffline && !(raw as { force?: boolean }).force)
             fail("offline", "Couldn't reach the license server. Check your connection and try again.");
           license = null;
+          return null;
+        case "open_purchase_page":
+          window.open("https://dotsafe.dev/pricing", "_blank");
           return null;
         case "plugin:dialog|open":
           return null;

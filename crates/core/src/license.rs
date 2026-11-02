@@ -1,8 +1,16 @@
-//! A license activated on this machine, as saved in the config. Checking it
-//! with the license server happens in the app; this is only the record and
-//! what it means while offline.
+//! A license activated on this machine, saved in `license.json` next to the
+//! config. dotsafe is paid, so the app and CLI need one before anything
+//! else; it lives in its own file because it comes before a vault is set up.
+//! Talking to the license server happens elsewhere; this is only the record
+//! and what it means while offline.
+
+use std::fs;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::config::config_dir;
+use crate::error::Result;
 
 /// After this long without reaching the license server, the license shows as
 /// unverified. It's a nudge to go online, not a lockout.
@@ -36,6 +44,30 @@ pub enum LicenseStatus {
 }
 
 impl License {
+    /// The license activated on this machine, if any.
+    pub fn load() -> Result<Option<License>> {
+        match fs::read(license_path()?) {
+            Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = license_path()?;
+        fs::create_dir_all(path.parent().expect("license path has a parent"))?;
+        fs::write(&path, serde_json::to_vec_pretty(self)?)?;
+        Ok(())
+    }
+
+    /// Forgets the license on this machine.
+    pub fn remove() -> Result<()> {
+        match fs::remove_file(license_path()?) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
+    }
+
     pub fn status(&self, now: u64) -> LicenseStatus {
         if self.revoked {
             LicenseStatus::Revoked
@@ -51,6 +83,10 @@ impl License {
     pub fn needs_check(&self, now: u64) -> bool {
         now.saturating_sub(self.checked_at) >= RECHECK_SECS
     }
+}
+
+fn license_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("license.json"))
 }
 
 pub fn unix_now() -> u64 {

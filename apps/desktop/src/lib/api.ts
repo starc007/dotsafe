@@ -2,6 +2,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type Status = {
+  /** A license is activated on this Mac. dotsafe asks for one before anything else. */
+  licensed: boolean;
   configured: boolean;
   unlocked: boolean;
   vaultPath: string | null;
@@ -448,6 +450,7 @@ export const api = {
   checkLicense: () => call<License | null>("check_license"),
   /** `force` forgets the license even if the server can't be told. */
   removeLicense: (force = false) => call<void>("remove_license", { force }),
+  openPurchasePage: () => call<void>("open_purchase_page"),
 };
 
 export function message(e: unknown): string {

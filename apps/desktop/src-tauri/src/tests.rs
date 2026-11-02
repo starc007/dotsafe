@@ -5,12 +5,12 @@
 //! Copying is checked through the hash the session keeps; test builds don't
 //! touch the system clipboard. The file picker, and commands that reach the
 //! network or the keychain, aren't covered here. Every test gets its own `AppState`; the config directory is shared
-//! and only ever written, never read back.
+//! and only ever written, never read back (except the license, by one test).
 
 use std::path::Path;
 use std::sync::{Arc, Once};
 
-use dotsafe_core::{Config, FolderStore, KdfParams, Vault};
+use dotsafe_core::{Config, FolderStore, KdfParams, License, Vault};
 use serde_json::{Value, json};
 use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets};
@@ -78,6 +78,9 @@ impl Desktop {
                 commands::import_variables,
                 commands::get_settings,
                 commands::set_auto_lock,
+                commands::activate_license,
+                commands::check_license,
+                commands::open_purchase_page,
                 storage::set_backup_dir,
                 storage::back_up_now,
                 storage::move_vault_to_folder,
@@ -185,6 +188,27 @@ fn creating_a_vault_unlocks_it_and_returns_a_recovery_key() {
     assert_eq!(desktop.ok("folder_has_vault", json!({ "path": dir.path() })), json!(true));
     let status = desktop.ok("status", json!({}));
     assert_eq!((status["configured"].clone(), status["unlocked"].clone()), (json!(true), json!(true)));
+}
+
+/// dotsafe is paid: the UI shows the activation screen until `licensed`.
+/// The only test that saves a license; others never look at it.
+#[test]
+fn status_says_whether_this_machine_is_licensed() {
+    let desktop = Desktop::new();
+    assert_eq!(desktop.ok("status", json!({}))["licensed"], false);
+    assert_eq!(desktop.ok("check_license", json!({})), Value::Null);
+
+    let now = dotsafe_core::license::unix_now();
+    License { key: "DOTSAFE-TEST".into(), instance_id: "lki_1".into(), device_name: "Mac".into(), activated_at: now, checked_at: now, revoked: false }
+        .save()
+        .unwrap();
+    assert_eq!(desktop.ok("status", json!({}))["licensed"], true);
+    let bad = desktop.err("activate_license", json!({ "key": "short" }));
+    assert_eq!(bad["kind"], "other");
+    desktop.ok("open_purchase_page", json!({}));
+
+    License::remove().unwrap();
+    assert_eq!(desktop.ok("status", json!({}))["licensed"], false);
 }
 
 #[test]

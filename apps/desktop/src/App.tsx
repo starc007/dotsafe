@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { MotionConfig } from "motion/react";
 import { api, message, type Status } from "@/lib/api";
+import { Activate } from "@/screens/Activate";
 import { Setup } from "@/screens/Setup";
 import { Recovery } from "@/screens/Recovery";
 import { Unlock } from "@/screens/Unlock";
@@ -17,6 +18,7 @@ import { DragRegion } from "@/components/DragRegion";
 type Screen =
   | { name: "loading" }
   | { name: "error"; message: string }
+  | { name: "activate" }
   | { name: "setup"; status: Status }
   | { name: "recovery"; recoveryKey: string }
   | { name: "locked"; status: Status }
@@ -29,7 +31,8 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const status = await api.status();
-      if (!status.configured) setScreen({ name: "setup", status });
+      if (!status.licensed) setScreen({ name: "activate" });
+      else if (!status.configured) setScreen({ name: "setup", status });
       else if (!status.unlocked) setScreen({ name: "locked", status });
       else if (status.mustChangePassword) setScreen({ name: "new-password" });
       else setScreen({ name: "vault" });
@@ -43,9 +46,12 @@ export default function App() {
     // Locked by idle timeout in Rust, or a command found the vault locked.
     const onLocked = () => refresh();
     window.addEventListener("dotsafe:locked", onLocked);
+    // The license was removed in Settings.
+    window.addEventListener("dotsafe:unlicensed", onLocked);
     const unlisten = listen("vault-locked", onLocked);
     return () => {
       window.removeEventListener("dotsafe:locked", onLocked);
+      window.removeEventListener("dotsafe:unlicensed", onLocked);
       unlisten.then((f) => f());
     };
   }, [refresh]);
@@ -84,6 +90,8 @@ function CurrentScreen({
           </Button>
         </div>
       );
+    case "activate":
+      return <Activate onActivated={refresh} />;
     case "setup":
       return (
         <Setup

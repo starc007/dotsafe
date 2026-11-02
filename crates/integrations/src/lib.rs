@@ -10,6 +10,7 @@
 //! calls to the vault: create, save, verify, promote, push, revoke.
 
 mod client;
+pub mod licensing;
 pub mod rotate;
 mod sigv4;
 

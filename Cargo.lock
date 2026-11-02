@@ -1261,7 +1261,6 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-updater",
  "tempfile",
- "ureq",
  "uuid",
  "whoami",
  "zeroize",
@@ -1272,6 +1271,7 @@ name = "dotsafe-integrations"
 version = "0.1.0"
 dependencies = [
  "dotsafe-core",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1279,6 +1279,7 @@ dependencies = [
  "ureq",
  "url",
  "uuid",
+ "whoami",
  "zeroize",
 ]
 
