@@ -5,6 +5,7 @@ import { ArrowRight, Download } from 'lucide-react';
 import { links } from '@/lib/site';
 import { fadeUp } from '@/lib/motion';
 import { ButtonLink } from '@/components/landing/ButtonLink';
+import { NotYcBadge } from '@/components/landing/NotYcBadge';
 import { ProductShot } from '@/components/landing/ProductShot';
 
 /** Plain white headline; the colour lives in the frame around the product below. */
@@ -17,6 +18,9 @@ export function Hero() {
         animate="shown"
         transition={{ staggerChildren: 0.08 }}
       >
+        <motion.div variants={fadeUp} className="mb-6">
+          <NotYcBadge />
+        </motion.div>
         <motion.h1
           variants={fadeUp}
           className="max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]"

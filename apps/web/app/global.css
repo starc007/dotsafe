@@ -11,6 +11,7 @@
   --color-ds-primary: var(--ds-primary);
   --color-ds-primary-fg: var(--ds-primary-fg);
   --color-ds-accent: var(--ds-accent);
+  --color-ds-yc: var(--ds-yc);
 }
 
 :root {
@@ -27,6 +28,8 @@
   /* Deep lime: the accent as text or a small icon on white, where lime itself
      wouldn't be readable. */
   --ds-accent: #3f6212;
+  /* The orange of the joke "not backed by YC" badge in the hero. Nowhere else. */
+  --ds-yc: #f26625;
   color-scheme: light;
   background: var(--ds-bg);
   color: var(--ds-fg);
