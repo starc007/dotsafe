@@ -77,6 +77,13 @@ The colour on the website lives in painted frames, never behind headline text.
   `PricingPlans.tsx`); the paint turns pale in places.
 - New scenes stay in the brand's greens, with sky, sand or teal as support.
 
+**In the app**, the screens before the vault opens (activate, setup, unlock,
+recovery, new password) sit on a dithered `warp` field
+(`apps/desktop/src/components/OnboardingBackdrop.tsx`) in the theme's
+`--backdrop-back` and `--backdrop-front` tokens: pale lime on white, deep lime
+on near-black. App mounts it once for the whole flow so it doesn't restart
+between screens, and removes it when the vault opens.
+
 ## Layout
 
 - **Hero:** plain white, left-aligned two-tone headline, two buttons. The

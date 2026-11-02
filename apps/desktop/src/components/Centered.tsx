@@ -4,7 +4,8 @@ import { base } from "@/lib/motion";
 import { DragRegion } from "@/components/DragRegion";
 import { Surface, SurfaceBody, SurfaceHeader, surfaceDescriptionClass, surfaceTitleClass } from "@/components/Surface";
 
-/** Layout for the pre-vault screens: one shell card centered in a draggable window. */
+/** Layout for the pre-vault screens: one shell card centered in a draggable
+ * window. It's transparent: App puts the dithered backdrop behind it. */
 export function Centered({
   icon,
   title,
@@ -17,7 +18,7 @@ export function Centered({
   children: ReactNode;
 }) {
   return (
-    <div className="relative flex h-full items-center justify-center overflow-y-auto bg-background p-6">
+    <div className="relative flex h-full items-center justify-center overflow-y-auto p-6">
       <DragRegion className="fixed inset-x-0 top-0 h-12" />
       <motion.main
         className="w-full max-w-[400px]"

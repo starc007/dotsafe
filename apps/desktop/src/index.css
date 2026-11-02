@@ -46,6 +46,10 @@
   /* Variable origin badges: inherited from a parent, or this environment's own value replacing it. */
   --inherited: oklch(0.52 0.11 180);
   --overridden: oklch(0.56 0.14 60);
+  /* The dithered backdrop behind the pre-vault screens. Hex, because the
+     shader reads them as colours, not CSS. */
+  --backdrop-back: #ffffff;
+  --backdrop-front: #d9f99d;
 }
 
 .dark {
@@ -81,6 +85,8 @@
   --destructive-solid: oklch(0.55 0.2 25);
   --inherited: oklch(0.8 0.1 180);
   --overridden: oklch(0.82 0.12 75);
+  --backdrop-back: #0a0a0a;
+  --backdrop-front: #2b4210;
 }
 
 @theme inline {
