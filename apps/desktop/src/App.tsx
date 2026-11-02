@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { MotionConfig } from "motion/react";
+import { AnimatePresence, MotionConfig } from "motion/react";
 import { api, message, type Status } from "@/lib/api";
 import { Activate } from "@/screens/Activate";
 import { Setup } from "@/screens/Setup";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentApproval } from "@/components/AgentApproval";
 import { DragRegion } from "@/components/DragRegion";
+import { OnboardingBackdrop } from "@/components/OnboardingBackdrop";
 
 type Screen =
   | { name: "loading" }
@@ -24,6 +25,9 @@ type Screen =
   | { name: "locked"; status: Status }
   | { name: "new-password" }
   | { name: "vault" };
+
+/** Screens shown before the vault opens, which sit on the dithered backdrop. */
+const ONBOARDING = new Set<Screen["name"]>(["activate", "setup", "recovery", "locked", "new-password"]);
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "loading" });
@@ -59,6 +63,7 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
       <TooltipProvider delayDuration={500}>
+        <AnimatePresence>{ONBOARDING.has(screen.name) && <OnboardingBackdrop key="backdrop" />}</AnimatePresence>
         <CurrentScreen screen={screen} setScreen={setScreen} refresh={refresh} />
         <AgentApproval />
         <Toaster position="bottom-center" />
