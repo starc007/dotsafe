@@ -4,7 +4,7 @@ import { cn } from '@/lib/cn';
  * the current text colour. */
 export function LogoMark({ className }: { className?: string }) {
   return (
-    <svg viewBox="10 7 44 47" aria-hidden className={cn('size-5 fill-current', className)}>
+    <svg viewBox="11 8 41 45" aria-hidden className={cn('h-[0.73em] w-auto fill-current', className)}>
       <circle cx="25" cy="39" r="14" />
       <rect x="44" y="8" width="8" height="45" rx="4" />
     </svg>
