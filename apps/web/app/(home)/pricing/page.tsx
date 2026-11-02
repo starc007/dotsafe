@@ -1,12 +1,13 @@
-import type { Metadata } from 'next';
 import { Faq } from '@/components/landing/Faq';
 import { FinalCta } from '@/components/landing/FinalCta';
 import { PricingPlans } from '@/components/landing/PricingPlans';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Pricing · dotsafe',
-  description: 'One license, $49 once, for up to 2 Macs.',
-};
+export const metadata = pageMetadata({
+  title: 'Pricing',
+  description: 'One dotsafe license, $49 once, for up to 2 Macs. Every feature included, with a year of updates.',
+  path: '/pricing',
+});
 
 export default function PricingPage() {
   return (
