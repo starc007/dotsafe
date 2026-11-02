@@ -1,16 +1,19 @@
-import Link from 'next/link';
+import { Features } from '@/components/landing/Features';
+import { FinalCta } from '@/components/landing/FinalCta';
+import { Hero } from '@/components/landing/Hero';
+import { Pricing } from '@/components/landing/Pricing';
+import { Security } from '@/components/landing/Security';
+import { StorageStrip } from '@/components/landing/StorageStrip';
 
 export default function HomePage() {
   return (
-    <div className="flex flex-col justify-center text-center flex-1">
-      <h1 className="text-2xl font-bold mb-4">Hello World</h1>
-      <p>
-        You can open{' '}
-        <Link href="/docs" className="font-medium underline">
-          /docs
-        </Link>{' '}
-        and see the documentation.
-      </p>
-    </div>
+    <>
+      <Hero />
+      <StorageStrip />
+      <Features />
+      <Security />
+      <Pricing />
+      <FinalCta />
+    </>
   );
 }

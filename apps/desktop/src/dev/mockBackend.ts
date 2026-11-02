@@ -8,7 +8,8 @@ type Env = { id: string; projectId: string; name: string; vars: Map<string, stri
 
 const PASSWORD = "password123";
 let configured = new URLSearchParams(location.search).get("setup") === null;
-let unlocked = false;
+// `?unlocked` starts past the lock screen, for screenshots.
+let unlocked = new URLSearchParams(location.search).has("unlocked");
 // Stand-in for files picked or dropped: name -> contents.
 const SAMPLE_FILES: Record<string, string> = {
   ".env": "DATABASE_URL=postgres://localhost:5432/app\nREDIS_URL=redis://localhost:6379\nSENTRY_DSN=https://abc@sentry.io/1\n",
