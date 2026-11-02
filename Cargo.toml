@@ -5,7 +5,7 @@ members = ["apps/desktop/src-tauri", "crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "UNLICENSED"
+license = "MIT"
 
 [workspace.dependencies]
 dotsafe-core = { path = "crates/core" }

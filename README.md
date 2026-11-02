@@ -105,3 +105,11 @@ Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testi
 ### Licensing
 
 dotsafe is paid, with no free version: one license ($49, up to 2 Macs). The app asks for a key on its first screen, before setup, and the CLI refuses every command but `dotsafe license` until one is activated. Activating in either is enough, since both read `license.json` in the config directory. Keys are activated through the dotsafe API (`apps/api/`), which talks to Dodo Payments. Only the key and an activation id are stored, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified, and a revoked license only shows a notice. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.
+
+## License
+
+The code is [MIT](LICENSE): use it, change it and share it however you like.
+
+The name "dotsafe" and the logo aren't covered by the license. A fork or a build of your own is welcome, but give it another name and logo, so nobody mistakes it for the official app.
+
+Contributions are under the same MIT license. Sign off your commits (`git commit -s`) to confirm you wrote the change and can share it that way ([Developer Certificate of Origin](https://developercertificate.org)).

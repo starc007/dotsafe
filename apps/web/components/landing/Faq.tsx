@@ -37,7 +37,7 @@ const QUESTIONS = [
   },
   {
     q: 'Is it open source?',
-    a: 'Yes. The app, the CLI and the vault format are all on GitHub, so you can read every line.',
+    a: 'Yes, under the MIT license. The app, the CLI and the vault format are all on GitHub, so you can read every line.',
   },
 ];
 
