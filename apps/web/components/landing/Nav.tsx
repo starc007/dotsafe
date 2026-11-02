@@ -1,13 +1,14 @@
 import Link from 'next/link';
 import { links } from '@/lib/site';
 import { ButtonLink } from '@/components/landing/ButtonLink';
+import { Logo } from '@/components/landing/Logo';
 
 export function Nav() {
   return (
     <header className="fixed inset-x-0 top-0 z-40 border-b border-ds-line/0 bg-white/60 backdrop-blur-md">
       <nav className="mx-auto flex h-16 max-w-6xl items-center gap-8 px-4 sm:px-6">
-        <Link href="/" className="text-[15px] font-medium tracking-tight">
-          dotsafe
+        <Link href="/" aria-label="dotsafe home">
+          <Logo />
         </Link>
         <div className="hidden items-center gap-6 text-sm text-ds-muted sm:flex">
           <Link href="/#features" className="transition-colors hover:text-ds-fg">
