@@ -29,12 +29,13 @@ In Dodo, create a one-time product with license keys turned on (set the activati
 
 ## Deploy
 
-Vars that aren't secret live in `wrangler.jsonc`. The `production` env switches to live mode. Set secrets once per environment:
+Cloudflare Workers Builds deploys the `production` env (Worker `dotsafe-api`, live mode) on every push to `main`: root directory `apps/api`, build command `bun install --frozen-lockfile`, deploy command `bunx wrangler deploy --env production`. The top-level config is the test-mode Worker `dotsafe-api-test`, used by `wrangler dev`.
+
+Vars that aren't secret live in `wrangler.jsonc`; set `DODO_PRODUCT_ID` there for production. Secrets are set once:
 
 ```bash
 bunx wrangler secret put DODO_API_KEY --env production
 bunx wrangler secret put DODO_WEBHOOK_KEY --env production
-bunx wrangler deploy --env production
 ```
 
-Also set `DODO_PRODUCT_ID` for production in `wrangler.jsonc`, and point `api.dotsafe.dev` at the Worker. Release builds of the app call `https://api.dotsafe.dev` unless built with `DOTSAFE_API_URL`.
+The production env claims `api.dotsafe.dev` as a custom domain, so the first deploy creates its DNS record. Release builds of the app call `https://api.dotsafe.dev` unless built with `DOTSAFE_API_URL`.

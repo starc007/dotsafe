@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "dotsafe-api",
+  // The test-mode Worker, for `wrangler dev` and trying things out. The live one
+  // is the production env below, named `dotsafe-api` to match Workers Builds.
+  "name": "dotsafe-api-test",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
@@ -14,6 +16,8 @@
   },
   "env": {
     "production": {
+      "name": "dotsafe-api",
+      "routes": [{ "pattern": "api.dotsafe.dev", "custom_domain": true }],
       "vars": {
         "DODO_MODE": "live_mode",
         "DODO_PRODUCT_ID": "",

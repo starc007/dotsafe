@@ -2,6 +2,8 @@ import { ImageResponse } from 'next/og';
 
 export const size = { width: 180, height: 180 };
 export const contentType = 'image/png';
+// Rendered once at build time: the site is a static export.
+export const dynamic = 'force-static';
 
 /** The home screen icon: the logo mark on lime, square (iOS rounds the corners). */
 export default function AppleIcon() {

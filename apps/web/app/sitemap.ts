@@ -1,6 +1,8 @@
 import type { MetadataRoute } from 'next';
 import { site } from '@/lib/site';
 
+export const dynamic = 'force-static';
+
 /** Every page on the site. Add new routes here. */
 const PAGES = ['', '/pricing', '/docs', '/changelog'];
 
