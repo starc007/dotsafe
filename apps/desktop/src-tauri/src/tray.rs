@@ -44,7 +44,12 @@ pub fn setup<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
             _ => {}
         }
     });
-    if let Some(icon) = app.default_window_icon() {
+    // macOS gets the one-colour mark as a template, so it follows the menu
+    // bar's light or dark look. Elsewhere a black template would vanish on a
+    // dark taskbar, so the app icon stays.
+    if cfg!(target_os = "macos") {
+        tray = tray.icon(tauri::include_image!("icons/tray.png")).icon_as_template(true);
+    } else if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
     tray.build(app)?;
