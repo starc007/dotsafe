@@ -2,8 +2,7 @@
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
-/* The landing page: light only, in the desktop app's own colours (its light
-   theme in apps/desktop/src/index.css). The docs keep Fumadocs' themes. */
+/* The landing page: light only. The docs keep Fumadocs' themes. */
 @theme inline {
   --color-ds-bg: var(--ds-bg);
   --color-ds-fg: var(--ds-fg);
@@ -13,6 +12,7 @@
   --color-ds-line: var(--ds-line);
   --color-ds-primary: var(--ds-primary);
   --color-ds-primary-fg: var(--ds-primary-fg);
+  --color-ds-accent: var(--ds-accent);
 }
 
 .landing {
@@ -23,8 +23,12 @@
   --ds-shell: oklch(0.965 0 0);
   --ds-card: oklch(1 0 0);
   --ds-line: oklch(0.922 0 0);
-  --ds-primary: oklch(0.546 0.245 262.881);
-  --ds-primary-fg: oklch(0.985 0 0);
+  /* Acid lime: fills only (buttons, active states, dots), with dark text on top. */
+  --ds-primary: #a3e635;
+  --ds-primary-fg: #1a2e05;
+  /* Deep lime: the accent as text or a small icon on white, where lime itself
+     wouldn't be readable. */
+  --ds-accent: #3f6212;
   color-scheme: light;
   background: var(--ds-bg);
   color: var(--ds-fg);

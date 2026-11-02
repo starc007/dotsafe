@@ -7,5 +7,5 @@ export const fadeUp = {
   shown: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
 };
 
-/** The brand colours the shader blends, light to dotsafe blue. */
-export const SHADER_COLORS = ['#ffffff', '#dbe7ff', '#8ec5ff', '#155dfc'];
+/** The brand colours the shader blends, white to acid lime. */
+export const SHADER_COLORS = ['#ffffff', '#ecfccb', '#bef264', '#84cc16'];
