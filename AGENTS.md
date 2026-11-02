@@ -19,6 +19,7 @@ apps/desktop/src        Desktop UI: React 19 + Vite + Tailwind v4 + shadcn/ui + 
 apps/api      Hono Worker on Cloudflare for licenses, checkout and Dodo webhooks. See apps/api/README.md.
 apps/web      The site and the docs: plain Next.js. Docs pages are routes under apps/web/app/(home)/docs.
 docs/vault-format.md   The on-disk format and its known limitations. Read before touching crates/core.
+docs/design.md         The brand and the website: logo, colour, type, shader scenes, layout and motion.
 docs/architecture/     Proposed direction: storage backends, device keys, rotation, agent access, threat model.
 ```
 
@@ -85,7 +86,7 @@ scripts/check.sh                                    # everything below, in one g
 
 ### Frontend
 
-Paths in this section and the next are under `apps/desktop/`.
+Paths in this section and the next are under `apps/desktop/`. The brand (logo, colour, type, motion) and the website's design are in [docs/design.md](docs/design.md).
 
 - **Use shadcn/ui components.** Install them with `bunx --bun shadcn@latest add <name>`; they land in `src/components/ui/`. Reuse what's there before adding more. Don't hand-roll primitives (buttons, inputs, dialogs, menus), and don't put several components in one file. App-specific components go in `src/components/`, one per file.
 - **beUI components** (the user's library, https://beui.dev) take precedence where one exists. Tabs use beUI's motion tabs in `src/components/motion/tabs.tsx`. Get beUI source through the beUI MCP server (`get_component`) or `bunx --bun shadcn add @beui/<name>`.
