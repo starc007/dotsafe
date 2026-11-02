@@ -18,7 +18,8 @@ const COLUMNS = [
     title: 'Resources',
     items: [
       { label: 'Docs', href: links.docs },
-      { label: 'Changelog', href: links.releases },
+      { label: 'Changelog', href: '/changelog' },
+      { label: 'Releases', href: links.releases },
       { label: 'GitHub', href: links.github },
       { label: 'Report an issue', href: links.issues },
     ],

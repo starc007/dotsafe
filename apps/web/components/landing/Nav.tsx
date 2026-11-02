@@ -23,6 +23,9 @@ export function Nav() {
           <Link href={links.docs} className="transition-colors hover:text-ds-fg">
             Docs
           </Link>
+          <Link href="/changelog" className="transition-colors hover:text-ds-fg">
+            Changelog
+          </Link>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <ButtonLink href={links.github} variant="ghost" className="hidden h-9 px-3 sm:inline-flex">
