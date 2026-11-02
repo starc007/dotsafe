@@ -16,7 +16,7 @@ export function Nav() {
           <Link href="/#security" className="transition-colors hover:text-ds-fg">
             Security
           </Link>
-          <Link href="/#pricing" className="transition-colors hover:text-ds-fg">
+          <Link href="/pricing" className="transition-colors hover:text-ds-fg">
             Pricing
           </Link>
           <Link href={links.docs} className="transition-colors hover:text-ds-fg">
