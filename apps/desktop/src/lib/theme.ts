@@ -9,12 +9,13 @@ const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const listeners = new Set<() => void>();
 let preference: ThemePreference = readPreference();
 
+/** Dark until the user picks otherwise; a saved "system" is kept as a choice. */
 function readPreference(): ThemePreference {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "light" || stored === "dark" ? stored : "system";
+    return stored === "system" || stored === "light" || stored === "dark" ? stored : "dark";
   } catch {
-    return "system";
+    return "dark";
   }
 }
 
