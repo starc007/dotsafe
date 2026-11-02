@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Download } from 'lucide-react';
 import { links } from '@/lib/site';
 import { ButtonLink } from '@/components/landing/ButtonLink';
+import { Logo } from '@/components/landing/Logo';
 
 const COLUMNS = [
   {
@@ -31,7 +32,7 @@ export function Footer() {
     <footer className="overflow-hidden border-t border-ds-line">
       <div className="mx-auto grid max-w-6xl gap-12 px-4 pt-16 sm:px-6 md:grid-cols-[1fr_auto]">
         <div className="max-w-xs">
-          <p className="text-[15px] font-medium tracking-tight">dotsafe</p>
+          <Logo />
           <p className="mt-2 text-sm text-pretty text-ds-muted">
             Secrets encrypted on your Mac, synced through storage you already own.
           </p>
