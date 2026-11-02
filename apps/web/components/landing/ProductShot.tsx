@@ -26,7 +26,6 @@ export function ProductShot() {
           />
         </div>
       </Wallpaper>
-      <p className="mt-4 text-center text-xs text-ds-muted">$49 once · macOS 13 or later · Open source</p>
     </motion.div>
   );
 }
