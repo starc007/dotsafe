@@ -1,7 +1,7 @@
 import { Features } from '@/components/landing/Features';
 import { FinalCta } from '@/components/landing/FinalCta';
 import { Hero } from '@/components/landing/Hero';
-import { Pricing } from '@/components/landing/Pricing';
+import { Faq } from '@/components/landing/Faq';
 import { Security } from '@/components/landing/Security';
 import { StorageStrip } from '@/components/landing/StorageStrip';
 
@@ -12,7 +12,7 @@ export default function HomePage() {
       <StorageStrip />
       <Features />
       <Security />
-      <Pricing />
+      <Faq />
       <FinalCta />
     </>
   );
