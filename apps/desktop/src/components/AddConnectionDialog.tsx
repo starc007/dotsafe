@@ -99,7 +99,7 @@ export function AddConnectionDialog({
                       className={cn(
                         "flex min-w-0 items-center gap-2.5 rounded-xl bg-muted/60 p-2 pr-3 text-left outline-none transition-colors",
                         "hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-                        "aria-checked:bg-primary/10",
+                        "aria-checked:bg-primary/20",
                       )}
                     >
                       <ServiceLogo service={s.id} />

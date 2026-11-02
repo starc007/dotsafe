@@ -158,7 +158,7 @@ function StatusBadge({ secret }: { secret: SecretView }) {
       : secret.hasPrevious
         ? { label: "Old value valid", className: "bg-muted text-foreground" }
         : secret.due === "soon"
-          ? { label: "Due soon", className: "bg-primary/10 text-primary" }
+          ? { label: "Due soon", className: "bg-primary/20 text-primary-ink" }
           : null;
   if (!status) return null;
   return (

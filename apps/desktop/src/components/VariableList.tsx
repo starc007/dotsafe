@@ -421,7 +421,7 @@ export function VariableList({
                           <button
                             type="button"
                             onClick={() => window.dispatchEvent(new CustomEvent("dotsafe:open-secret", { detail: links[key].id }))}
-                            className="flex max-w-40 shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary outline-none hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring"
+                            className="flex max-w-40 shrink-0 items-center gap-1 rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-medium text-primary-ink outline-none hover:bg-primary/30 focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <Link2 aria-hidden className="size-3 shrink-0" />
                             <span className="truncate">{links[key].name}</span>
@@ -493,7 +493,7 @@ export function VariableList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={fast}
-            className="pointer-events-none absolute inset-4 flex flex-col items-center justify-center gap-2 rounded-3xl bg-primary/10 text-primary backdrop-blur-[2px]"
+            className="pointer-events-none absolute inset-4 flex flex-col items-center justify-center gap-2 rounded-3xl bg-primary/20 text-primary-ink backdrop-blur-[2px]"
           >
             <FileUp aria-hidden className="size-6" />
             <p className="font-medium">Drop to import into {label}</p>

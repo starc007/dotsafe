@@ -28,7 +28,7 @@ export function LicenseCard({ license, onChanged }: { license: License | null; o
 
 const STATUS: Record<License["status"], { icon: ReactNode; describe: (l: License) => string; notice?: string }> = {
   active: {
-    icon: <BadgeCheck aria-hidden className="text-primary" />,
+    icon: <BadgeCheck aria-hidden className="text-primary-ink" />,
     describe: (l) => `Active on ${l.deviceName}`,
   },
   unverified: {
