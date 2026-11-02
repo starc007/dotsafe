@@ -51,7 +51,7 @@ Inter on both. Weights 400 and 500 only.
 
 - **Two-tone headings:** the claim in the foreground colour, then its
   continuation in muted at the same size, read as one sentence.
-  ("Pay once, keep it. <span>Start free on one Mac…</span>")
+  ("Pay once, keep it. <span>One license for everything…</span>")
 - Page titles 28px, 36px from `sm`; section titles 22–24px; body 15px; UI 14px.
 - Monospace (`ui-monospace`/SF Mono) for versions, commands and values.
 - Copy is short and active: "No variables yet", "Wrong password." No hype, no
@@ -65,7 +65,7 @@ The colour on the website lives in painted frames, never behind headline text.
 | Scene | Look | Used for |
 |---|---|---|
 | `meadow` | cream, lime, sky (mesh) | Hero product shot, security demo |
-| `grove` | deep green swirls (warp) | Feature row, final call to action, Pro plan |
+| `grove` | deep green swirls (warp) | Feature row, final call to action, the pricing plan |
 | `dune` | sand and lime (grain) | Feature row |
 | `tide` | sky, lime, teal (mesh) | Feature row, changelog |
 | `moss` | lime to near-black stripes (warp) | Feature row |
