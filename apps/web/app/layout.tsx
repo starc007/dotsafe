@@ -7,8 +7,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://dotsafe.dev'),
   title: 'dotsafe',
   description: 'A local-first, zero-knowledge secret manager for developers.',
+  openGraph: { siteName: 'dotsafe', type: 'website' },
+  twitter: { card: 'summary_large_image' },
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {
