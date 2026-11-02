@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
 import './global.css';
 import { Inter } from 'next/font/google';
+import { site } from '@/lib/site';
 
 const inter = Inter({
   subsets: ['latin'],
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://dotsafe.dev'),
-  title: 'dotsafe',
-  description: 'A local-first, zero-knowledge secret manager for developers.',
-  openGraph: { siteName: 'dotsafe', type: 'website' },
-  twitter: { card: 'summary_large_image' },
+  metadataBase: new URL(site.url),
+  title: { default: site.title, template: `%s · ${site.name}` },
+  description: site.description,
+  applicationName: site.name,
+  alternates: { canonical: '/' },
+  openGraph: { siteName: site.name, type: 'website', url: '/', title: site.title, description: site.description },
+  twitter: { card: 'summary_large_image', title: site.title, description: site.description },
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {

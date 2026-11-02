@@ -1,13 +1,14 @@
-import type { Metadata } from 'next';
 import Image from 'next/image';
 import { RELEASES } from '@/lib/changelog';
+import { pageMetadata } from '@/lib/seo';
 import { Reveal } from '@/components/landing/Reveal';
 import { Wallpaper } from '@/components/landing/Wallpaper';
 
-export const metadata: Metadata = {
-  title: 'Changelog · dotsafe',
+export const metadata = pageMetadata({
+  title: 'Changelog',
   description: 'New features, fixes and improvements in each dotsafe release.',
-};
+  path: '/changelog',
+});
 
 const dateFormat = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 

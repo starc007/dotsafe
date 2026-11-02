@@ -1,9 +1,10 @@
-import type { Metadata } from 'next';
+import { pageMetadata } from '@/lib/seo';
 
-export const metadata: Metadata = {
-  title: 'Docs · dotsafe',
-  description: 'A local-first, zero-knowledge secret manager for developers.',
-};
+export const metadata = pageMetadata({
+  title: 'Docs',
+  description: 'How dotsafe works: the desktop app, the dotsafe CLI, and syncing an encrypted vault through storage you own.',
+  path: '/docs',
+});
 
 export default function DocsPage() {
   return (
