@@ -34,9 +34,8 @@
         "EMAIL_FROM": "licenses@dotsafe.dev",
         "EMAIL_REPLY_TO": ""
       },
-      // Bindings aren't inherited by envs, so they're repeated here. The id
-      // comes from `wrangler d1 create dotsafe-api`.
-      "d1_databases": [{ "binding": "DB", "database_name": "dotsafe-api", "database_id": "" }],
+      // Bindings aren't inherited by envs, so they're repeated here.
+      "d1_databases": [{ "binding": "DB", "database_name": "dotsafe-api", "database_id": "6e69fab3-5db4-4185-b2cc-d3acf118acf9" }],
       "send_email": [{ "name": "EMAIL" }]
     }
   }
