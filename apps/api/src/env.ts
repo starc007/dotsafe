@@ -20,6 +20,10 @@ export type Env = {
   DB: D1Database;
   /** Cloudflare Email Service, for the license email. */
   EMAIL: SendEmail;
+  /** Per-IP limit on the license routes (src/limits.ts). Optional so tests can leave it out. */
+  LICENSE_LIMITER?: RateLimit;
+  /** Per-IP limit on starting checkouts. */
+  CHECKOUT_LIMITER?: RateLimit;
 };
 
 export type AppEnv = { Bindings: Env };

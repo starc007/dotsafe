@@ -114,6 +114,9 @@ struct ErrorDetail {
 fn parse<T: serde::de::DeserializeOwned>(status: u16, text: &str) -> Result<T, ApiError> {
     match status {
         200..=299 => serde_json::from_str(text).map_err(|_| ApiError::Offline),
+        // Rate limited (often a shared IP): a passing state, never a refusal,
+        // so a background check can't mark a good license invalid.
+        429 => Err(ApiError::Offline),
         400..=499 => {
             let message = serde_json::from_str::<ErrorBody>(text)
                 .map(|b| b.error.message)
@@ -150,6 +153,12 @@ mod tests {
         assert_eq!(parse::<Valid>(502, r#"{"error":{"code":"upstream_error","message":"x"}}"#), Err(ApiError::Offline));
         assert_eq!(parse::<Valid>(500, ""), Err(ApiError::Offline));
         assert_eq!(parse::<Valid>(200, "not json"), Err(ApiError::Offline));
+    }
+
+    #[test]
+    fn rate_limits_count_as_offline_not_invalid() {
+        let body = r#"{"error":{"code":"rate_limited","message":"Too many requests. Try again in a minute."}}"#;
+        assert_eq!(parse::<Valid>(429, body), Err(ApiError::Offline));
     }
 
     #[test]

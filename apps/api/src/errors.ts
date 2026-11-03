@@ -9,7 +9,9 @@ export type ErrorCode =
   | "limit_reached"
   | "wrong_product"
   | "not_configured"
-  | "upstream_error";
+  | "upstream_error"
+  | "rate_limited"
+  | "too_large";
 
 export function fail(c: Context, status: ContentfulStatusCode, code: ErrorCode, message: string) {
   return c.json({ error: { code, message } }, status);
