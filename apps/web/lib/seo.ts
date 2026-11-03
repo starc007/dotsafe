@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { site } from '@/lib/site';
+import { docsPage } from '@/lib/docs';
 
 /** A page's metadata: its title (the layout adds "· dotsafe"), description,
  * canonical URL, and matching share card text. Next replaces the layout's
@@ -14,4 +15,10 @@ export function pageMetadata({ title, description, path }: { title: string; desc
     openGraph: { siteName: site.name, type: 'website', url: path, title: full, description, images: '/opengraph-image' },
     twitter: { card: 'summary_large_image', title: full, description, images: '/opengraph-image' },
   };
+}
+
+/** A docs page's metadata, from its entry in lib/docs.ts. */
+export function docsMetadata(href: string): Metadata {
+  const { title, description } = docsPage(href);
+  return pageMetadata({ title: href === '/docs' ? 'Docs' : `${title} · Docs`, description, path: href });
 }
