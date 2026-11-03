@@ -16,6 +16,12 @@ export type Release = {
 
 export const RELEASES: Release[] = [
   {
+    version: '0.1.1',
+    date: '2026-11-03',
+    title: 'A sharper icon',
+    changes: ['The app icon is crisp on macOS 26, instead of embossed and blurred.'],
+  },
+  {
     version: '0.1.0',
     date: '2026-11-03',
     title: 'The first release',
