@@ -1045,6 +1045,9 @@ export function installMockBackend() {
         case "open_purchase_page":
           window.open("https://dotsafe.dev/pricing", "_blank");
           return null;
+        case "open_docs":
+          window.open(`https://dotsafe.dev/docs/${(raw as { page: string }).page}`, "_blank");
+          return null;
         case "cli_status":
           return { available: true, installed: cliInstalled, otherInstall: false, path: "/usr/local/bin/dotsafe" };
         case "install_cli":
