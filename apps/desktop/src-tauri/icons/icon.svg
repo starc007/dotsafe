@@ -2,7 +2,9 @@
   <!-- Source for every app icon size. Render it to a 1024px PNG with a transparent
        background, run `bun run tauri icon <png>` in apps/desktop, then delete the
        android/, ios/ and 64x64.png it adds. The body follows macOS's icon grid
-       (824px, 100px margin). -->
+       (824px, 100px margin). macOS 26 draws the icon from AppIcon.icon instead
+       (the same glyph on a full-bleed 1024 canvas, in AppIcon.icon/Assets/d.svg,
+       with glass effects off); keep the two in step. -->
   <rect x="100" y="100" width="824" height="824" rx="185" fill="#a3e635"/>
   <g fill="#1a2e05" transform="translate(512 512) scale(8.6) translate(-31 -30.5)">
     <circle cx="25" cy="39" r="14"/>

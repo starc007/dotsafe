@@ -15,6 +15,7 @@ lowercase d. The dot is the secret; the gap keeps it apart from everything else.
 | Source geometry (64 grid: circle `25,39 r14`, stem `x44 y8 8×45 r4`) | `apps/web/components/landing/Logo.tsx` |
 | Favicon | `apps/web/app/icon.svg` |
 | App icon, every size | `apps/desktop/src-tauri/icons/icon.svg` |
+| App icon on macOS 26 (Icon Composer) | `apps/desktop/src-tauri/icons/AppIcon.icon` |
 | Menu bar (macOS template) | `apps/desktop/src-tauri/icons/tray.svg` |
 
 - **Next to the name**, the mark is exactly as tall as the "d" in "dotsafe":
@@ -25,6 +26,10 @@ lowercase d. The dot is the secret; the gap keeps it apart from everything else.
   margin, 185px radius) with the mark in `#1a2e05`. Render it with a
   transparent background; Quick Look's renderer fills the corners white. The
   steps are in the comment at the top of `icon.svg`.
+- **macOS 26** draws the icon from `AppIcon.icon` (compiled into `Assets.car`
+  by `scripts/release.sh`): solid lime fill, the mark as one flat layer, with
+  glass, specular and shadow off. Without it, macOS 26 embosses and blurs the
+  `.icns`. Keep the two icons in step.
 - **Menu bar:** black on transparent at 44px, used as a template image so
   macOS recolours it. Windows and Linux keep the colour app icon.
 

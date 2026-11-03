@@ -97,10 +97,22 @@ cargo build --release --locked -p dotsafe-cli --target x86_64-apple-darwin
 lipo -create -output "$out/dotsafe" target/aarch64-apple-darwin/release/dotsafe target/x86_64-apple-darwin/release/dotsafe
 codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$out/dotsafe"
 
+# macOS 26 draws app icons from Assets.car and blurs an .icns-only one. Tauri
+# can compile an Icon Composer icon itself, but its actool call fails with
+# Xcode 27 ("Bad file descriptor"), so it's compiled here. Info.plist names it.
+step "Compile the app icon (Icon Composer)"
+mkdir -p "$out/icon"
+xcrun actool apps/desktop/src-tauri/icons/AppIcon.icon --compile "$out/icon" \
+  --platform macosx --minimum-deployment-target 11.0 --app-icon AppIcon \
+  --output-partial-info-plist "$out/icon/partial.plist" --output-format human-readable-text >/dev/null
+[[ -f "$out/icon/Assets.car" ]] || fail "actool didn't make Assets.car"
+
 step "Build the app (universal, signed and notarized, with the CLI inside)"
-# Only release builds carry the CLI, so the file mapping is passed here rather
-# than living in tauri.conf.json, where `tauri dev` would need the binary too.
-printf '{"bundle":{"macOS":{"files":{"MacOS/dotsafe":"%s"}}}}\n' "$out/dotsafe" > "$out/bundle-cli.json"
+# Only release builds carry the CLI and Assets.car, so the file mapping is
+# passed here rather than living in tauri.conf.json, where `tauri dev` would
+# need them too.
+printf '{"bundle":{"macOS":{"files":{"MacOS/dotsafe":"%s","Resources/Assets.car":"%s"}}}}\n' \
+  "$out/dotsafe" "$out/icon/Assets.car" > "$out/bundle-cli.json"
 bun run tauri build --target universal-apple-darwin --config "$out/bundle-cli.json"
 
 bundle=target/universal-apple-darwin/release/bundle
@@ -108,6 +120,7 @@ dmg=$(ls "$bundle"/dmg/*.dmg)
 archive="$bundle/macos/dotsafe.app.tar.gz"
 [[ -f "$archive" && -f "$archive.sig" ]] || fail "the updater archive or its signature is missing"
 [[ -x "$bundle/macos/dotsafe.app/Contents/MacOS/dotsafe" ]] || fail "the CLI isn't inside the app"
+[[ -f "$bundle/macos/dotsafe.app/Contents/Resources/Assets.car" ]] || fail "the app icon isn't inside the app"
 # Installed apps only take updates signed by the key in tauri.conf.json. Both
 # files are base64 minisign text; bytes 2..10 of their second line are the key id.
 bun -e '

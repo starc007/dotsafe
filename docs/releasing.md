@@ -48,7 +48,9 @@ Keep the secrets in one environment, for example a `release` environment in a
    It runs `scripts/check.sh`, builds and signs the universal CLI, builds a
    universal, signed and notarized app with that CLI inside
    (`Contents/MacOS/dotsafe`, which Settings → Agents links into
-   `/usr/local/bin`), checks the update's signature, notarizes the standalone
+   `/usr/local/bin`) and the macOS 26 icon (`icons/AppIcon.icon`, compiled
+   to `Assets.car` with `actool`, so Xcode 26 or later is needed), checks the
+   update's signature, notarizes the standalone
    CLI download, writes `latest.json`, tags the commit and publishes the
    release, including an unversioned `dotsafe.dmg` that the site's Download
    button links to. Without a notes file, GitHub generates the notes.
