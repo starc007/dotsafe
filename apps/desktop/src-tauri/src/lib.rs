@@ -5,6 +5,7 @@ mod devices;
 mod import;
 mod integrations;
 mod licensing;
+mod links;
 mod presence;
 mod reminders;
 mod secrets;
@@ -154,11 +155,10 @@ pub fn run() {
             broker::set_agent_approval_auth,
             commands::get_settings,
             commands::set_auto_lock,
-            commands::activate_license,
-            commands::check_license,
-            commands::remove_license,
-            commands::open_purchase_page,
-            commands::open_docs,
+            licensing::activate_license,
+            licensing::check_license,
+            licensing::remove_license,
+            links::open_link,
             cli::cli_status,
             cli::install_cli,
         ])

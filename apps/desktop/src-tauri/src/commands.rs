@@ -5,10 +5,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dotsafe_core::license::unix_now;
 use dotsafe_core::resolve::{Effective, Raw};
 use dotsafe_core::{
-    CachedStore, Config, Entry, Environment, FolderStore, KdfParams, License, LicenseStatus, Project, Record, RecoveryKey, Resolver,
+    CachedStore, Config, Entry, Environment, FolderStore, KdfParams, License, Project, Record, RecoveryKey, Resolver,
     S3Location, Store, Vault, config, is_valid_var_name,
 };
 use dotsafe_stores::{S3Credentials, S3Store};
@@ -20,7 +19,7 @@ use zeroize::Zeroizing;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::import::{self, Change, ImportResult, ImportSource, Preview, PreviewEntry};
-use crate::licensing::{self, ApiError};
+use crate::licensing::{self, LicenseView};
 use crate::state::{AppState, CLIPBOARD_CLEAR, CmdError, CmdResult, ErrorKind};
 
 const MIN_PASSWORD_LEN: usize = 8;
@@ -931,32 +930,9 @@ pub struct Settings {
     clipboard_clear_seconds: u64,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LicenseView {
-    key: String,
-    device_name: String,
-    /// Milliseconds, for JavaScript dates.
-    activated_at: u64,
-    checked_at: u64,
-    status: LicenseStatus,
-}
-
-impl From<&License> for LicenseView {
-    fn from(l: &License) -> Self {
-        LicenseView {
-            key: l.key.clone(),
-            device_name: l.device_name.clone(),
-            activated_at: l.activated_at * 1000,
-            checked_at: l.checked_at * 1000,
-            status: l.status(unix_now()),
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
-    let license = License::load()?.as_ref().map(LicenseView::from);
+    let license = licensing::saved()?;
     state
         .run(move |s| {
             Ok(Settings {
@@ -998,90 +974,6 @@ pub async fn set_auto_lock(state: State<'_, AppState>, minutes: u32) -> CmdResul
             Ok(())
         })
         .await
-}
-
-/// Activates a license key for this machine with the license server and
-/// saves the activation.
-#[tauri::command]
-pub async fn activate_license(key: String) -> CmdResult<LicenseView> {
-    let key = licensing::normalize_key(&key).map_err(CmdError::other)?;
-    let device_name = licensing::device_name();
-    let instance_id = {
-        let (key, device_name) = (key.clone(), device_name.clone());
-        off_thread(move || licensing::activate(&key, &device_name)).await?
-    };
-    let now = unix_now();
-    let license = License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false };
-    license.save()?;
-    Ok(LicenseView::from(&license))
-}
-
-/// Asks the license server about the saved license now. Errors with kind
-/// `offline` if it can't be reached, leaving the license as it was.
-#[tauri::command]
-pub async fn check_license() -> CmdResult<Option<LicenseView>> {
-    let Some(license) = License::load()? else { return Ok(None) };
-    let valid = {
-        let license = license.clone();
-        off_thread(move || licensing::validate(&license)).await?
-    };
-    licensing::record_check(&license.instance_id, valid)?;
-    Ok(License::load()?.as_ref().map(LicenseView::from))
-}
-
-/// Deactivates the license on the server, freeing this device's slot, then
-/// forgets it here. With `force`, forgets it even when the server can't be
-/// reached (the slot then stays taken).
-#[tauri::command]
-pub async fn remove_license(force: bool) -> CmdResult<()> {
-    let Some(license) = License::load()? else { return Ok(()) };
-    match off_thread(move || licensing::deactivate(&license)).await {
-        Ok(()) => {}
-        Err(e) if force && matches!(e.kind, ErrorKind::Offline) => {}
-        Err(e) => return Err(e),
-    }
-    License::remove()?;
-    Ok(())
-}
-
-/// Opens the pricing page in the browser, where licenses are bought. A fixed
-/// address, never one from the webview.
-#[tauri::command]
-pub async fn open_purchase_page<R: Runtime>(app: AppHandle<R>) -> CmdResult<()> {
-    let url = "https://dotsafe.dev/pricing";
-    #[cfg(not(test))]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
-    }
-    #[cfg(test)]
-    let _ = (app, url);
-    Ok(())
-}
-
-/// Opens a page of the docs on dotsafe.dev. Only pages named here, so the
-/// webview picks one but never supplies an address.
-#[tauri::command]
-pub async fn open_docs<R: Runtime>(app: AppHandle<R>, page: String) -> CmdResult<()> {
-    let url = match page.as_str() {
-        "agents" => "https://dotsafe.dev/docs/agents",
-        "install" => "https://dotsafe.dev/docs/install",
-        _ => return Err(CmdError::other("Unknown docs page.")),
-    };
-    #[cfg(not(test))]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
-    }
-    #[cfg(test)]
-    let _ = (app, url);
-    Ok(())
-}
-
-/// Runs a license server request on a worker thread without holding the
-/// session lock.
-async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> CmdResult<T> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
 }
 
 pub(crate) fn check_new_password(password: &str) -> Result<(), String> {

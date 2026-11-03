@@ -422,7 +422,7 @@ export function installMockBackend() {
         "unlock_with_recovery",
         "lock",
         "activate_license",
-        "open_purchase_page",
+        "open_link",
       ].includes(cmd);
       if (needsUnlock && !unlocked) fail("locked", "The vault is locked.");
 
@@ -1042,11 +1042,8 @@ export function installMockBackend() {
             fail("offline", "Couldn't reach the license server. Check your connection and try again.");
           license = null;
           return null;
-        case "open_purchase_page":
-          window.open("https://dotsafe.dev/pricing", "_blank");
-          return null;
-        case "open_docs":
-          window.open(`https://dotsafe.dev/docs/${(raw as { page: string }).page}`, "_blank");
+        case "open_link":
+          window.open(`https://dotsafe.dev/${(raw as { link: string }).link}`, "_blank");
           return null;
         case "cli_status":
           return { available: true, installed: cliInstalled, otherInstall: false, path: "/usr/local/bin/dotsafe" };

@@ -78,6 +78,15 @@ impl License {
         }
     }
 
+    /// Records the license server's answer to a check made at `now`. Returns
+    /// whether the status a user sees changed.
+    pub fn record_check(&mut self, valid: bool, now: u64) -> bool {
+        let before = self.status(now);
+        self.checked_at = now;
+        self.revoked = !valid;
+        self.status(now) != before
+    }
+
     /// Whether a background check is due. Revoked licenses are still
     /// rechecked, in case the key was re-enabled.
     pub fn needs_check(&self, now: u64) -> bool {
@@ -124,6 +133,19 @@ mod tests {
     fn revoked_wins() {
         let l = License { revoked: true, ..license(100 * DAY) };
         assert_eq!(l.status(100 * DAY), LicenseStatus::Revoked);
+    }
+
+    #[test]
+    fn a_check_records_its_answer_and_reports_visible_changes() {
+        let mut l = license(100 * DAY);
+        assert!(!l.record_check(true, 101 * DAY), "still active");
+        assert_eq!(l.checked_at, 101 * DAY);
+        assert!(l.record_check(false, 102 * DAY), "now revoked");
+        assert!(l.record_check(true, 103 * DAY), "re-enabled");
+        // Unverified after 31 days without a check; a good check makes it active again.
+        assert_eq!(l.status(134 * DAY), LicenseStatus::Unverified);
+        assert!(l.record_check(true, 134 * DAY));
+        assert_eq!(l.status(134 * DAY), LicenseStatus::Active);
     }
 
     #[test]

@@ -47,7 +47,7 @@ export function AgentSetupCard() {
 
   async function openGuide() {
     try {
-      await api.openDocs("agents");
+      await api.openLink("docs/agents");
     } catch (e) {
       toast.error(message(e));
     }

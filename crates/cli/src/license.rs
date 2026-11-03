@@ -39,11 +39,7 @@ pub fn require() -> Result<()> {
 pub fn run(cmd: LicenseCmd) -> Result<()> {
     match cmd {
         LicenseCmd::Activate { key } => {
-            let key = licensing::normalize_key(&key).map_err(anyhow::Error::msg)?;
-            let device_name = licensing::device_name();
-            let instance_id = licensing::activate(&key, &device_name)?;
-            let now = unix_now();
-            License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false }.save()?;
+            licensing::activate_here(&key)?.save()?;
             eprintln!("License activated on this machine.");
         }
         LicenseCmd::Status => match License::load()? {
@@ -62,11 +58,9 @@ pub fn run(cmd: LicenseCmd) -> Result<()> {
                 eprintln!("No license on this machine.");
                 return Ok(());
             };
-            match licensing::deactivate(&license) {
-                Ok(()) => {}
-                Err(ApiError::Offline) if force => {
-                    eprintln!("Couldn't reach the license server; this machine still counts toward the key's limit.")
-                }
+            match licensing::release(&license, force) {
+                Ok(true) => {}
+                Ok(false) => eprintln!("Couldn't reach the license server; this machine still counts toward the key's limit."),
                 Err(ApiError::Offline) => bail!("{}; add --force to remove it anyway", licensing::OFFLINE_MESSAGE),
                 Err(e) => return Err(e.into()),
             }

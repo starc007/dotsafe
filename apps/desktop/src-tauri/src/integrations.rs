@@ -545,14 +545,7 @@ pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id
 #[tauri::command]
 pub async fn open_provider_console<R: tauri::Runtime>(app: tauri::AppHandle<R>, service_id: String) -> CmdResult<()> {
     let url = service(&service_id)?.console_url.ok_or_else(|| CmdError::other("This service has no console link."))?;
-    #[cfg(not(test))]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
-    }
-    #[cfg(test)]
-    let _ = (app, url);
-    Ok(())
+    crate::links::open(&app, url)
 }
 
 #[derive(Serialize)]
