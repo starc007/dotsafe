@@ -51,7 +51,7 @@ export function Setup(props: Props) {
       >
         <TabsList aria-label="Where to keep the vault" className="w-full bg-muted p-0.5">
           <TabsTrigger value="folder" className="flex-1 py-1 text-[13px]">
-            Synced folder
+            iCloud Drive
           </TabsTrigger>
           <TabsTrigger value="bucket" className="flex-1 py-1 text-[13px]">
             S3 or R2 bucket
@@ -137,7 +137,7 @@ function FolderSetup({ defaultPath, canJoinWithCode, onCreated, onConnected, onC
         htmlFor="vault-path"
         hint={
           inICloud
-            ? "iCloud Drive keeps it in sync across your Macs."
+            ? "iCloud Drive keeps it in sync across your Macs. A Dropbox or Google Drive folder works too."
             : "Any synced folder works: Dropbox, Google Drive, Syncthing."
         }
       >
