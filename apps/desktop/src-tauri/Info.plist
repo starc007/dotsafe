@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the app's Info.plist by Tauri. macOS 26 draws the icon from
+     Assets.car (icons/AppIcon.icon, compiled by scripts/release.sh) and blurs
+     an .icns-only icon. Builds without Assets.car fall back to icon.icns. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+</dict>
+</plist>
