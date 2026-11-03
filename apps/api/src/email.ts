@@ -5,6 +5,8 @@ import type { Env } from "./env";
 
 const DOWNLOAD = "https://github.com/starc007/dotsafe/releases/latest";
 const DOCS = "https://dotsafe.dev/docs/install";
+// A PNG on the site (apps/web/public): most email clients don't show SVG.
+const LOGO = "https://dotsafe.dev/email-logo.png";
 
 const escape = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -36,7 +38,10 @@ dotsafe`;
   const html = `<!doctype html>
 <html><body style="margin:0;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif;color:#171717;">
 <div style="max-width:520px;margin:0 auto;padding:40px 24px;">
-  <p style="margin:0 0 32px;font-size:15px;font-weight:600;">dotsafe</p>
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 32px;border-collapse:collapse;"><tr>
+    <td style="padding:0 10px 0 0;vertical-align:middle;"><img src="${LOGO}" width="32" height="32" alt="" style="display:block;border:0;border-radius:8px;"></td>
+    <td style="vertical-align:middle;font-size:17px;font-weight:600;letter-spacing:-0.01em;">dotsafe</td>
+  </tr></table>
   <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${escape(hi)}</p>
   <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Thanks for buying dotsafe. Here's your license key:</p>
   <p style="margin:0 0 28px;padding:16px;border-radius:16px;background:#f5f5f5;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:15px;word-break:break-all;">${escape(args.key)}</p>
