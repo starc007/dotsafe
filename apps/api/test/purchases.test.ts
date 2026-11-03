@@ -172,6 +172,22 @@ describe("device records", () => {
     expect(row("SELECT deactivated_at FROM activations").deactivated_at).toBeTruthy();
   });
 
+  it("doesn't let a stranger change a device's record without a working key", async () => {
+    mockDodo({ status: 201, body: instance }, { status: 200, body: { ...keyDetails, instances_count: 1 } });
+    await req("/v1/licenses/activate", { license_key: "DS-AAAA-BBBB", device_name: "Ada's MacBook" });
+    const seen = row("SELECT last_seen_at FROM activations").last_seen_at;
+
+    // A made-up key with someone's instance id: Dodo says no, and nothing changes.
+    mockDodo({ status: 404, body: { message: "not found" } });
+    const res = await req("/v1/licenses/deactivate", { license_key: "MADE-UP-KEY", instance_id: "lki_1" });
+    expect(res.status).toBe(200);
+    expect(row("SELECT deactivated_at FROM activations").deactivated_at).toBeNull();
+
+    mockDodo({ status: 200, body: { valid: false } });
+    await req("/v1/licenses/validate", { license_key: "MADE-UP-KEY", instance_id: "lki_1" });
+    expect(row("SELECT last_seen_at FROM activations").last_seen_at).toBe(seen);
+  });
+
   it("still activates when the database is unavailable", async () => {
     mockDodo({ status: 201, body: instance }, { status: 200, body: keyDetails });
     const res = await req("/v1/licenses/activate", { license_key: "DS-AAAA-BBBB" }, { ...t.env, DB: undefined as never });
