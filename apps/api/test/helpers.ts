@@ -45,7 +45,7 @@ const base = {
   DODO_API_KEY: "dodo_test_secret",
   // base64 of "test-webhook-signing-key-0123456789"
   DODO_WEBHOOK_KEY: "whsec_dGVzdC13ZWJob29rLXNpZ25pbmcta2V5LTAxMjM0NTY3ODk=",
-  EMAIL_FROM: "licenses@dotsafe.dev",
+  EMAIL_FROM: "hi@dotsafe.dev",
   EMAIL_REPLY_TO: "",
 };
 

@@ -13,8 +13,8 @@
     "DODO_PRODUCT_ID": "",
     "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
     "ALLOWED_ORIGINS": "https://dotsafe.dev,http://localhost:3000",
-    "EMAIL_FROM": "licenses@dotsafe.dev",
-    "EMAIL_REPLY_TO": ""
+    "EMAIL_FROM": "hi@dotsafe.dev",
+    "EMAIL_REPLY_TO": "hi@dotsafe.dev"
   },
   // Purchases, licenses and activations. Schema: migrations/. `wrangler dev`
   // uses a local copy; apply migrations with `bun run db:migrate:local`.
@@ -31,8 +31,8 @@
         "DODO_PRODUCT_ID": "",
         "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
         "ALLOWED_ORIGINS": "https://dotsafe.dev",
-        "EMAIL_FROM": "licenses@dotsafe.dev",
-        "EMAIL_REPLY_TO": ""
+        "EMAIL_FROM": "hi@dotsafe.dev",
+        "EMAIL_REPLY_TO": "hi@dotsafe.dev"
       },
       // Bindings aren't inherited by envs, so they're repeated here.
       "d1_databases": [{ "binding": "DB", "database_name": "dotsafe-api", "database_id": "6e69fab3-5db4-4185-b2cc-d3acf118acf9" }],
