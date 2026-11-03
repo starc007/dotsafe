@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, Download } from 'lucide-react';
 import { links } from '@/lib/site';
+import { track } from '@/lib/analytics';
 import { ButtonLink } from '@/components/landing/ButtonLink';
 import { Reveal } from '@/components/landing/Reveal';
 
@@ -27,6 +28,15 @@ export function ThanksContent() {
     read.current = true;
     setRet(readReturn());
   }, []);
+
+  // Dodo's status is a hint, not proof of payment (the API's webhook records
+  // real purchases), so this is only the return. Never the key or the email.
+  const reported = useRef(false);
+  useEffect(() => {
+    if (!ret || reported.current) return;
+    reported.current = true;
+    track('checkout_returned', { status: ret.status ?? 'unknown' });
+  }, [ret]);
   if (!ret) return <div className="min-h-[50vh]" />;
 
   if (ret.status === 'failed' || ret.status === 'expired' || ret.status === 'cancelled') {
@@ -92,6 +102,7 @@ function LicenseKey({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     await navigator.clipboard.writeText(value);
+    track('license_key_copied');
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }

@@ -66,6 +66,7 @@
         "react-dom": "^19.3.1",
         "react-markdown": "10.1.0",
         "remark-gfm": "4.0.1",
+        "tracwell": "0.5.0",
       },
       "devDependencies": {
         "@fontsource/inter": "^5.3.0",
@@ -1330,6 +1331,8 @@
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
+
+    "tracwell": ["tracwell@0.5.0", "", {}, "sha512-f0y5Lso1Nk9Dh1s3fo1il1K/GsRugrCgVjeEgIGz/493Q6ROtWrzUmbeysxNc27hMGyH33lYWinRGj19DfJp2A=="],
 
     "trim-lines": ["trim-lines@3.0.1", "", {}, "sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg=="],
 

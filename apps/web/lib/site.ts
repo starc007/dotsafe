@@ -11,6 +11,12 @@ export const links = {
  * a local `wrangler dev` (http://localhost:8787). */
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dotsafe.dev';
 
+/** Tracwell analytics for the site (components/TracwellAnalytics.tsx). The
+ * project key is public. It's off on localhost. */
+export const tracwell = {
+  projectKey: 'tw_live_2d31439b54f94658b0b1823716b97c65',
+};
+
 /** The site itself, for metadata, the sitemap and structured data. */
 export const site = {
   url: 'https://dotsafe.dev',

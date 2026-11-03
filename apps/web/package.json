@@ -17,7 +17,8 @@
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1"
+    "remark-gfm": "4.0.1",
+    "tracwell": "0.5.0"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",

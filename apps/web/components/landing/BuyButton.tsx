@@ -5,6 +5,8 @@ import { LoaderCircle } from 'lucide-react';
 import { apiUrl } from '@/lib/site';
 import { buttonClass } from '@/lib/button';
 import { cn } from '@/lib/cn';
+import { track } from '@/lib/analytics';
+import { PLAN } from '@/lib/pricing';
 
 const FALLBACK = "Couldn't start checkout. Try again in a moment.";
 
@@ -25,6 +27,8 @@ export function BuyButton({ label, className }: { label: string; className?: str
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || typeof body?.checkout_url !== 'string') throw new Error(body?.error?.message ?? FALLBACK);
+      // A checkout exists; payment itself is confirmed by the API's webhook, not here.
+      track('checkout_started', { price: PLAN.price, path: window.location.pathname });
       window.location.assign(body.checkout_url);
     } catch (e) {
       setError(e instanceof Error && e.message !== 'Failed to fetch' ? e.message : FALLBACK);

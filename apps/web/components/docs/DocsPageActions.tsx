@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, FileText, Link2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { track } from '@/lib/analytics';
 
 /** "Copy page" for this docs page, with a menu: copy its Markdown for an AI
  * tool, open the raw .md, or copy a link to it. */
@@ -43,6 +44,7 @@ export function DocsPageActions({ href, markdown }: { href: string; markdown: st
       // Links in the Markdown are root-relative; outside the site they need the host.
       const page = markdown.replace(/\]\(\//g, `](${origin}/`);
       await navigator.clipboard.writeText(what === 'page' ? page : `${origin}${mdPath}`);
+      track('docs_page_copied', { page: href, kind: what === 'page' ? 'markdown' : 'link' });
       setDone(what);
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setDone(null), 1500);
