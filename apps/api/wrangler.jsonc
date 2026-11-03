@@ -28,7 +28,7 @@
       "routes": [{ "pattern": "api.dotsafe.dev", "custom_domain": true }],
       "vars": {
         "DODO_MODE": "live_mode",
-        "DODO_PRODUCT_ID": "",
+        "DODO_PRODUCT_ID": "pdt_0Nr8EopaPtzmD79mLDz1Z",
         "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
         "ALLOWED_ORIGINS": "https://dotsafe.dev",
         "EMAIL_FROM": "hi@dotsafe.dev",
