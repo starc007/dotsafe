@@ -29,7 +29,17 @@ describe("POST /v1/checkout", () => {
 });
 
 describe("POST /v1/webhooks/dodo", () => {
-  const event = { business_id: "bus_1", type: "payment.succeeded", data: { payment_id: "pay_1" } };
+  const event = {
+    business_id: "bus_1",
+    type: "payment.succeeded",
+    data: {
+      payment_id: "pay_1",
+      customer: { customer_id: "cus_1", email: "buyer@example.com", name: null },
+      total_amount: 4900,
+      currency: "USD",
+      created_at: "2026-11-03T10:00:00Z",
+    },
+  };
 
   function signed(body: string, at = new Date()) {
     const id = "msg_1";

@@ -12,8 +12,16 @@
     "DODO_MODE": "test_mode",
     "DODO_PRODUCT_ID": "",
     "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
-    "ALLOWED_ORIGINS": "https://dotsafe.dev,http://localhost:3000"
+    "ALLOWED_ORIGINS": "https://dotsafe.dev,http://localhost:3000",
+    "EMAIL_FROM": "licenses@dotsafe.dev",
+    "EMAIL_REPLY_TO": ""
   },
+  // Purchases, licenses and activations. Schema: migrations/. `wrangler dev`
+  // uses a local copy; apply migrations with `bun run db:migrate:local`.
+  "d1_databases": [{ "binding": "DB", "database_name": "dotsafe-api-test", "database_id": "local-dotsafe-api-test" }],
+  // Cloudflare Email Service, for the license email. Locally, wrangler only
+  // logs what would be sent.
+  "send_email": [{ "name": "EMAIL" }],
   "env": {
     "production": {
       "name": "dotsafe-api",
@@ -22,8 +30,14 @@
         "DODO_MODE": "live_mode",
         "DODO_PRODUCT_ID": "",
         "CHECKOUT_RETURN_URL": "https://dotsafe.dev/thanks",
-        "ALLOWED_ORIGINS": "https://dotsafe.dev"
-      }
+        "ALLOWED_ORIGINS": "https://dotsafe.dev",
+        "EMAIL_FROM": "licenses@dotsafe.dev",
+        "EMAIL_REPLY_TO": ""
+      },
+      // Bindings aren't inherited by envs, so they're repeated here. The id
+      // comes from `wrangler d1 create dotsafe-api`.
+      "d1_databases": [{ "binding": "DB", "database_name": "dotsafe-api", "database_id": "" }],
+      "send_email": [{ "name": "EMAIL" }]
     }
   }
 }

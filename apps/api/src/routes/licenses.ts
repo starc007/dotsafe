@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
+import { bestEffort, records } from "../db";
 import { DodoError, dodo } from "../dodo";
 import { fail } from "../errors";
 import { readObject, str } from "../validate";
 
 // License activation for the desktop app and CLI. The app only ever talks to
 // these endpoints; the product check needs the secret API key, so it can't
-// happen on the user's machine.
+// happen on the user's machine. Each device's activation, last check and
+// deactivation is recorded in D1, best effort: a failed write never fails the
+// license call.
 
 export const licenses = new Hono<AppEnv>();
 
@@ -58,6 +61,15 @@ licenses.post("/activate", async (c) => {
     return fail(c, 403, "wrong_product", "This license key isn't for dotsafe.");
   }
 
+  await bestEffort("activation", () =>
+    records(c.env.DB).activated({
+      instanceId: instance.id,
+      licenseId: instance.license_key_id,
+      deviceName,
+      at: instance.created_at,
+    }),
+  );
+
   return c.json(
     {
       instance_id: instance.id,
@@ -76,6 +88,7 @@ licenses.post("/validate", async (c) => {
   if (!licenseKey || !instanceId) return fail(c, 400, "invalid_request", "A license key and instance id are required.");
   try {
     const { valid } = await dodo(c.env).validate(licenseKey, instanceId);
+    if (valid) await bestEffort("validation", () => records(c.env.DB).seenDevice(instanceId));
     return c.json({ valid });
   } catch (e) {
     if (e instanceof DodoError && e.status === 422) {
@@ -92,10 +105,14 @@ licenses.post("/deactivate", async (c) => {
   if (!licenseKey || !instanceId) return fail(c, 400, "invalid_request", "A license key and instance id are required.");
   try {
     await dodo(c.env).deactivate(licenseKey, instanceId);
+    await bestEffort("deactivation", () => records(c.env.DB).deactivated(instanceId));
     return c.json({ ok: true });
   } catch (e) {
     // Already gone (instance or key not found): the slot is free either way.
-    if (e instanceof DodoError && (e.status === 403 || e.status === 404)) return c.json({ ok: true });
+    if (e instanceof DodoError && (e.status === 403 || e.status === 404)) {
+      await bestEffort("deactivation", () => records(c.env.DB).deactivated(instanceId));
+      return c.json({ ok: true });
+    }
     return fail(c, 502, "upstream_error", "Couldn't reach the license server. Try again in a moment.");
   }
 });

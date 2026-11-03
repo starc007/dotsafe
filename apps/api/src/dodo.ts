@@ -26,6 +26,8 @@ export type LicenseKey = {
   expires_at: string | null;
 };
 
+export type Customer = { customer_id: string; email: string; name: string | null };
+
 export type CheckoutSession = { session_id: string; checkout_url: string | null };
 
 export function dodo(env: Env) {
@@ -66,6 +68,9 @@ export function dodo(env: Env) {
 
     /** Authenticated: full key details, including which product it's for. */
     getLicenseKey: (id: string) => request<LicenseKey>("GET", `/license_keys/${encodeURIComponent(id)}`, undefined, true),
+
+    /** Authenticated: a customer's email and name, for the license email. */
+    getCustomer: (id: string) => request<Customer>("GET", `/customers/${encodeURIComponent(id)}`, undefined, true),
 
     /** Authenticated: a hosted checkout for one copy of dotsafe. */
     createCheckout: (args: { productId: string; returnUrl: string; email?: string }) =>
