@@ -2,11 +2,11 @@
 
 > Download the app and the CLI, and activate your license.
 
-dotsafe runs on macOS, on Apple silicon and Intel. Both downloads are on the [latest release](https://github.com/starc007/dotsafe/releases/latest).
+dotsafe runs on macOS, on Apple silicon and Intel. Every release is also on [GitHub](https://github.com/starc007/dotsafe/releases/latest).
 
 ## Desktop app
 
-1. Download `dotsafe-<version>.dmg`. It's a universal build, signed and notarized.
+1. [Download dotsafe.dmg](https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg). It's a universal build, signed and notarized.
 2. Open it and drag dotsafe into Applications.
 3. Open dotsafe. The first screen asks for your license key.
 
