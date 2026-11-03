@@ -121,18 +121,8 @@ archive="$bundle/macos/dotsafe.app.tar.gz"
 [[ -f "$archive" && -f "$archive.sig" ]] || fail "the updater archive or its signature is missing"
 [[ -x "$bundle/macos/dotsafe.app/Contents/MacOS/dotsafe" ]] || fail "the CLI isn't inside the app"
 [[ -f "$bundle/macos/dotsafe.app/Contents/Resources/Assets.car" ]] || fail "the app icon isn't inside the app"
-# Installed apps only take updates signed by the key in tauri.conf.json. Both
-# files are base64 minisign text; bytes 2..10 of their second line are the key id.
-bun -e '
-  const [sigFile, confFile] = process.argv.slice(1);
-  const keyId = (b64) => Buffer.from(Buffer.from(b64, "base64").toString().split("\n")[1], "base64").subarray(2, 10).toString("hex");
-  const signed = keyId((await Bun.file(sigFile).text()).trim());
-  const expected = keyId(JSON.parse(await Bun.file(confFile).text()).plugins.updater.pubkey);
-  if (signed !== expected) {
-    console.error(`release: the update is signed with key ${signed}, but installs expect ${expected}`);
-    process.exit(1);
-  }
-' "$archive.sig" apps/desktop/src-tauri/tauri.conf.json || fail "wrong updater key; set DOTSAFE_UPDATER_KEY to dotsafe's key"
+bun scripts/release-tools.ts check-update-key "$archive.sig" apps/desktop/src-tauri/tauri.conf.json \
+  || fail "wrong updater key; set DOTSAFE_UPDATER_KEY to dotsafe's key"
 codesign --verify --strict --deep "$bundle/macos/dotsafe.app" || fail "the app's signature doesn't verify"
 
 # The standalone download, for people who want the CLI without the app. A bare
@@ -148,20 +138,7 @@ app="$out/dotsafe-$version-universal.app.tar.gz"
 cp "$archive" "$app"
 cp "$archive.sig" "$app.sig"
 url="https://github.com/$repo/releases/download/$tag/$(basename "$app")"
-signature=$(cat "$app.sig")
-notes_text=""
-[[ -n "$notes" ]] && notes_text=$(cat "$notes")
-# The universal build serves both Apple silicon and Intel Macs.
-NOTES="$notes_text" SIG="$signature" URL="$url" VERSION="$version" bun -e '
-  const platform = { signature: process.env.SIG, url: process.env.URL };
-  const latest = {
-    version: process.env.VERSION,
-    notes: process.env.NOTES,
-    pub_date: new Date().toISOString(),
-    platforms: { "darwin-aarch64": platform, "darwin-x86_64": platform },
-  };
-  await Bun.write(process.argv[1], JSON.stringify(latest, null, 2) + "\n");
-' "$out/latest.json"
+bun scripts/release-tools.ts latest-json "$out/latest.json" "$version" "$url" "$app.sig" ${notes:+"$notes"}
 
 step "Publish $tag"
 # An unversioned copy too, so the site's Download button can link straight to
