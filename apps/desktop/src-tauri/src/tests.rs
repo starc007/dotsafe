@@ -18,7 +18,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::state::{AppState, Session};
-use crate::{broker, cli, commands, devices, integrations, secrets, storage};
+use crate::{broker, cli, commands, devices, integrations, licensing, links, secrets, storage};
 
 // Cheap Argon2 settings so tests run fast. Never use these for real vaults.
 const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
@@ -78,10 +78,9 @@ impl Desktop {
                 commands::import_variables,
                 commands::get_settings,
                 commands::set_auto_lock,
-                commands::activate_license,
-                commands::check_license,
-                commands::open_purchase_page,
-                commands::open_docs,
+                licensing::activate_license,
+                licensing::check_license,
+                links::open_link,
                 cli::cli_status,
                 cli::install_cli,
                 storage::set_backup_dir,
@@ -204,12 +203,14 @@ fn the_cli_is_only_offered_when_bundled() {
     assert_eq!(desktop.err("install_cli", json!({}))["kind"], "other");
 }
 
-/// The webview names a docs page; it can't send an address of its own.
+/// The webview names a page; it can't send an address of its own.
 #[test]
-fn docs_open_only_known_pages() {
+fn links_open_only_known_pages() {
     let desktop = Desktop::new();
-    desktop.ok("open_docs", json!({ "page": "agents" }));
-    assert_eq!(desktop.err("open_docs", json!({ "page": "https://evil.example" }))["kind"], "other");
+    for link in ["pricing", "docs/agents", "docs/install"] {
+        desktop.ok("open_link", json!({ "link": link }));
+    }
+    assert_eq!(desktop.err("open_link", json!({ "link": "https://evil.example" }))["kind"], "other");
 }
 
 /// dotsafe is paid: the UI shows the activation screen until `licensed`.
@@ -227,7 +228,6 @@ fn status_says_whether_this_machine_is_licensed() {
     assert_eq!(desktop.ok("status", json!({}))["licensed"], true);
     let bad = desktop.err("activate_license", json!({ "key": "short" }));
     assert_eq!(bad["kind"], "other");
-    desktop.ok("open_purchase_page", json!({}));
 
     License::remove().unwrap();
     assert_eq!(desktop.ok("status", json!({}))["licensed"], false);

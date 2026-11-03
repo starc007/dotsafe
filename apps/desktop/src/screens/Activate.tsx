@@ -29,7 +29,7 @@ export function Activate({ onActivated }: { onActivated: () => void }) {
 
   async function buy() {
     try {
-      await api.openPurchasePage();
+      await api.openLink("pricing");
     } catch (err) {
       setError(message(err));
     }

@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use dotsafe_core::License;
+use dotsafe_core::license::unix_now;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -46,6 +47,27 @@ pub fn activate(key: &str, device_name: &str) -> Result<String, ApiError> {
     let activated: Activated =
         post("/v1/licenses/activate", json!({ "license_key": key, "device_name": device_name }))?;
     Ok(activated.instance_id)
+}
+
+/// Activates `key` on this machine and returns the license to save. One
+/// place for the app and the CLI, so both record an activation the same way.
+pub fn activate_here(key: &str) -> Result<License, ApiError> {
+    let key = normalize_key(key).map_err(|message| ApiError::Rejected(message.into()))?;
+    let device_name = device_name();
+    let instance_id = activate(&key, &device_name)?;
+    let now = unix_now();
+    Ok(License { key, instance_id, device_name, activated_at: now, checked_at: now, revoked: false })
+}
+
+/// Frees this machine's slot before the license is forgotten here. With
+/// `force`, an unreachable server counts as done. Returns whether the server
+/// freed the slot (false: forced while offline, so it stays taken).
+pub fn release(license: &License, force: bool) -> Result<bool, ApiError> {
+    match deactivate(license) {
+        Ok(()) => Ok(true),
+        Err(ApiError::Offline) if force => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// Whether the activation is still good. A key the server no longer
