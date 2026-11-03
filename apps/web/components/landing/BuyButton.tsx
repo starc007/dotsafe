@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, LoaderCircle } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { apiUrl } from '@/lib/site';
 import { buttonClass } from '@/lib/button';
+import { cn } from '@/lib/cn';
 
 const FALLBACK = "Couldn't start checkout. Try again in a moment.";
 
@@ -33,10 +34,17 @@ export function BuyButton({ label, className }: { label: string; className?: str
 
   return (
     <>
-      <button type="button" onClick={buy} disabled={busy} aria-busy={busy} className={buttonClass('primary', className)}>
-        {label}
-        {/* The icon swaps, the label stays, so the button keeps its width. */}
-        {busy ? <LoaderCircle aria-hidden className="animate-spin" /> : <ArrowRight aria-hidden />}
+      <button
+        type="button"
+        onClick={buy}
+        disabled={busy}
+        aria-busy={busy}
+        className={buttonClass('primary', cn('relative', className))}
+      >
+        {/* While checkout starts, the spinner covers the label, which stays in
+            place (hidden) so the button keeps its width. */}
+        <span className={cn(busy && 'invisible')}>{label}</span>
+        {busy && <LoaderCircle aria-hidden className="absolute animate-spin" />}
       </button>
       {error && (
         <p role="alert" className="mt-2 text-center text-xs text-white">
