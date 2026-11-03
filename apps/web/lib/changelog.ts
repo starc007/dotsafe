@@ -17,6 +17,7 @@ export type Release = {
 export const RELEASES: Release[] = [
   {
     version: '0.1.0',
+    date: '2026-11-03',
     title: 'The first release',
     summary: 'A desktop app and a CLI that share one encrypted vault, synced through storage you already own.',
     image: {
