@@ -1,4 +1,5 @@
 mod broker;
+mod cli;
 mod commands;
 mod devices;
 mod import;
@@ -157,6 +158,8 @@ pub fn run() {
             commands::check_license,
             commands::remove_license,
             commands::open_purchase_page,
+            cli::cli_status,
+            cli::install_cli,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

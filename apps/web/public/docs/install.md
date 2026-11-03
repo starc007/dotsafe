@@ -14,12 +14,17 @@ The app checks for updates on its own and installs one only when you click.
 
 ## CLI
 
-Download `dotsafe-<version>-macos-universal.tar.gz`, unpack it and put `dotsafe` somewhere on your `PATH`:
+The CLI comes inside the app. In dotsafe, open **Settings → Agents** and click **Install** under Command-line tool. It links `dotsafe` into `/usr/local/bin` (macOS asks for your password once) and updates with the app.
+
+```bash
+dotsafe --version
+```
+
+Want the CLI without the app? Download `dotsafe-<version>-macos-universal.tar.gz` from the same release. It's signed and notarized. Unpack it and put `dotsafe` on your `PATH`:
 
 ```bash
 tar -xzf dotsafe-*-macos-universal.tar.gz
 sudo mv dotsafe /usr/local/bin/
-dotsafe --version
 ```
 
 ## Activate your license

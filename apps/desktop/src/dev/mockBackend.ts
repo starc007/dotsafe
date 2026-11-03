@@ -35,6 +35,8 @@ const MOCK_UPDATE = {
 let backupDir: string | null = null;
 let lastBackup: number | null = null;
 let autoLockMinutes = 15;
+// The bundled CLI: available as in a release build, not yet linked.
+let cliInstalled = false;
 // `?offline` makes every license server call fail. Keys containing LIMIT or
 // REVOKED act out those answers.
 const licenseOffline = new URLSearchParams(location.search).has("offline");
@@ -1043,6 +1045,12 @@ export function installMockBackend() {
         case "open_purchase_page":
           window.open("https://dotsafe.dev/pricing", "_blank");
           return null;
+        case "cli_status":
+          return { available: true, installed: cliInstalled, otherInstall: false, path: "/usr/local/bin/dotsafe" };
+        case "install_cli":
+          await delay(800);
+          cliInstalled = true;
+          return true;
         case "plugin:dialog|open":
           return null;
         default:

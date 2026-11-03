@@ -18,7 +18,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::state::{AppState, Session};
-use crate::{broker, commands, devices, integrations, secrets, storage};
+use crate::{broker, cli, commands, devices, integrations, secrets, storage};
 
 // Cheap Argon2 settings so tests run fast. Never use these for real vaults.
 const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
@@ -81,6 +81,8 @@ impl Desktop {
                 commands::activate_license,
                 commands::check_license,
                 commands::open_purchase_page,
+                cli::cli_status,
+                cli::install_cli,
                 storage::set_backup_dir,
                 storage::back_up_now,
                 storage::move_vault_to_folder,
@@ -188,6 +190,17 @@ fn creating_a_vault_unlocks_it_and_returns_a_recovery_key() {
     assert_eq!(desktop.ok("folder_has_vault", json!({ "path": dir.path() })), json!(true));
     let status = desktop.ok("status", json!({}));
     assert_eq!((status["configured"].clone(), status["unlocked"].clone()), (json!(true), json!(true)));
+}
+
+/// Test builds don't carry the CLI, so it's unavailable and installing refuses
+/// before asking for an admin password.
+#[test]
+fn the_cli_is_only_offered_when_bundled() {
+    let desktop = Desktop::new();
+    let status = desktop.ok("cli_status", json!({}));
+    assert_eq!((status["available"].clone(), status["installed"].clone()), (json!(false), json!(false)));
+    assert_eq!(status["path"], "/usr/local/bin/dotsafe");
+    assert_eq!(desktop.err("install_cli", json!({}))["kind"], "other");
 }
 
 /// dotsafe is paid: the UI shows the activation screen until `licensed`.

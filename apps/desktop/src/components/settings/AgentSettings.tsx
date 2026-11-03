@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IconButton } from "@/components/IconButton";
 import { ActionSwapIcon } from "@/components/motion/action-swap";
 import { ProxyProfilesCard } from "@/components/ProxyProfilesCard";
+import { CliInstallCard } from "@/components/settings/CliInstallCard";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 const SETUP = "claude mcp add dotsafe -- dotsafe mcp";
@@ -75,7 +76,7 @@ export function AgentSettings() {
         </SurfaceHeader>
         <SurfaceBody className="flex flex-col gap-3">
           <p className="text-muted-foreground">
-            Add dotsafe as an MCP server. In Claude Code, run this in a terminal (with the dotsafe CLI installed):
+            Add dotsafe as an MCP server. In Claude Code, run this in a terminal (install the command-line tool below first):
           </p>
           <div className="flex items-center gap-1 rounded-full bg-muted/60 py-1 pr-1 pl-3.5">
             <code className="selectable min-w-0 flex-1 truncate font-mono text-[12.5px]">{SETUP}</code>
@@ -91,6 +92,8 @@ export function AgentSettings() {
           </p>
         </SurfaceBody>
       </Surface>
+
+      <CliInstallCard />
 
       <Surface aria-labelledby="agents-approvals-title">
         <SurfaceHeader icon={<Fingerprint aria-hidden />}>
