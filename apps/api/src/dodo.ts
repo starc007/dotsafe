@@ -30,6 +30,8 @@ export function dodo(env: Env) {
         body: JSON.stringify({
           product_cart: [{ product_id: args.productId, quantity: 1 }],
           return_url: args.returnUrl,
+          // Only the country (and ZIP where tax needs it): a download needs no address.
+          minimal_address: true,
           ...(args.email ? { customer: { email: args.email } } : {}),
         }),
       });
