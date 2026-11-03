@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AppEnv } from "./env";
+import { rateLimit, smallBody, webhookBody } from "./limits";
 import { checkout } from "./routes/checkout";
 import { licenses } from "./routes/licenses";
 import { webhooks } from "./routes/webhooks";
@@ -13,6 +14,12 @@ app.use("/v1/checkout", async (c, next) => {
   const origins = c.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean);
   return cors({ origin: origins, allowMethods: ["POST"], allowHeaders: ["content-type"] })(c, next);
 });
+
+// Size caps first, then per-IP limits. Webhooks aren't rate limited: they're
+// signed by Dodo, and limiting them could drop a real purchase.
+app.use("/v1/licenses/*", smallBody, rateLimit("LICENSE_LIMITER", "licenses"));
+app.use("/v1/checkout", smallBody, rateLimit("CHECKOUT_LIMITER", "checkout"));
+app.use("/v1/webhooks/*", webhookBody);
 
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/v1/licenses", licenses);

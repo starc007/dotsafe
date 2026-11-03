@@ -13,6 +13,14 @@ A small Cloudflare Worker (Hono) in front of [Dodo Payments](https://dodopayment
 
 Errors are `{error: {code, message}}`, and the message can be shown to the user as is. A 5xx means Dodo or the API failed. The app treats it as offline and never holds it against the user.
 
+## Abuse limits
+
+The code is public, so anyone can script these routes, and every call spends the Dodo API key. If Dodo rate-limited that key, real buyers couldn't check out or activate. So (`src/limits.ts`, bindings in `wrangler.jsonc`):
+
+- License routes allow 30 requests a minute per client IP, and checkout 10, per Cloudflare location. Over that, the answer is `429 rate_limited` with `Retry-After: 60`. The app counts a 429 as offline, so a busy shared IP never makes a good license look invalid.
+- Request bodies are capped at 16 KB (512 KB for webhooks), with `413 too_large`.
+- Webhooks aren't rate limited: they're signed by Dodo, checked for freshness and handled once each, and limiting them could drop a real purchase.
+
 ## What's stored
 
 D1 (schema in `migrations/`) holds:
