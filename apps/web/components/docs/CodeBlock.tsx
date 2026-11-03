@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
-/** Shell commands with a copy button, `# comments` dimmed. The comments are
- * copied too: they're valid shell. */
-export function CodeBlock({ children }: { children: string }) {
-  const code = children.replace(/^\n+|\s+$/g, '');
+/** Shell commands on a dark panel, with a copy button. `dotsafe` is lime and
+ * `# comments` are dimmed; the comments are copied too, since they're valid
+ * shell. */
+export function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -23,8 +23,24 @@ export function CodeBlock({ children }: { children: string }) {
   }
 
   return (
-    <div className="group relative my-5 rounded-2xl bg-ds-shell">
-      <pre className="overflow-x-auto p-4 pr-12 font-mono text-[13px] leading-relaxed">
+    <div className="my-6 overflow-hidden rounded-2xl bg-ds-code text-ds-code-fg">
+      <div className="flex h-9 items-center justify-between pr-1 pl-4">
+        <span className="flex items-center gap-1.5" aria-hidden>
+          <span className="size-2 rounded-full bg-ds-code-fg/15" />
+          <span className="size-2 rounded-full bg-ds-code-fg/15" />
+          <span className="size-2 rounded-full bg-ds-code-fg/15" />
+        </span>
+        <button
+          type="button"
+          onClick={copy}
+          aria-label={copied ? 'Copied' : 'Copy'}
+          title={copied ? 'Copied' : 'Copy'}
+          className="flex size-8 cursor-pointer items-center justify-center rounded-full text-ds-code-muted transition-colors duration-200 hover:bg-ds-code-fg/10 hover:text-ds-code-fg"
+        >
+          {copied ? <Check aria-hidden className="size-4 text-ds-primary" /> : <Copy aria-hidden className="size-4" />}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-4 pb-4 font-mono text-[13px] leading-relaxed">
         <code>
           {code.split('\n').map((line, i) => (
             <span key={i} className="block">
@@ -33,22 +49,15 @@ export function CodeBlock({ children }: { children: string }) {
           ))}
         </code>
       </pre>
-      <button
-        type="button"
-        onClick={copy}
-        aria-label={copied ? 'Copied' : 'Copy'}
-        title={copied ? 'Copied' : 'Copy'}
-        className="absolute top-2.5 right-2.5 flex size-8 cursor-pointer items-center justify-center rounded-full text-ds-muted transition-[color,background-color,opacity] duration-200 hover:bg-ds-card hover:text-ds-fg focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-      >
-        {copied ? <Check aria-hidden className="size-4 text-ds-accent" /> : <Copy aria-hidden className="size-4" />}
-      </button>
     </div>
   );
 }
 
-/** Dims a trailing `# comment`, but not a `#` inside quotes. */
+/** Colours one line: a leading `dotsafe` in lime, and a trailing `# comment`
+ * (not a `#` inside quotes) dimmed. */
 function Line({ text }: { text: string }) {
   let quote: string | null = null;
+  let cut = text.length;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (quote) {
@@ -56,13 +65,26 @@ function Line({ text }: { text: string }) {
     } else if (c === "'" || c === '"') {
       quote = c;
     } else if (c === '#' && (i === 0 || text[i - 1] === ' ')) {
-      return (
-        <>
-          {text.slice(0, i)}
-          <span className="text-ds-muted">{text.slice(i)}</span>
-        </>
-      );
+      cut = i;
+      break;
     }
   }
-  return <>{text || ' '}</>;
+  const command = text.slice(0, cut);
+  const comment = text.slice(cut);
+  const lead = command.match(/^(\s*)(dotsafe)(?=\s|$)/);
+  return (
+    <>
+      {lead ? (
+        <>
+          {lead[1]}
+          <span className="text-ds-primary">{lead[2]}</span>
+          {command.slice(lead[0].length)}
+        </>
+      ) : (
+        command
+      )}
+      {comment && <span className="text-ds-code-muted">{comment}</span>}
+      {!text && ' '}
+    </>
+  );
 }

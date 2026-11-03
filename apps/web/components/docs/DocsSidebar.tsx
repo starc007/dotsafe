@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { DOCS } from '@/lib/docs';
 import { cn } from '@/lib/cn';
 
-/** The docs index, grouped. The current page gets a filled pill. */
+/** The docs index, grouped. The current page gets a lime pill. */
 export function DocsSidebar({ onNavigate, className }: { onNavigate?: () => void; className?: string }) {
   const pathname = usePathname();
   return (
@@ -16,6 +16,7 @@ export function DocsSidebar({ onNavigate, className }: { onNavigate?: () => void
           <ul className="mt-2 flex flex-col gap-0.5">
             {group.pages.map((page) => {
               const active = pathname === page.href;
+              const Icon = page.icon;
               return (
                 <li key={page.href}>
                   <Link
@@ -23,10 +24,13 @@ export function DocsSidebar({ onNavigate, className }: { onNavigate?: () => void
                     onClick={onNavigate}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'block rounded-full px-3 py-1.5 transition-colors duration-200',
-                      active ? 'bg-ds-shell font-medium text-ds-fg' : 'text-ds-muted hover:text-ds-fg',
+                      'flex items-center gap-2.5 rounded-full px-3 py-1.5 transition-colors duration-200',
+                      active
+                        ? 'bg-ds-primary/25 font-medium text-ds-fg'
+                        : 'text-ds-muted hover:bg-ds-shell hover:text-ds-fg',
                     )}
                   >
+                    <Icon aria-hidden className={cn('size-4 shrink-0', active ? 'text-ds-accent' : 'text-ds-muted/80')} />
                     {page.title}
                   </Link>
                 </li>

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { site } from '@/lib/site';
-import { docsPage } from '@/lib/docs';
+import { docsContent } from '@/lib/docs-content';
 
 /** A page's metadata: its title (the layout adds "· dotsafe"), description,
  * canonical URL, and matching share card text. Next replaces the layout's
@@ -17,8 +17,8 @@ export function pageMetadata({ title, description, path }: { title: string; desc
   };
 }
 
-/** A docs page's metadata, from its entry in lib/docs.ts. */
+/** A docs page's metadata, from the title and description in its Markdown. */
 export function docsMetadata(href: string): Metadata {
-  const { title, description } = docsPage(href);
+  const { title, description } = docsContent(href);
   return pageMetadata({ title: href === '/docs' ? 'Docs' : `${title} · Docs`, description, path: href });
 }

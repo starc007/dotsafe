@@ -4,3 +4,11 @@
   Content-Type: image/png
 /apple-icon
   Content-Type: image/png
+# Docs as Markdown, for agents. Plain text so browsers show it instead of
+# downloading it, and UTF-8 for the ⌘ and → in the pages.
+/docs.md
+  Content-Type: text/plain; charset=utf-8
+/docs/*.md
+  Content-Type: text/plain; charset=utf-8
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
