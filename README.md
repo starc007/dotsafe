@@ -1,110 +1,162 @@
-# dotsafe
+<p align="center">
+  <img src="apps/web/app/icon.svg" width="72" height="72" alt="dotsafe logo">
+</p>
 
-Local-first, zero-knowledge secret manager for developers. Secrets are encrypted on your machine and synced through storage you already own (iCloud Drive, Google Drive, and more).
+<h1 align="center">dotsafe</h1>
 
-## Layout
+<p align="center">
+  Local-first, zero-knowledge secret manager for developers.<br>
+  Your <code>.env</code> files and API keys, encrypted on your Mac and synced through storage you already own.
+</p>
 
-```
-crates/core                # vault format, encryption, sync engine (shared)
-crates/stores              # S3/R2 and WebDAV storage, and the keychain-backed store opener
-crates/agent               # agent access: broker, MCP, redaction, secret proxy
-crates/integrations        # provider key rotation and deploy-target pushes
-crates/cli                 # `dotsafe` command-line tool
-apps/desktop/src-tauri     # desktop app (Tauri 2)
-apps/desktop/src           # desktop UI (React + Vite)
-apps/api                   # licensing and checkout API (Cloudflare Worker), see apps/api/README.md
-apps/web                   # site and docs (Next.js), `bun run web`
-```
+<p align="center">
+  <a href="https://dotsafe.dev">Website</a> ·
+  <a href="https://dotsafe.dev/docs">Docs</a> ·
+  <a href="https://dotsafe.dev/changelog">Changelog</a> ·
+  <a href="https://github.com/starc007/dotsafe/releases/latest">Download</a>
+</p>
 
-A bun workspace: run `bun install` once at the root. `bun run tauri dev`, `bun run dev` and `bun run build` work from the root.
+<p align="center">
+  <img src="apps/web/public/app.png" alt="The dotsafe desktop app" width="840">
+</p>
 
-## CLI
+## Why dotsafe
+
+- **No server holds your vault.** Secrets are encrypted on your device and synced through iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV. The only dotsafe server handles licenses and never sees a secret.
+- **One vault, two tools.** A desktop app and a `dotsafe` CLI share the same vault and the same Rust core.
+- **Agents run with your keys, never see them.** Claude Code, Cursor and other MCP agents can run commands with your secrets after you approve with Touch ID. Output comes back redacted.
+- **Rotation built in.** Link one secret across projects, rotate it everywhere at once, and push the new key to Vercel or Cloudflare Workers.
+- **Works offline.** Every machine keeps an encrypted copy and syncs when it's back online.
+
+## Install
+
+Download the latest release from [GitHub Releases](https://github.com/starc007/dotsafe/releases/latest):
+
+- **Desktop app:** `dotsafe-<version>.dmg` (universal, signed and notarized). It updates itself.
+- **CLI:** `dotsafe-<version>-macos-universal.tar.gz`. Unpack it and put `dotsafe` on your `PATH`.
+
+dotsafe is paid, with no free version: one license is $49 and covers up to 2 Macs. Activate it in the app's first screen or with `dotsafe license activate <key>`. Either one is enough.
+
+## Quick start
 
 ```bash
-dotsafe license activate <key>    # dotsafe is paid: activate your key first (or in the app)
-dotsafe init                      # create a vault (iCloud Drive by default) or connect to one
-dotsafe import                    # import ./.env into this project's development env
-dotsafe import --from doppler     # or --from infisical, or --from 1password --item NAME (or a JSON export file)
-dotsafe set 'DB_URL=postgres://${{ DB_HOST }}/app'   # values can include other variables
-dotsafe inherit production -e staging               # staging gets production's variables; its own override them
-dotsafe unset -e staging --hide SENTRY_DSN          # remove an inherited variable from staging only
-dotsafe set API_KEY               # prompts for the value, so it stays out of shell history
-dotsafe set -e production A=1 B=2
-dotsafe get API_KEY
-dotsafe list
-dotsafe unset API_KEY
-dotsafe run -- bun dev            # runs the command with the variables injected
-dotsafe export -o .env            # for tools that need a file: owner-only, refused unless gitignored
-dotsafe scan                      # find vault values in this checkout (raw or encoded); names only
-dotsafe scan --install-hook       # pre-commit hook that runs `dotsafe scan --staged`
-dotsafe unlock --for 8h           # cache the key in the OS keychain; `dotsafe lock` to forget it
-dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
-dotsafe init --webdav https://cloud.example.com/remote.php/dav/files/me/dotsafe/ --user me
-dotsafe backup --to ~/Backups/dotsafe   # a dated, still-encrypted copy; the last 10 are kept
-dotsafe move --bucket … --endpoint …    # move the vault elsewhere; the old copy stays until you delete it
-dotsafe daemon                          # serve agents without the desktop app; approve in this terminal
-dotsafe sync                      # vaults in a bucket: exchange changes now
-dotsafe secret share STRIPE_KEY --all   # one shared secret, linked wherever it had the same value
-dotsafe secret rotate STRIPE_KEY        # new value everywhere it's linked; old one kept as previous
+dotsafe init                 # create a vault (iCloud Drive by default) or connect to one
+dotsafe import               # import ./.env into this project's development environment
+dotsafe set API_KEY          # prompts for the value, so it stays out of shell history
+dotsafe run -- bun dev       # run a command with the variables injected
+dotsafe unlock --for 8h      # cache the key in the OS keychain; `dotsafe lock` to forget it
+```
+
+The first write in a directory creates a project and a `.dotsafe.json` link file. It only holds ids, so commit it: other machines connected to the same vault pick the project up. `dotsafe link <name>` attaches a directory to an existing project.
+
+## Features
+
+### Environments and variables
+
+Each project has environments (development, staging, production…). An environment can inherit another's variables and override or hide the ones it doesn't want. Values can reference other variables with `${{ NAME }}`.
+
+```bash
+dotsafe set 'DB_URL=postgres://${{ DB_HOST }}/app'
+dotsafe inherit production -e staging          # staging gets production's variables; its own win
+dotsafe unset -e staging --hide SENTRY_DSN     # drop an inherited variable from staging only
+```
+
+### Secrets and rotation
+
+Make any variable a secret to keep its history and rotate it in one step. Environments in any project can link to the same secret, and rotating updates all of them. A bad rotation can be rolled back, and unlinked copies are flagged so they don't go stale. The app reminds you when secrets are due.
+
+```bash
+dotsafe secret share STRIPE_KEY --all          # one shared secret, linked wherever it had the same value
 dotsafe secret rotate STRIPE_KEY --leaked --generate
-dotsafe secret retire STRIPE_KEY        # once the old value is revoked with its provider
-dotsafe secret history STRIPE_KEY       # versions and notes, never values
-dotsafe secret due                      # what's due under each secret's rotation policy
-dotsafe connect openai --set project_id=proj_…   # an account that issues keys (asks for the admin token)
-dotsafe connect vercel --name web                # a deploy target that gets every rotation
+dotsafe secret retire STRIPE_KEY               # once the old value is revoked with its provider
+dotsafe secret history STRIPE_KEY              # versions and notes, never values
+dotsafe secret due                             # what's due under each secret's rotation policy
+```
+
+### Provider rotation and deploy targets
+
+Connect OpenAI, a Cloudflare API token or AWS IAM, and rotating a secret asks the provider for a new key. Anthropic and Stripe keys are made in their own console: paste the new one and dotsafe checks it, makes it live and pushes it.
+
+The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you retire it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, stored in the vault.
+
+```bash
+dotsafe connect openai --set project_id=proj_…
+dotsafe connect vercel --name web
 dotsafe secret provider OPENAI_API_KEY --connection OpenAI
 dotsafe secret target add OPENAI_API_KEY --connection web --set project=my-app
-dotsafe secret rotate OPENAI_API_KEY    # new key from OpenAI, live everywhere, pushed to Vercel
-dotsafe secret retire OPENAI_API_KEY    # revokes the old key at OpenAI
-dotsafe secret queue --rotate           # after `device remove`: rotate everything it could read
-dotsafe connect stripe                  # Stripe and Anthropic keys are made in their console; dotsafe checks, pushes and revokes
-dotsafe secret rotate STRIPE_KEY        # opens the steps, asks for the new key, checks it, makes it live
-dotsafe connect aws_iam --set access_key_id=AKIA…   # rotate IAM users' access keys
+dotsafe secret rotate OPENAI_API_KEY           # new key from OpenAI, live everywhere, pushed to Vercel
+dotsafe secret retire OPENAI_API_KEY           # revokes the old key at OpenAI
 ```
 
-**AI agents.** `dotsafe mcp` lets Claude Code, Cursor and other MCP agents run commands with your secrets without ever seeing them. Agents can list names. When one asks to run a command, the dotsafe app shows exactly what will run and with which variables, and you allow it once or for a while, confirming with Touch ID. The output comes back with secret values replaced by `[dotsafe:NAME]`. OpenAI and Anthropic keys go through a local proxy, so the command never even holds them, and agents can add random secrets (`JWT_SECRET`…) without seeing the value. Everything is recorded in an encrypted audit log (`dotsafe audit`). Set it up with `claude mcp add dotsafe -- dotsafe mcp`, or `dotsafe mcp setup` for other agents.
+Set it up in Settings → Integrations, or with `dotsafe connect` (`openai`, `cloudflare_token`, `aws_iam`, `anthropic`, `stripe`, `vercel`, `cloudflare_workers`).
 
-`dotsafe run --proxy -- bun dev` gives your own dev servers the same protection: the process sees a placeholder key and a local URL, never the real key. Add more keys with `dotsafe proxy add Mistral --key-var MISTRAL_API_KEY --base-url-var MISTRAL_BASE_URL --upstream https://api.mistral.ai --base-path /v1` (or in Settings → Agents); profiles are stored in the vault, so an agent can't redirect a key.
+### AI agents
 
-**In the app.** Press ⌘K to find a variable in any project and copy it, or jump to an environment, and ⌥⌘K (or the menu bar icon) to do it from any other app. The value goes straight to the clipboard and is cleared after 30 seconds. If dotsafe reads a record that's older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains what happened.
+`dotsafe mcp` lets MCP agents run commands with your secrets without ever seeing them.
 
-**Provider rotation.** Connect OpenAI, a Cloudflare API token or AWS IAM, and rotating a secret asks the provider for a new key. Anthropic and Stripe keys are made in their own console: paste the new one and dotsafe checks it, makes it live and pushes it, then switches the old Anthropic key off (Stripe's is revoked in its dashboard). The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you revoke it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, which are stored in the vault. Set it up in Settings → Integrations, or with `dotsafe connect`.
-
-**After removing a device,** dotsafe lists everything it could still use, in the sidebar and with `dotsafe secret queue`, until each value is rotated. Secrets with a provider rotate in one click. The desktop app also sends a reminder when secrets are due for rotation.
-
-**Devices.** Turn on Touch ID unlock in Settings → Devices (the password is still asked every two weeks). Add a Mac with a one-time code instead of typing the password there. If a device is lost, remove it: dotsafe switches the vault to a new key and re-encrypts everything, so it can't read anything new.
-
-**Secrets.** Make any variable a secret to keep its history and rotate it in one step. Other environments, in any project, can link to the same secret, and rotating updates all of them. A bad rotation can be rolled back or an earlier value restored, and copies left unlinked are flagged so they don't go stale.
-
-**Vaults in a bucket.** Instead of a synced folder, a vault can live in any S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO). The bucket only ever holds encrypted files. Each machine keeps an encrypted copy, so dotsafe works offline and syncs when it's back online. The access key is kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
-
-The first write in a directory creates a project and a `.dotsafe.json` link file. It only holds ids, so commit it; other machines connected to the same vault then pick the project up. `dotsafe link <name>` attaches a directory to an existing project.
-
-For CI and scripts, `DOTSAFE_PASSWORD` supplies the master password without a prompt. Anything that can read the environment can read it, so prefer `dotsafe unlock` on your own machine.
-
-## Development
+- Agents can list names, never values.
+- When an agent asks to run a command, the app shows exactly what will run and with which variables. You allow it once or for a while, confirming with Touch ID.
+- Output comes back with secret values replaced by `[dotsafe:NAME]`.
+- OpenAI and Anthropic keys go through a local proxy, so the command never holds the real key.
+- Agents can add random secrets (`JWT_SECRET`…) without seeing the value.
+- Every request is written to an encrypted audit log (`dotsafe audit`).
 
 ```bash
-bun install
-bun run tauri dev          # desktop app
-cargo run -p dotsafe-cli   # CLI
-scripts/check.sh           # build, clippy and all tests; run before pushing
+claude mcp add dotsafe -- dotsafe mcp          # Claude Code
+dotsafe mcp setup                              # other agents
+dotsafe daemon                                 # serve agents without the app; approve in the terminal
 ```
 
-`bun run dev` on its own serves the UI at http://localhost:1420 with an in-memory mock backend (`src/dev/mockBackend.ts`, unlock with `password123`, add `?setup` to start at setup). It is only loaded in dev outside Tauri and never ships.
+The proxy protects your own dev servers too: `dotsafe run --proxy -- bun dev` gives the process a placeholder key and a local URL. Add more providers with `dotsafe proxy add` or in Settings → Agents. Profiles live in the vault, so an agent can't redirect a key.
 
-Set `DOTSAFE_CONFIG_DIR` to point the app or CLI at a throwaway config, so testing never touches your real vault.
+### Leak checks
 
-### Desktop security model
+```bash
+dotsafe scan                    # find vault values in this checkout, raw or encoded; names only
+dotsafe scan --install-hook     # pre-commit hook that runs `dotsafe scan --staged`
+dotsafe export -o .env          # owner-only file, refused unless it's gitignored
+```
 
-- Decrypted values reach the webview only when you reveal or edit one. Lists carry names only.
-- Copying happens in Rust. The clipboard is cleared after 30 seconds unless you copied something else since.
-- The vault locks after 15 minutes without activity.
-- The webview has no clipboard or filesystem permissions, only the folder picker. The CSP blocks remote content.
+### Storage
 
-### Licensing
+A vault lives in any synced folder by default. It can also live in an S3-compatible bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO) or on WebDAV. The bucket only ever holds encrypted files. Storage keys are kept in the OS keychain, or read from `DOTSAFE_S3_ACCESS_KEY_ID` and `DOTSAFE_S3_SECRET_ACCESS_KEY` for CI. Give that key access to this one bucket only.
 
-dotsafe is paid, with no free version: one license ($49, up to 2 Macs). The app asks for a key on its first screen, before setup, and the CLI refuses every command but `dotsafe license` until one is activated. Activating in either is enough, since both read `license.json` in the config directory. Keys are activated through the dotsafe API (`apps/api/`), which talks to Dodo Payments. Only the key and an activation id are stored, never in the vault. The app rechecks about twice a day. Being offline never locks anything: after 30 days without a check the license just shows as unverified, and a revoked license only shows a notice. Debug builds use the API at `http://localhost:8787`; set `DOTSAFE_API_URL` at build time to use another.
+```bash
+dotsafe init --bucket my-vaults --endpoint https://<account>.r2.cloudflarestorage.com
+dotsafe init --webdav https://cloud.example.com/remote.php/dav/files/me/dotsafe/ --user me
+dotsafe sync                             # buckets: exchange changes now
+dotsafe backup --to ~/Backups/dotsafe    # a dated, still-encrypted copy; the last 10 are kept
+dotsafe move --bucket … --endpoint …     # move the vault; the old copy stays until you delete it
+```
+
+### Import
+
+```bash
+dotsafe import --from doppler            # or --from infisical
+dotsafe import --from 1password --item NAME
+```
+
+### Devices
+
+Turn on Touch ID unlock in Settings → Devices (the password is still asked every two weeks). Add a Mac with a one-time code instead of typing the password there. If a device is lost, remove it: dotsafe switches the vault to a new key and re-encrypts everything, then lists every secret the old device could read until each one is rotated (`dotsafe secret queue --rotate`).
+
+### In the app
+
+- **⌘K** finds a variable in any project and copies it, or jumps to an environment.
+- **⌥⌘K** or the menu bar icon does the same from any other app.
+- Copied values are cleared from the clipboard after 30 seconds.
+- If dotsafe reads a record older than one it saw before, or one sealed with a key the vault no longer has, the sidebar shows "Vault needs a look" and Settings → Security explains it.
+
+## Security model
+
+- Encryption uses XChaCha20-Poly1305, with keys derived from your password by Argon2id. Records are bound to their vault and id, so they can't be swapped, and older copies are flagged. See [docs/vault-format.md](docs/vault-format.md) and the [threat model](docs/architecture/threat-model.md).
+- Decrypted values reach the app's webview only when you reveal or edit one. Lists carry names only.
+- Copying happens in Rust, never through the webview's clipboard.
+- The vault locks after 15 minutes without activity, by default.
+- The webview has no clipboard or filesystem permissions, only the folder picker, and a strict CSP blocks remote content.
+- Agents never get values. Values only reach processes the broker starts after you approve.
+
+For CI and scripts, `DOTSAFE_PASSWORD` supplies the master password without a prompt. Anything that can read the environment can read it, so prefer `dotsafe unlock` on your own machine.
 
 ## License
 
@@ -112,4 +164,4 @@ The code is [MIT](LICENSE): use it, change it and share it however you like.
 
 The name "dotsafe" and the logo aren't covered by the license. A fork or a build of your own is welcome, but give it another name and logo, so nobody mistakes it for the official app.
 
-Contributions are under the same MIT license. Sign off your commits (`git commit -s`) to confirm you wrote the change and can share it that way ([Developer Certificate of Origin](https://developercertificate.org)).
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md).
