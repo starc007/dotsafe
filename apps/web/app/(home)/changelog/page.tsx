@@ -8,6 +8,8 @@ export const metadata = pageMetadata({
   title: 'Changelog',
   description: 'New features, fixes and improvements in each dotsafe release.',
   path: '/changelog',
+  markdown: '/changelog.md',
+  feed: true,
 });
 
 const dateFormat = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -22,7 +24,7 @@ export default function ChangelogPage() {
       </h1>
       <ol className="mt-16 flex flex-col gap-24 sm:mt-24 sm:gap-32">
         {RELEASES.map((release) => (
-          <li key={release.version} className="grid gap-5 md:grid-cols-4 md:gap-10">
+          <li key={release.version} id={`v${release.version}`} className="scroll-mt-28 grid gap-5 md:grid-cols-4 md:gap-10">
             <div className="flex items-baseline gap-3 self-start md:sticky md:top-28 md:flex-col md:gap-1">
               <p className="text-sm font-medium">
                 {release.date ? (

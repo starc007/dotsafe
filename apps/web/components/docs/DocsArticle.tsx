@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { docsEntry } from '@/lib/docs';
 import { docsContent } from '@/lib/docs-content';
+import { docsData } from '@/lib/structured-data';
+import { JsonLd } from '@/components/landing/JsonLd';
 import { DocsMarkdown } from '@/components/docs/DocsMarkdown';
 import { DocsPageActions } from '@/components/docs/DocsPageActions';
 import { DocsPager } from '@/components/docs/DocsPager';
@@ -14,6 +16,7 @@ export function DocsArticle({ href, children }: { href: string; children?: React
   const page = docsContent(href);
   return (
     <div className="grid gap-12 xl:grid-cols-[minmax(0,1fr)_11rem]">
+      <JsonLd data={docsData({ href, title: page.title, description: page.description })} />
       <article className="min-w-0 max-w-2xl">
         <div className="flex items-center justify-between gap-4">
           <p className="text-sm font-medium text-ds-accent">{entry.group}</p>

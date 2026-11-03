@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
-    "preview": "next build && wrangler dev",
+    "build": "bun scripts/agent-files.ts && next build",
+    "dev": "bun scripts/agent-files.ts && next dev",
+    "preview": "bun run build && wrangler dev",
     "types:check": "next typegen && tsc --noEmit"
   },
   "dependencies": {

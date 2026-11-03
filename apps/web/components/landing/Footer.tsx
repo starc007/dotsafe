@@ -22,6 +22,7 @@ const COLUMNS = [
       { label: 'Releases', href: links.releases },
       { label: 'GitHub', href: links.github },
       { label: 'Report an issue', href: links.issues },
+      { label: 'For AI agents', href: '/llms.txt' },
     ],
   },
 ];
@@ -49,9 +50,16 @@ export function Footer() {
               <ul className="mt-4 flex flex-col gap-2.5 text-sm text-ds-muted">
                 {col.items.map((item) => (
                   <li key={item.label}>
-                    <Link href={item.href} className="transition-colors hover:text-ds-fg">
-                      {item.label}
-                    </Link>
+                    {/* A plain file like llms.txt isn't a page, so it skips the client router. */}
+                    {item.href.endsWith('.txt') ? (
+                      <a href={item.href} className="transition-colors hover:text-ds-fg">
+                        {item.label}
+                      </a>
+                    ) : (
+                      <Link href={item.href} className="transition-colors hover:text-ds-fg">
+                        {item.label}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

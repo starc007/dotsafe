@@ -4,7 +4,8 @@
   Content-Type: image/png
 /apple-icon
   Content-Type: image/png
-# Docs as Markdown, for agents. Plain text so browsers show it instead of
+# Markdown copies of the pages, llms.txt and the feed, for agents (see
+# scripts/agent-files.ts). Plain text so browsers show it instead of
 # downloading it, and UTF-8 for the ⌘ and → in the pages.
 /docs.md
   Content-Type: text/plain; charset=utf-8
@@ -12,3 +13,13 @@
   Content-Type: text/plain; charset=utf-8
 /llms.txt
   Content-Type: text/plain; charset=utf-8
+/llms-full.txt
+  Content-Type: text/plain; charset=utf-8
+/index.md
+  Content-Type: text/plain; charset=utf-8
+/pricing.md
+  Content-Type: text/plain; charset=utf-8
+/changelog.md
+  Content-Type: text/plain; charset=utf-8
+/changelog.xml
+  Content-Type: application/rss+xml; charset=utf-8

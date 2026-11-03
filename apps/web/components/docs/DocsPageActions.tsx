@@ -39,7 +39,10 @@ export function DocsPageActions({ href, markdown }: { href: string; markdown: st
   async function copy(what: 'page' | 'link') {
     setOpen(false);
     try {
-      await navigator.clipboard.writeText(what === 'page' ? markdown : `${window.location.origin}${mdPath}`);
+      const origin = window.location.origin;
+      // Links in the Markdown are root-relative; outside the site they need the host.
+      const page = markdown.replace(/\]\(\//g, `](${origin}/`);
+      await navigator.clipboard.writeText(what === 'page' ? page : `${origin}${mdPath}`);
       setDone(what);
       clearTimeout(timer.current);
       timer.current = setTimeout(() => setDone(null), 1500);
