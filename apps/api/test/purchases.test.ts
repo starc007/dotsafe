@@ -110,6 +110,14 @@ describe("purchase webhooks", () => {
     expect(row("SELECT disputed_at FROM purchases").disputed_at).toBe("2026-11-06T00:00:00Z");
   });
 
+  it("acknowledges a signed but malformed payment without issuing anything", async () => {
+    const { customer: _, ...noCustomer } = payment;
+    expect((await deliver("payment.succeeded", noCustomer)).status).toBe(200);
+    expect(row("SELECT count(*) AS n FROM purchases").n).toBe(0);
+    expect(row("SELECT count(*) AS n FROM licenses").n).toBe(0);
+    expect(row("SELECT count(*) AS n FROM webhook_events").n).toBe(1);
+  });
+
   it("rejects a forged webhook before reading it", async () => {
     const body = JSON.stringify({ type: "payment.succeeded", data: payment });
     const res = await app.request(
