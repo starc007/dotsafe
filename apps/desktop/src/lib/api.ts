@@ -451,6 +451,19 @@ export const api = {
   /** `force` forgets the license even if the server can't be told. */
   removeLicense: (force = false) => call<void>("remove_license", { force }),
   openPurchasePage: () => call<void>("open_purchase_page"),
+  cliStatus: () => call<CliStatus>("cli_status"),
+  /** False when the admin password prompt was cancelled. */
+  installCli: () => call<boolean>("install_cli"),
+};
+
+/** The CLI bundled in the app, and whether /usr/local/bin/dotsafe points at it. */
+export type CliStatus = {
+  /** This build carries the CLI (release builds on macOS). */
+  available: boolean;
+  installed: boolean;
+  /** Something else is at the path: an older manual install, or Homebrew. */
+  otherInstall: boolean;
+  path: string;
 };
 
 export function message(e: unknown): string {

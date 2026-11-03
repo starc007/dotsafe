@@ -61,21 +61,36 @@ grep -q '"pubkey": ""' apps/desktop/src-tauri/tauri.conf.json && fail "the updat
 
 scripts/check.sh
 
-step "Build the app (universal, signed and notarized)"
 rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
-bun run tauri build --target universal-apple-darwin
+out=$(mktemp -d)
+
+# The CLI is built and signed first, because it ships inside the app too
+# (Contents/MacOS/dotsafe, which Settings → Agents links into /usr/local/bin).
+# Signed with the hardened runtime, it passes the app's notarization as is.
+step "Build the CLI (universal, signed)"
+cargo build --release --locked -p dotsafe-cli --target aarch64-apple-darwin
+cargo build --release --locked -p dotsafe-cli --target x86_64-apple-darwin
+lipo -create -output "$out/dotsafe" target/aarch64-apple-darwin/release/dotsafe target/x86_64-apple-darwin/release/dotsafe
+codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$out/dotsafe"
+
+step "Build the app (universal, signed and notarized, with the CLI inside)"
+# Only release builds carry the CLI, so the file mapping is passed here rather
+# than living in tauri.conf.json, where `tauri dev` would need the binary too.
+printf '{"bundle":{"macOS":{"files":{"MacOS/dotsafe":"%s"}}}}\n' "$out/dotsafe" > "$out/bundle-cli.json"
+bun run tauri build --target universal-apple-darwin --config "$out/bundle-cli.json"
 
 bundle=target/universal-apple-darwin/release/bundle
 dmg=$(ls "$bundle"/dmg/*.dmg)
 archive="$bundle/macos/dotsafe.app.tar.gz"
 [[ -f "$archive" && -f "$archive.sig" ]] || fail "the updater archive or its signature is missing"
+[[ -x "$bundle/macos/dotsafe.app/Contents/MacOS/dotsafe" ]] || fail "the CLI isn't inside the app"
+codesign --verify --strict --deep "$bundle/macos/dotsafe.app" || fail "the app's signature doesn't verify"
 
-step "Build the CLI (universal)"
-cargo build --release --locked -p dotsafe-cli --target aarch64-apple-darwin
-cargo build --release --locked -p dotsafe-cli --target x86_64-apple-darwin
-out=$(mktemp -d)
-lipo -create -output "$out/dotsafe" target/aarch64-apple-darwin/release/dotsafe target/x86_64-apple-darwin/release/dotsafe
-codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$out/dotsafe"
+# The standalone download, for people who want the CLI without the app. A bare
+# binary can't be stapled, so Gatekeeper checks its notarization online.
+step "Notarize the standalone CLI"
+ditto -c -k --keepParent "$out/dotsafe" "$out/dotsafe-cli.zip"
+xcrun notarytool submit "$out/dotsafe-cli.zip" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
 cli="$out/dotsafe-$version-macos-universal.tar.gz"
 tar -czf "$cli" -C "$out" dotsafe
 

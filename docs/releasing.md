@@ -39,9 +39,12 @@ Keep these in one environment, for example a `release` environment in a
    dotsafe run -e release -- scripts/release.sh 0.2.0 notes.md
    ```
 
-   It runs `scripts/check.sh`, builds a universal, signed and notarized app,
-   builds the CLI, writes `latest.json`, tags the commit and publishes the
-   release. Without a notes file, GitHub generates the notes.
+   It runs `scripts/check.sh`, builds and signs the universal CLI, builds a
+   universal, signed and notarized app with that CLI inside
+   (`Contents/MacOS/dotsafe`, which Settings → Agents links into
+   `/usr/local/bin`), notarizes the standalone CLI download, writes
+   `latest.json`, tags the commit and publishes the release. Without a notes
+   file, GitHub generates the notes.
 
 Updates only work once the repo is public: the app downloads release assets
 without signing in.
