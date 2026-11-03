@@ -1,7 +1,8 @@
 import type { Env } from "./env";
 
-// A small typed client for the Dodo Payments endpoints this API uses.
-// Plain fetch keeps the Worker small; see docs.dodopayments.com/api-reference.
+// A small typed client for the one Dodo Payments endpoint this API calls:
+// starting a checkout. Dodo only takes payments; license keys are dotsafe's own
+// (src/keys.ts, src/issue.ts). See docs.dodopayments.com/api-reference.
 
 const BASE_URL = { test_mode: "https://test.dodopayments.com", live_mode: "https://live.dodopayments.com" } as const;
 
@@ -15,74 +16,26 @@ export class DodoError extends Error {
   }
 }
 
-export type LicenseInstance = { id: string; license_key_id: string; business_id: string; created_at: string };
-
-export type LicenseKey = {
-  id: string;
-  product_id: string;
-  status: "active" | "expired" | "disabled" | string;
-  activations_limit: number | null;
-  instances_count: number;
-  expires_at: string | null;
-};
-
-export type Customer = { customer_id: string; email: string; name: string | null };
-
 export type CheckoutSession = { session_id: string; checkout_url: string | null };
 
 export function dodo(env: Env) {
   const base = BASE_URL[env.DODO_MODE] ?? BASE_URL.test_mode;
 
-  async function request<T>(method: string, path: string, body?: unknown, auth = false): Promise<T> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (body !== undefined) headers["content-type"] = "application/json";
-    if (auth) headers.authorization = `Bearer ${env.DODO_API_KEY}`;
-    const res = await fetch(`${base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) throw new DodoError(res.status, text);
-    return (text ? JSON.parse(text) : {}) as T;
-  }
-
   return {
-    /** Public endpoint: records this device against the key. */
-    activate: (licenseKey: string, name: string) =>
-      request<LicenseInstance>("POST", "/licenses/activate", { license_key: licenseKey, name }),
-
-    /** Public endpoint: true while the key is active, unexpired and the instance exists. */
-    validate: (licenseKey: string, instanceId: string) =>
-      request<{ valid: boolean }>("POST", "/licenses/validate", {
-        license_key: licenseKey,
-        license_key_instance_id: instanceId,
-      }),
-
-    /** Public endpoint: frees one activation. */
-    deactivate: (licenseKey: string, instanceId: string) =>
-      request<unknown>("POST", "/licenses/deactivate", {
-        license_key: licenseKey,
-        license_key_instance_id: instanceId,
-      }),
-
-    /** Authenticated: full key details, including which product it's for. */
-    getLicenseKey: (id: string) => request<LicenseKey>("GET", `/license_keys/${encodeURIComponent(id)}`, undefined, true),
-
-    /** Authenticated: a customer's email and name, for the license email. */
-    getCustomer: (id: string) => request<Customer>("GET", `/customers/${encodeURIComponent(id)}`, undefined, true),
-
-    /** Authenticated: a hosted checkout for one copy of dotsafe. */
-    createCheckout: (args: { productId: string; returnUrl: string; email?: string }) =>
-      request<CheckoutSession>(
-        "POST",
-        "/checkouts",
-        {
+    /** A hosted checkout for one copy of dotsafe. */
+    async createCheckout(args: { productId: string; returnUrl: string; email?: string }): Promise<CheckoutSession> {
+      const res = await fetch(`${base}/checkouts`, {
+        method: "POST",
+        headers: { accept: "application/json", "content-type": "application/json", authorization: `Bearer ${env.DODO_API_KEY}` },
+        body: JSON.stringify({
           product_cart: [{ product_id: args.productId, quantity: 1 }],
           return_url: args.returnUrl,
           ...(args.email ? { customer: { email: args.email } } : {}),
-        },
-        true,
-      ),
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new DodoError(res.status, text);
+      return (text ? JSON.parse(text) : {}) as CheckoutSession;
+    },
   };
 }

@@ -2,7 +2,7 @@
 export type Env = {
   /** "test_mode" or "live_mode": which Dodo Payments environment to call. */
   DODO_MODE: "test_mode" | "live_mode";
-  /** The dotsafe product in Dodo; license keys for any other product are rejected. */
+  /** The dotsafe product in Dodo: checkouts sell it, and only payments for it issue a license. */
   DODO_PRODUCT_ID: string;
   /** Where Dodo sends customers after checkout. */
   CHECKOUT_RETURN_URL: string;
@@ -16,6 +16,8 @@ export type Env = {
   DODO_API_KEY: string;
   /** Secret: Dodo webhook signing key (whsec_…). */
   DODO_WEBHOOK_KEY: string;
+  /** Secret: bearer token for /v1/admin (license:create). Unset turns the admin routes off. */
+  ADMIN_TOKEN?: string;
   /** Purchases, licenses and activations (migrations/). */
   DB: D1Database;
   /** Cloudflare Email Service, for the license email. */

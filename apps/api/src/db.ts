@@ -1,5 +1,7 @@
-// The purchase records in D1 (schema: migrations/). Writes are upserts so a
-// webhook Dodo retries, or delivers out of order, lands the same way twice.
+// The records in D1 (schema: migrations/): purchases, the license keys
+// dotsafe issues, and the devices they're activated on. Webhook writes are
+// upserts, so a delivery the provider retries, or sends out of order, lands
+// the same way twice. Keys are stored only as hashes (src/keys.ts).
 
 export type Purchase = {
   paymentId: string;
@@ -11,15 +13,16 @@ export type Purchase = {
   paidAt: string;
 };
 
-export type License = {
+export type LicenseRow = {
   id: string;
-  key: string;
-  paymentId: string | null;
-  customerId: string;
-  email: string | null;
-  activationsLimit: number | null;
-  createdAt: string;
-  expiresAt: string | null;
+  key_hint: string;
+  email: string;
+  name: string | null;
+  source: "purchase" | "manual";
+  payment_id: string | null;
+  activations_limit: number;
+  emailed_at: string | null;
+  revoked_at: string | null;
 };
 
 const now = () => new Date().toISOString();
@@ -50,20 +53,9 @@ export function records(db: D1Database) {
         )
         .bind(p.paymentId, p.customerId, p.email, p.name, p.amount, p.currency, p.paidAt)
         .run();
-      // A license that arrived first has no email yet; fill it in.
-      await db
-        .prepare("UPDATE licenses SET email = ? WHERE payment_id = ? AND email IS NULL")
-        .bind(p.email, p.paymentId)
-        .run();
     },
 
-    async purchase(paymentId: string) {
-      return db
-        .prepare("SELECT email, name FROM purchases WHERE payment_id = ?")
-        .bind(paymentId)
-        .first<{ email: string; name: string | null }>();
-    },
-
+    /** Adds a refund and returns whether the payment is now fully refunded. */
     async refund(paymentId: string, amount: number | null, at: string) {
       await db
         .prepare(
@@ -71,78 +63,111 @@ export function records(db: D1Database) {
         )
         .bind(amount, at, paymentId)
         .run();
+      const row = await db
+        .prepare("SELECT refunded_amount >= amount AS full FROM purchases WHERE payment_id = ?")
+        .bind(paymentId)
+        .first<{ full: number }>();
+      return row?.full === 1;
     },
 
     async dispute(paymentId: string, at: string) {
       await db.prepare("UPDATE purchases SET disputed_at = ? WHERE payment_id = ?").bind(at, paymentId).run();
     },
 
-    async saveLicense(l: License) {
+    /** Creates a license. For a purchase, at most one per payment: a second
+     * call returns the existing one. */
+    async createLicense(l: {
+      id: string;
+      keyHash: string;
+      keyHint: string;
+      email: string;
+      name: string | null;
+      source: "purchase" | "manual";
+      paymentId: string | null;
+      activationsLimit: number;
+    }): Promise<LicenseRow> {
       await db
         .prepare(
-          `INSERT INTO licenses (id, key, payment_id, customer_id, email, activations_limit, created_at, expires_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (id) DO UPDATE SET
-             payment_id = COALESCE(excluded.payment_id, payment_id),
-             email = COALESCE(excluded.email, email),
-             activations_limit = excluded.activations_limit, expires_at = excluded.expires_at`,
+          `INSERT INTO licenses (id, key_hash, key_hint, email, name, source, payment_id, activations_limit, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (payment_id) DO NOTHING`,
         )
-        .bind(l.id, l.key, l.paymentId, l.customerId, l.email, l.activationsLimit, l.createdAt, l.expiresAt)
+        .bind(l.id, l.keyHash, l.keyHint, l.email, l.name, l.source, l.paymentId, l.activationsLimit, now())
         .run();
+      const row = l.paymentId
+        ? await db.prepare("SELECT * FROM licenses WHERE payment_id = ?").bind(l.paymentId).first<LicenseRow>()
+        : await db.prepare("SELECT * FROM licenses WHERE id = ?").bind(l.id).first<LicenseRow>();
+      return row!;
     },
 
-    async revokeLicense(id: string, reason: string | null, at: string) {
-      await db
-        .prepare("UPDATE licenses SET revoked_at = ?, revoked_reason = ? WHERE id = ?")
-        .bind(at, reason, id)
-        .run();
+    async licenseByHash(keyHash: string) {
+      return db.prepare("SELECT * FROM licenses WHERE key_hash = ?").bind(keyHash).first<LicenseRow>();
     },
 
-    /** Claims the license email so it goes out once, even if two deliveries race.
-     * False if it was already sent (or is being sent). */
-    async claimEmail(licenseId: string) {
+    /** Claims the license email and sets the key it will carry, in one
+     * statement: the email goes out once even if two deliveries race, and the
+     * stored hash is always the key that was sent. Replacing the key is safe
+     * because an unclaimed license's key never reached anyone. False if the
+     * email was already sent (or is being sent). */
+    async claimEmail(licenseId: string, keyHash: string, keyHint: string) {
       const res = await db
-        .prepare("UPDATE licenses SET emailed_at = ? WHERE id = ? AND emailed_at IS NULL")
-        .bind(now(), licenseId)
+        .prepare("UPDATE licenses SET emailed_at = ?, key_hash = ?, key_hint = ? WHERE id = ? AND emailed_at IS NULL")
+        .bind(now(), keyHash, keyHint, licenseId)
         .run();
       return res.meta.changes > 0;
     },
 
-    /** Gives the claim back after a failed send, so Dodo's retry tries again. */
+    /** Gives the claim back after a failed send, so a retry tries again. */
     async releaseEmail(licenseId: string) {
       await db.prepare("UPDATE licenses SET emailed_at = NULL WHERE id = ?").bind(licenseId).run();
     },
 
-    async activated(a: { instanceId: string; licenseId: string; deviceName: string; at: string }) {
+    async revokeForPayment(paymentId: string, reason: string, at: string) {
       await db
+        .prepare("UPDATE licenses SET revoked_at = ?, revoked_reason = ? WHERE payment_id = ? AND revoked_at IS NULL")
+        .bind(at, reason, paymentId)
+        .run();
+    },
+
+    /** Adds a device if the license has a free slot, in one statement so two
+     * activations at once can't both take the last slot. False when full. */
+    async activate(a: { instanceId: string; licenseId: string; deviceName: string; limit: number; at: string }) {
+      const res = await db
         .prepare(
           `INSERT INTO activations (instance_id, license_id, device_name, activated_at, last_seen_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (instance_id) DO NOTHING`,
+           SELECT ?, ?, ?, ?, ?
+           WHERE (SELECT count(*) FROM activations WHERE license_id = ? AND deactivated_at IS NULL) < ?`,
         )
-        .bind(a.instanceId, a.licenseId, a.deviceName, a.at, a.at)
+        .bind(a.instanceId, a.licenseId, a.deviceName, a.at, a.at, a.licenseId, a.limit)
         .run();
+      return res.meta.changes > 0;
+    },
+
+    async activeDevices(licenseId: string) {
+      const row = await db
+        .prepare("SELECT count(*) AS n FROM activations WHERE license_id = ? AND deactivated_at IS NULL")
+        .bind(licenseId)
+        .first<{ n: number }>();
+      return row?.n ?? 0;
+    },
+
+    /** A license's still-active device, or null. */
+    async activeDevice(licenseId: string, instanceId: string) {
+      return db
+        .prepare("SELECT instance_id FROM activations WHERE instance_id = ? AND license_id = ? AND deactivated_at IS NULL")
+        .bind(instanceId, licenseId)
+        .first<{ instance_id: string }>();
     },
 
     async seenDevice(instanceId: string) {
       await db.prepare("UPDATE activations SET last_seen_at = ? WHERE instance_id = ?").bind(now(), instanceId).run();
     },
 
-    async deactivated(instanceId: string) {
+    async deactivate(licenseId: string, instanceId: string) {
       await db
-        .prepare("UPDATE activations SET deactivated_at = ? WHERE instance_id = ? AND deactivated_at IS NULL")
-        .bind(now(), instanceId)
+        .prepare("UPDATE activations SET deactivated_at = ? WHERE instance_id = ? AND license_id = ? AND deactivated_at IS NULL")
+        .bind(now(), instanceId, licenseId)
         .run();
     },
   };
-}
-
-/** Runs a record write that must never fail the request it rides on: the
- * app's license calls work even if D1 is down or not set up. */
-export async function bestEffort(what: string, write: () => Promise<unknown>) {
-  try {
-    await write();
-  } catch (e) {
-    console.error(JSON.stringify({ record_failed: what, error: String(e) }));
-  }
 }

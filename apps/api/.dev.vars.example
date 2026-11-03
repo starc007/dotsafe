@@ -5,3 +5,5 @@ DODO_API_KEY=
 DODO_WEBHOOK_KEY=
 # Override wrangler.jsonc vars locally, e.g. your test product id
 DODO_PRODUCT_ID=
+# Any string, to try `bun run license:create` against the local API
+ADMIN_TOKEN=

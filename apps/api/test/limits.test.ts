@@ -22,10 +22,10 @@ function fakeLimiter(limit: number) {
 const from = (ip: string) => ({ "cf-connecting-ip": ip });
 
 describe("abuse limits", () => {
-  it("answers 429 once a client is over its limit, per IP, without calling Dodo", async () => {
+  it("answers 429 once a client is over its limit, per IP", async () => {
     const limiter = fakeLimiter(1);
     const limited: Env = { ...env, LICENSE_LIMITER: limiter.binding };
-    const calls = mockDodo({ status: 200, body: { valid: true } }, { status: 200, body: { valid: true } });
+    mockDodo();
 
     const body = { license_key: "K-1", instance_id: "lki_1" };
     expect((await app.request(post("/v1/licenses/validate", body, from("1.1.1.1")), undefined, limited)).status).toBe(200);
@@ -34,9 +34,8 @@ describe("abuse limits", () => {
     expect(blocked.headers.get("retry-after")).toBe("60");
     expect(await blocked.json()).toEqual({ error: { code: "rate_limited", message: "Too many requests. Try again in a minute." } });
 
-    // Another client still gets through, and the blocked call never reached Dodo.
+    // Another client still gets through.
     expect((await app.request(post("/v1/licenses/validate", body, from("2.2.2.2")), undefined, limited)).status).toBe(200);
-    expect(calls).toHaveLength(2);
     expect([...limiter.keys.keys()]).toEqual(["licenses:1.1.1.1", "licenses:2.2.2.2"]);
   });
 
