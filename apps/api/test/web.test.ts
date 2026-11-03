@@ -15,6 +15,7 @@ describe("POST /v1/checkout", () => {
     expect(calls[0].body).toEqual({
       product_cart: [{ product_id: "pdt_dotsafe", quantity: 1 }],
       return_url: "https://dotsafe.dev/thanks",
+      minimal_address: true,
       customer: { email: "buyer@example.com" },
     });
   });
