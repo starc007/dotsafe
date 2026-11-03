@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { Bot, Check, Copy, Fingerprint, History, ShieldCheck } from "lucide-react";
+import { Fingerprint, History, ShieldCheck } from "lucide-react";
 import { api, message, type AgentActivity } from "@/lib/api";
 import { daysAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -9,19 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IconButton } from "@/components/IconButton";
-import { ActionSwapIcon } from "@/components/motion/action-swap";
 import { ProxyProfilesCard } from "@/components/ProxyProfilesCard";
+import { AgentSetupCard } from "@/components/settings/AgentSetupCard";
 import { CliInstallCard } from "@/components/settings/CliInstallCard";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
-
-const SETUP = "claude mcp add dotsafe -- dotsafe mcp";
 
 /** Connecting agents, the commands they may run without asking, and what
  * they've asked for recently. */
 export function AgentSettings() {
   const [activity, setActivity] = useState<AgentActivity | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -38,13 +34,6 @@ export function AgentSettings() {
       unlisten.then((f) => f());
     };
   }, [load]);
-
-  async function copySetup() {
-    // The setup command is not a secret, so the web clipboard is fine here.
-    await navigator.clipboard.writeText(SETUP);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  }
 
   async function setApprovalAuth(required: boolean) {
     try {
@@ -69,29 +58,7 @@ export function AgentSettings() {
 
   return (
     <>
-      <Surface aria-labelledby="agents-setup-title">
-        <SurfaceHeader icon={<Bot aria-hidden />}>
-          <SurfaceTitle id="agents-setup-title">Connect an agent</SurfaceTitle>
-          <SurfaceDescription>Agents see variable names and ask before running anything.</SurfaceDescription>
-        </SurfaceHeader>
-        <SurfaceBody className="flex flex-col gap-3">
-          <p className="text-muted-foreground">
-            Add dotsafe as an MCP server. In Claude Code, run this in a terminal (install the command-line tool below first):
-          </p>
-          <div className="flex items-center gap-1 rounded-full bg-muted/60 py-1 pr-1 pl-3.5">
-            <code className="selectable min-w-0 flex-1 truncate font-mono text-[12.5px]">{SETUP}</code>
-            <IconButton label="Copy setup command" onClick={copySetup}>
-              <ActionSwapIcon value={copied ? "copied" : "copy"} animation="blur" className="size-4">
-                {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-              </ActionSwapIcon>
-            </IconButton>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            For Cursor and other agents, <code className="font-mono">dotsafe mcp setup</code> prints the config to add.
-            Agents can only reach dotsafe while this app is open and unlocked.
-          </p>
-        </SurfaceBody>
-      </Surface>
+      <AgentSetupCard />
 
       <CliInstallCard />
 

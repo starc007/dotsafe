@@ -6,10 +6,34 @@ Coding agents need your keys to run tests, migrations and dev servers. With dots
 
 ## Set up
 
+First install the command-line tool: in the app, **Settings → Agents → Install**. Then add dotsafe to your agent.
+
+**Claude Code** (in a terminal):
+
 ```bash
-claude mcp add dotsafe -- dotsafe mcp     # Claude Code
-dotsafe mcp setup                         # the config for Cursor and other MCP agents
+claude mcp add dotsafe -- dotsafe mcp
 ```
+
+**Codex** (in a terminal; the Codex app and IDE extension share it):
+
+```bash
+codex mcp add dotsafe -- /usr/local/bin/dotsafe mcp
+```
+
+**Cursor, Claude Desktop, Windsurf and other MCP apps:** add this to their MCP config, for Cursor `~/.cursor/mcp.json`. Use the full path: apps opened from the Dock don't look in `/usr/local/bin`.
+
+```json
+{
+  "mcpServers": {
+    "dotsafe": {
+      "command": "/usr/local/bin/dotsafe",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+`dotsafe mcp setup` prints the same, with the path of the `dotsafe` you ran.
 
 `dotsafe mcp` holds no keys. It passes requests to the dotsafe app, which must be running and unlocked. Without the app, run `dotsafe daemon` in a terminal and approve requests there.
 

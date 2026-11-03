@@ -1059,6 +1059,25 @@ pub async fn open_purchase_page<R: Runtime>(app: AppHandle<R>) -> CmdResult<()> 
     Ok(())
 }
 
+/// Opens a page of the docs on dotsafe.dev. Only pages named here, so the
+/// webview picks one but never supplies an address.
+#[tauri::command]
+pub async fn open_docs<R: Runtime>(app: AppHandle<R>, page: String) -> CmdResult<()> {
+    let url = match page.as_str() {
+        "agents" => "https://dotsafe.dev/docs/agents",
+        "install" => "https://dotsafe.dev/docs/install",
+        _ => return Err(CmdError::other("Unknown docs page.")),
+    };
+    #[cfg(not(test))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener().open_url(url, None::<&str>).map_err(|e| CmdError::other(e.to_string()))?;
+    }
+    #[cfg(test)]
+    let _ = (app, url);
+    Ok(())
+}
+
 /// Runs a license server request on a worker thread without holding the
 /// session lock.
 async fn off_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, ApiError> + Send + 'static) -> CmdResult<T> {

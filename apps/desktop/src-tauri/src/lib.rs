@@ -158,6 +158,7 @@ pub fn run() {
             commands::check_license,
             commands::remove_license,
             commands::open_purchase_page,
+            commands::open_docs,
             cli::cli_status,
             cli::install_cli,
         ])

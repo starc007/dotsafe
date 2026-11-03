@@ -451,6 +451,7 @@ export const api = {
   /** `force` forgets the license even if the server can't be told. */
   removeLicense: (force = false) => call<void>("remove_license", { force }),
   openPurchasePage: () => call<void>("open_purchase_page"),
+  openDocs: (page: "agents" | "install") => call<void>("open_docs", { page }),
   cliStatus: () => call<CliStatus>("cli_status"),
   /** False when the admin password prompt was cancelled. */
   installCli: () => call<boolean>("install_cli"),

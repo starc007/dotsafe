@@ -81,6 +81,7 @@ impl Desktop {
                 commands::activate_license,
                 commands::check_license,
                 commands::open_purchase_page,
+                commands::open_docs,
                 cli::cli_status,
                 cli::install_cli,
                 storage::set_backup_dir,
@@ -201,6 +202,14 @@ fn the_cli_is_only_offered_when_bundled() {
     assert_eq!((status["available"].clone(), status["installed"].clone()), (json!(false), json!(false)));
     assert_eq!(status["path"], "/usr/local/bin/dotsafe");
     assert_eq!(desktop.err("install_cli", json!({}))["kind"], "other");
+}
+
+/// The webview names a docs page; it can't send an address of its own.
+#[test]
+fn docs_open_only_known_pages() {
+    let desktop = Desktop::new();
+    desktop.ok("open_docs", json!({ "page": "agents" }));
+    assert_eq!(desktop.err("open_docs", json!({ "page": "https://evil.example" }))["kind"], "other");
 }
 
 /// dotsafe is paid: the UI shows the activation screen until `licensed`.
