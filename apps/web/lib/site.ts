@@ -12,7 +12,7 @@ export const links = {
 export const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dotsafe.dev';
 
 /** Tracwell analytics for the site (components/TracwellAnalytics.tsx). The
- * project key is public. It's off on localhost. */
+ * project key is public. It only runs in production builds. */
 export const tracwell = {
   projectKey: 'tw_live_2d31439b54f94658b0b1823716b97c65',
 };

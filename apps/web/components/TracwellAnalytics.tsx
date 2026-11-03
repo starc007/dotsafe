@@ -9,10 +9,8 @@ import { links, tracwell } from '@/lib/site';
  * /thanks carries the license key and the buyer's email. */
 const PRIVATE_PARAMS = ['license_key', 'email'];
 
-/** Local development and previews (`bun run web`, `wrangler dev`) send nothing. */
-function isLocal(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname.endsWith('.localhost');
-}
+/** Only production builds send anything: `bun run web` (development) doesn't. */
+const ENABLED = process.env.NODE_ENV === 'production';
 
 /** Starts Tracwell once, in the browser. The SDK records the first page view
  * and follows Next.js navigation through the History API by itself, so no
@@ -25,7 +23,7 @@ function isLocal(hostname: string) {
 export function TracwellAnalytics() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (getAnalytics() || isLocal(window.location.hostname) || PRIVATE_PARAMS.some((p) => params.has(p))) return;
+    if (!ENABLED || getAnalytics() || PRIVATE_PARAMS.some((p) => params.has(p))) return;
     setAnalytics(
       createTracwell({
         projectKey: tracwell.projectKey,
