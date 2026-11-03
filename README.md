@@ -13,7 +13,7 @@
   <a href="https://dotsafe.dev">Website</a> ·
   <a href="https://dotsafe.dev/docs">Docs</a> ·
   <a href="https://dotsafe.dev/changelog">Changelog</a> ·
-  <a href="https://github.com/starc007/dotsafe/releases/latest">Download</a>
+  <a href="https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg">Download</a>
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@
 
 Download the latest release from [GitHub Releases](https://github.com/starc007/dotsafe/releases/latest):
 
-- **Desktop app:** `dotsafe-<version>.dmg` (universal, signed and notarized). It updates itself.
+- **Desktop app:** [dotsafe.dmg](https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg) (universal, signed and notarized). It updates itself.
 - **CLI:** comes inside the app. Settings → Agents → Install links it into `/usr/local/bin`, and it updates with the app. Without the app, download `dotsafe-<version>-macos-universal.tar.gz` (signed and notarized), unpack it and put `dotsafe` on your `PATH`.
 
 dotsafe is paid, with no free version: one license is $49 and covers up to 2 Macs. Activate it in the app's first screen or with `dotsafe license activate <key>`. Either one is enough.
