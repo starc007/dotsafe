@@ -109,10 +109,9 @@ licenses.post("/deactivate", async (c) => {
     return c.json({ ok: true });
   } catch (e) {
     // Already gone (instance or key not found): the slot is free either way.
-    if (e instanceof DodoError && (e.status === 403 || e.status === 404)) {
-      await bestEffort("deactivation", () => records(c.env.DB).deactivated(instanceId));
-      return c.json({ ok: true });
-    }
+    // Nothing is recorded, though: anyone can send a made-up key, so only a
+    // deactivation Dodo confirmed may change our records.
+    if (e instanceof DodoError && (e.status === 403 || e.status === 404)) return c.json({ ok: true });
     return fail(c, 502, "upstream_error", "Couldn't reach the license server. Try again in a moment.");
   }
 });

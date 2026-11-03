@@ -19,6 +19,7 @@ The code is public, so anyone can script these routes, and every call spends the
 
 - License routes allow 30 requests a minute per client IP, and checkout 10, per Cloudflare location. Over that, the answer is `429 rate_limited` with `Retry-After: 60`. The app counts a 429 as offline, so a busy shared IP never makes a good license look invalid.
 - Request bodies are capped at 16 KB (512 KB for webhooks), with `413 too_large`.
+- Only facts Dodo confirms reach D1. Purchases and keys come from signed webhooks; a device is recorded only after Dodo accepts its key for dotsafe, marked seen only when Dodo says the key is valid, and marked deactivated only when Dodo confirms it. A made-up key never changes a record. The database has no public address; only the Worker can reach it.
 - Webhooks aren't rate limited: they're signed by Dodo, checked for freshness and handled once each, and limiting them could drop a real purchase.
 
 ## What's stored
