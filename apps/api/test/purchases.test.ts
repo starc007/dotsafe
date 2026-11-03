@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Webhook } from "standardwebhooks";
 import app from "../src/index";
+import type { Env } from "../src/env";
+import { hashKey } from "../src/keys";
 import { mockDodo, post, testEnv } from "./helpers";
 
-// Purchases, license keys and devices are recorded from webhooks and the
-// license routes, and each new key is emailed exactly once.
+// A paid order gets a license key dotsafe issues itself, emailed exactly once;
+// a full refund revokes it. Dodo is only the payment: no call reaches it here
+// (mockDodo with no responses fails the test on any fetch).
 
 let t: ReturnType<typeof testEnv>;
 beforeEach(() => {
   t = testEnv();
+  mockDodo();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -40,157 +44,106 @@ const payment = {
   created_at: "2026-11-03T09:59:00Z",
   product_cart: [{ product_id: "pdt_dotsafe", quantity: 1 }],
 };
-const grant = {
-  id: "grant_1",
-  customer_id: "cus_1",
-  payment_id: "pay_1",
-  status: "Delivered",
-  integration_type: "license_key",
-  license_key: { id: "lic_1", key: "DS-AAAA-BBBB", status: "active", expires_at: null, activations_used: 0, activations_limit: 2 },
-  created_at: "2026-11-03T10:00:00Z",
-};
-const keyDetails = { id: "lic_1", product_id: "pdt_dotsafe", status: "active", activations_limit: 2, instances_count: 0, expires_at: null };
 const row = (sql: string) => t.sqlite.prepare(sql).get() as any;
+const sentKey = (i = 0) => (t.sent[i].text as string).match(/DOTSAFE(-[0-9A-Z]{5}){4}/)![0];
 
 describe("purchase webhooks", () => {
-  it("records the payment, then the key, and emails the key once", async () => {
+  it("records the payment, issues a key and emails it", async () => {
     expect((await deliver("payment.succeeded", payment)).status).toBe(200);
-    expect(row("SELECT * FROM purchases")).toMatchObject({
-      payment_id: "pay_1",
+    expect(row("SELECT * FROM purchases")).toMatchObject({ payment_id: "pay_1", email: "ada@example.com", amount: 4900 });
+    expect(row("SELECT * FROM licenses")).toMatchObject({
       email: "ada@example.com",
       name: "Ada Lovelace",
-      amount: 4900,
-      currency: "USD",
-      paid_at: "2026-11-03T09:59:00Z",
-    });
-
-    // Only the product check reaches Dodo: the buyer is already known.
-    const calls = mockDodo({ status: 200, body: keyDetails });
-    expect((await deliver("entitlement_grant.created", grant)).status).toBe(200);
-    expect(calls).toHaveLength(1);
-    expect(row("SELECT * FROM licenses")).toMatchObject({
-      id: "lic_1",
-      key: "DS-AAAA-BBBB",
+      source: "purchase",
       payment_id: "pay_1",
-      email: "ada@example.com",
       activations_limit: 2,
     });
-    expect(row("SELECT emailed_at FROM licenses").emailed_at).toBeTruthy();
     expect(t.sent).toHaveLength(1);
     expect(t.sent[0]).toMatchObject({ to: "ada@example.com", subject: "Your dotsafe license key" });
-    expect(t.sent[0].text).toContain("DS-AAAA-BBBB");
     expect(t.sent[0].text).toContain("Hi Ada,");
+    // The emailed key is the one stored (as a hash) and it activates.
+    expect(row("SELECT key_hash FROM licenses").key_hash).toBe(await hashKey(sentKey()));
+    const res = await app.request(post("/v1/licenses/activate", { license_key: sentKey() }), undefined, t.env);
+    expect(res.status).toBe(201);
   });
 
-  it("asks Dodo for the buyer when the key arrives first", async () => {
-    mockDodo({ status: 200, body: keyDetails }, { status: 200, body: { customer_id: "cus_1", email: "ada@example.com", name: null } });
-    await deliver("entitlement_grant.created", grant);
-    expect(t.sent[0].to).toBe("ada@example.com");
-
+  it("issues one license per payment, however often the webhook comes", async () => {
+    await deliver("payment.succeeded", payment, "msg_same");
+    await deliver("payment.succeeded", payment, "msg_same");
     await deliver("payment.succeeded", payment);
-    expect(row("SELECT count(*) AS n FROM purchases").n).toBe(1);
+    expect(row("SELECT count(*) AS n FROM licenses").n).toBe(1);
     expect(t.sent).toHaveLength(1);
   });
 
-  it("handles a redelivered webhook once", async () => {
-    mockDodo({ status: 200, body: keyDetails }, { status: 200, body: { customer_id: "cus_1", email: "ada@example.com", name: null } });
-    await deliver("entitlement_grant.created", grant, "msg_same");
-    expect((await deliver("entitlement_grant.created", grant, "msg_same")).status).toBe(200);
-    expect(t.sent).toHaveLength(1);
-  });
-
-  it("never emails a key twice, even from different deliveries", async () => {
-    await deliver("payment.succeeded", payment);
-    mockDodo({ status: 200, body: keyDetails }, { status: 200, body: keyDetails });
-    await deliver("entitlement_grant.created", grant);
-    await deliver("entitlement_grant.delivered", grant);
-    expect(t.sent).toHaveLength(1);
-  });
-
-  it("answers 500 when the email fails, so Dodo retries, and sends on the retry", async () => {
-    await deliver("payment.succeeded", payment);
+  it("answers 500 when the email fails, then sends a working key on the retry", async () => {
     const send = t.env.EMAIL.send;
     t.env.EMAIL.send = async () => {
       throw new Error("email service down");
     };
-    mockDodo({ status: 200, body: keyDetails }, { status: 200, body: keyDetails });
-    expect((await deliver("entitlement_grant.created", grant, "msg_retry")).status).toBe(500);
+    expect((await deliver("payment.succeeded", payment, "msg_retry")).status).toBe(500);
     expect(row("SELECT emailed_at FROM licenses").emailed_at).toBeNull();
 
     t.env.EMAIL.send = send;
-    expect((await deliver("entitlement_grant.created", grant, "msg_retry")).status).toBe(200);
+    expect((await deliver("payment.succeeded", payment, "msg_retry")).status).toBe(200);
     expect(t.sent).toHaveLength(1);
+    expect(row("SELECT count(*) AS n FROM licenses").n).toBe(1);
+    expect(row("SELECT key_hash FROM licenses").key_hash).toBe(await hashKey(sentKey()));
   });
 
-  it("ignores keys for other products", async () => {
-    mockDodo({ status: 200, body: { ...keyDetails, product_id: "pdt_other" } });
-    await deliver("entitlement_grant.created", grant);
+  it("ignores payments for other products", async () => {
+    await deliver("payment.succeeded", { ...payment, product_cart: [{ product_id: "pdt_other", quantity: 1 }] });
     expect(row("SELECT count(*) AS n FROM licenses").n).toBe(0);
     expect(t.sent).toHaveLength(0);
   });
 
-  it("records refunds, disputes and revoked keys", async () => {
+  it("revokes the key on a full refund, not a partial one, and records disputes", async () => {
     await deliver("payment.succeeded", payment);
-    mockDodo({ status: 200, body: keyDetails });
-    await deliver("entitlement_grant.created", grant);
+    await deliver("refund.succeeded", { refund_id: "ref_1", payment_id: "pay_1", amount: 1000, created_at: "2026-11-04T00:00:00Z" });
+    expect(row("SELECT revoked_at FROM licenses").revoked_at).toBeNull();
 
-    await deliver("refund.succeeded", { refund_id: "ref_1", payment_id: "pay_1", amount: 4900, created_at: "2026-11-04T00:00:00Z" });
-    await deliver("dispute.opened", { dispute_id: "dsp_1", payment_id: "pay_1", created_at: "2026-11-05T00:00:00Z" });
-    await deliver("entitlement_grant.revoked", { ...grant, status: "Revoked", revoked_at: "2026-11-04T00:00:01Z", revocation_reason: "refund" });
+    await deliver("refund.succeeded", { refund_id: "ref_2", payment_id: "pay_1", amount: 3900, created_at: "2026-11-05T00:00:00Z" });
+    expect(row("SELECT revoked_at, revoked_reason FROM licenses")).toEqual({ revoked_at: "2026-11-05T00:00:00Z", revoked_reason: "refund" });
+    const res = await app.request(post("/v1/licenses/activate", { license_key: sentKey() }), undefined, t.env);
+    expect(res.status).toBe(403);
 
-    expect(row("SELECT * FROM purchases")).toMatchObject({
-      refunded_amount: 4900,
-      refunded_at: "2026-11-04T00:00:00Z",
-      disputed_at: "2026-11-05T00:00:00Z",
-    });
-    expect(row("SELECT * FROM licenses")).toMatchObject({ revoked_at: "2026-11-04T00:00:01Z", revoked_reason: "refund" });
+    await deliver("dispute.opened", { dispute_id: "dsp_1", payment_id: "pay_1", created_at: "2026-11-06T00:00:00Z" });
+    expect(row("SELECT disputed_at FROM purchases").disputed_at).toBe("2026-11-06T00:00:00Z");
+  });
+
+  it("rejects a forged webhook before reading it", async () => {
+    const body = JSON.stringify({ type: "payment.succeeded", data: payment });
+    const res = await app.request(
+      post("/v1/webhooks/dodo", body, { "webhook-id": "msg_x", "webhook-timestamp": String(Math.floor(Date.now() / 1000)), "webhook-signature": "v1,AAAA" }),
+      undefined,
+      t.env,
+    );
+    expect(res.status).toBe(401);
+    expect(row("SELECT count(*) AS n FROM licenses").n).toBe(0);
   });
 });
 
-describe("device records", () => {
-  const instance = { id: "lki_1", license_key_id: "lic_1", business_id: "bus_1", created_at: "2026-11-03T11:00:00Z" };
-  const req = (path: string, body: unknown, env = t.env) => app.request(post(path, body), undefined, env);
+describe("POST /v1/admin/licenses", () => {
+  const admin = (body: unknown, token?: string, env: Env = { ...t.env, ADMIN_TOKEN: "s3cret-admin-token" }) =>
+    app.request(post("/v1/admin/licenses", body, token ? { authorization: `Bearer ${token}` } : {}), undefined, env);
 
-  it("records activation, each check and deactivation", async () => {
-    mockDodo({ status: 201, body: instance }, { status: 200, body: { ...keyDetails, instances_count: 1 } });
-    await req("/v1/licenses/activate", { license_key: "DS-AAAA-BBBB", device_name: "Ada's MacBook" });
-    expect(row("SELECT * FROM activations")).toMatchObject({
-      instance_id: "lki_1",
-      license_id: "lic_1",
-      device_name: "Ada's MacBook",
-      activated_at: "2026-11-03T11:00:00Z",
-      deactivated_at: null,
-    });
-
-    mockDodo({ status: 200, body: { valid: true } });
-    const before = row("SELECT last_seen_at FROM activations").last_seen_at;
-    await req("/v1/licenses/validate", { license_key: "DS-AAAA-BBBB", instance_id: "lki_1" });
-    expect(row("SELECT last_seen_at FROM activations").last_seen_at).not.toBe(before);
-
-    mockDodo({ status: 200 });
-    await req("/v1/licenses/deactivate", { license_key: "DS-AAAA-BBBB", instance_id: "lki_1" });
-    expect(row("SELECT deactivated_at FROM activations").deactivated_at).toBeTruthy();
-  });
-
-  it("doesn't let a stranger change a device's record without a working key", async () => {
-    mockDodo({ status: 201, body: instance }, { status: 200, body: { ...keyDetails, instances_count: 1 } });
-    await req("/v1/licenses/activate", { license_key: "DS-AAAA-BBBB", device_name: "Ada's MacBook" });
-    const seen = row("SELECT last_seen_at FROM activations").last_seen_at;
-
-    // A made-up key with someone's instance id: Dodo says no, and nothing changes.
-    mockDodo({ status: 404, body: { message: "not found" } });
-    const res = await req("/v1/licenses/deactivate", { license_key: "MADE-UP-KEY", instance_id: "lki_1" });
-    expect(res.status).toBe(200);
-    expect(row("SELECT deactivated_at FROM activations").deactivated_at).toBeNull();
-
-    mockDodo({ status: 200, body: { valid: false } });
-    await req("/v1/licenses/validate", { license_key: "MADE-UP-KEY", instance_id: "lki_1" });
-    expect(row("SELECT last_seen_at FROM activations").last_seen_at).toBe(seen);
-  });
-
-  it("still activates when the database is unavailable", async () => {
-    mockDodo({ status: 201, body: instance }, { status: 200, body: keyDetails });
-    const res = await req("/v1/licenses/activate", { license_key: "DS-AAAA-BBBB" }, { ...t.env, DB: undefined as never });
+  it("issues and emails a free license with the admin token", async () => {
+    const res = await admin({ email: "saurabh@example.com", name: "Saurabh" }, "s3cret-admin-token");
     expect(res.status).toBe(201);
+    const json = (await res.json()) as any;
+    expect(json.key).toBe(sentKey());
+    expect(json.key_hint).toBe(sentKey().slice(-4));
+    expect(row("SELECT source, email, payment_id FROM licenses")).toEqual({ source: "manual", email: "saurabh@example.com", payment_id: null });
+    expect(t.sent[0].to).toBe("saurabh@example.com");
+  });
+
+  it("refuses without the right token, and is off when no token is set", async () => {
+    expect((await admin({ email: "x@example.com" })).status).toBe(401);
+    expect((await admin({ email: "x@example.com" }, "wrong")).status).toBe(401);
+    expect((await admin({ email: "x@example.com" }, "anything", t.env)).status).toBe(404);
+    expect(row("SELECT count(*) AS n FROM licenses").n).toBe(0);
+  });
+
+  it("needs a valid email", async () => {
+    expect((await admin({ email: "not-an-email" }, "s3cret-admin-token")).status).toBe(400);
   });
 });

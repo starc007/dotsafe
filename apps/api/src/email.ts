@@ -1,9 +1,9 @@
 import type { Env } from "./env";
 
-// The email that delivers a license key. Dodo's own license email is turned
-// off in its dashboard, so this is the only one buyers get.
+// The email that delivers a license key: the only copy of it anyone gets,
+// since dotsafe issues its own keys and stores only their hashes.
 
-const DOWNLOAD = "https://github.com/starc007/dotsafe/releases/latest";
+const DOWNLOAD = "https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg";
 const DOCS = "https://dotsafe.dev/docs/install";
 // A PNG on the site (apps/web/public): most email clients don't show SVG.
 const LOGO = "https://dotsafe.dev/email-logo.png";

@@ -7,11 +7,11 @@ export type ErrorCode =
   | "not_found"
   | "inactive"
   | "limit_reached"
-  | "wrong_product"
   | "not_configured"
   | "upstream_error"
   | "rate_limited"
-  | "too_large";
+  | "too_large"
+  | "unauthorized";
 
 export function fail(c: Context, status: ContentfulStatusCode, code: ErrorCode, message: string) {
   return c.json({ error: { code, message } }, status);
