@@ -2,7 +2,7 @@
 
 > The terms for buying and using dotsafe: your license, refunds, updates, and what we're responsible for.
 
-Last updated: November 4, 2026
+Last updated: November 5, 2026
 
 These terms cover the dotsafe app, the `dotsafe` CLI, the license you buy, and this website. By buying a license or using dotsafe, you agree to them. If you don't, please don't use dotsafe.
 
@@ -10,7 +10,7 @@ These terms cover the dotsafe app, the `dotsafe` CLI, the license you buy, and t
 
 - A license costs a one-time payment. There's no subscription.
 - It's for one person, on up to 2 Macs at a time. Deactivate it on one Mac to move it to another.
-- It includes the updates we release in the year after you buy. You can keep using the last version you received for as long as you like.
+- It includes every update we release, with no renewal fee.
 - Don't share, resell or publish your license key. A key that's shared or abused can be revoked.
 
 ## Payment
