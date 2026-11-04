@@ -68,7 +68,15 @@ export function Footer() {
         </nav>
       </div>
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pt-14 text-xs text-ds-muted sm:px-6">
-        <span>© 2026 dotsafe</span>
+        <span className="flex items-center gap-4">
+          © 2026 dotsafe
+          <Link href="/privacy" className="transition-colors hover:text-ds-fg">
+            Privacy
+          </Link>
+          <Link href="/terms" className="transition-colors hover:text-ds-fg">
+            Terms
+          </Link>
+        </span>
         <span>macOS 13 or later · Open source</span>
       </div>
       <p

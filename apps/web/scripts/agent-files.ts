@@ -120,6 +120,8 @@ ${docs.map((g) => `## ${g.title}\n\n${list(g.pages)}`).join('\n\n')}
 
 - [Home](${site.url}/index.md): What dotsafe is, in short
 - [Pricing](${site.url}/pricing.md): The one plan and the FAQ
+- [Privacy policy](${site.url}/privacy.md): What dotsafe collects and what never leaves your Mac
+- [Terms of service](${site.url}/terms.md): The license, refunds and updates
 - [Changelog](${site.url}/changelog.md): What changed in each release
 - [Source code](${links.github}): The app, the CLI and the vault format, MIT licensed
 `,
