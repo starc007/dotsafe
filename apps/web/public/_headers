@@ -21,5 +21,9 @@
   Content-Type: text/plain; charset=utf-8
 /changelog.md
   Content-Type: text/plain; charset=utf-8
+/privacy.md
+  Content-Type: text/plain; charset=utf-8
+/terms.md
+  Content-Type: text/plain; charset=utf-8
 /changelog.xml
   Content-Type: application/rss+xml; charset=utf-8
