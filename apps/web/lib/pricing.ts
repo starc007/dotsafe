@@ -4,7 +4,7 @@ export const PLAN = {
   was: '$79',
   price: '$49',
   term: 'one-time',
-  blurb: 'Everything dotsafe does, on up to 2 Macs. Pay once, keep your version.',
+  blurb: 'Everything dotsafe does, on up to 2 Macs. Pay once, every update included.',
   perks: [
     'Up to 2 Macs',
     'Unlimited projects, variables and environments',
@@ -14,6 +14,6 @@ export const PLAN = {
     'Secrets linked across environments',
     'Key rotation through OpenAI, Cloudflare and AWS',
     'Agent access approved with Touch ID',
-    'A year of updates',
+    'Lifetime updates',
   ],
 };
