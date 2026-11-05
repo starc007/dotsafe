@@ -14,8 +14,8 @@ export const FAQ = [
     a: "You get a recovery key when you create a vault. It's the only way back in, so keep it somewhere safe. We can't reset it for you.",
   },
   {
-    q: 'Do AI agents see my keys?',
-    a: 'No. Claude Code, Cursor and other agents can run commands with your secrets only after you approve them with Touch ID, and the values are taken out of anything they read back.',
+    q: 'Is dotsafe a secret manager for AI agents?',
+    a: "Yes. Claude Code, Cursor, Codex and other MCP agents can list your variable names and run commands with your secrets, but only after you approve them with Touch ID. dotsafe never hands an agent a value, and values are taken out of anything it reads back. OpenAI and Anthropic keys go through a local proxy, so the command never holds them.",
   },
   {
     q: 'Does it work offline?',
@@ -35,6 +35,10 @@ export const FAQ = [
   },
   {
     q: 'Is it open source?',
-    a: 'Yes, under the MIT license. The app, the CLI and the vault format are all on GitHub, so you can read every line.',
+    a: 'Yes. dotsafe is an open source secret manager under the MIT license. The app, the CLI and the vault format are all on GitHub, so you can read every line.',
+  },
+  {
+    q: 'How is dotsafe different from Doppler or Infisical?',
+    a: "Doppler and Infisical are team services: your secrets live on their servers (or your own, with Infisical), and paid plans are priced per user. dotsafe keeps them encrypted on your Mac, syncs through storage you already own, costs one payment, and is built for AI agents. Import from Doppler, Infisical or 1Password in one command.",
   },
 ];

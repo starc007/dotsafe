@@ -18,16 +18,16 @@ export function Features() {
           project picks up the new value.
         </FeatureRow>
         <FeatureRow scene="dune" flip title="Agents never see the values." demo={<AgentDemo />}>
-          Claude Code and Cursor run commands with your secrets after you approve them with Touch ID. What they read back
-          has the values taken out.
+          A secret manager built for AI agents. Claude Code, Cursor and Codex run commands with your secrets after you
+          approve them with Touch ID, and what they read back has the values taken out.
         </FeatureRow>
         <FeatureRow scene="tide" bare title="A CLI for your terminal." demo={<TerminalDemo />} href={links.docs}>
-          Run anything with your variables, catch keys before you commit, or import from Doppler, Infisical and
-          1Password.
+          Replace your .env files: run anything with your variables, catch keys before you commit, or import from
+          Doppler, Infisical and 1Password.
         </FeatureRow>
         <FeatureRow scene="moss" flip title="Open source, nothing to trust." demo={<OpenSourceDemo />} href={links.github}>
-          Read every line. Your vault is encrypted before it leaves your Mac, and there&apos;s no dotsafe server holding
-          it.
+          An open source secret manager under the MIT license: read every line. Your vault is encrypted before it leaves
+          your Mac, and there&apos;s no dotsafe server holding it.
         </FeatureRow>
       </div>
     </section>

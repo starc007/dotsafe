@@ -10,6 +10,8 @@
 /public/changelog.xml
 /public/llms.txt
 /public/llms-full.txt
+/public/alternatives.md
+/public/for.md
 
 # test & build
 /coverage

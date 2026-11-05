@@ -23,8 +23,8 @@ export const tracwell = {
 export const site = {
   url: 'https://dotsafe.dev',
   name: 'dotsafe',
-  title: 'dotsafe: the local-first secret manager for developers',
+  title: 'dotsafe: the open source secret manager for developers and AI agents',
   description:
-    'Keep .env secrets encrypted on your Mac and sync them through iCloud, Dropbox, S3 or any storage you own. A CLI, Touch ID unlock and safe access for AI agents.',
+    'A local-first, open source secret manager for developers and AI agents. Keep .env secrets encrypted on your Mac and synced through iCloud, Dropbox, S3 or storage you own.',
   price: '49',
 };

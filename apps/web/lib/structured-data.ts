@@ -59,3 +59,37 @@ export function docsData({ href, title, description }: { href: string; title: st
     ],
   };
 }
+
+/** An alternatives or use-case page, and where it sits under its hub. */
+export function contentPageData({
+  href,
+  title,
+  description,
+  section,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  section?: { name: string; href: string };
+}) {
+  const url = `${site.url}${href}`;
+  const crumbs = [...(section ? [{ name: section.name, url: `${site.url}${section.href}` }] : []), { name: title, url }];
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        name: title,
+        description,
+        url,
+        encoding: { '@type': 'MediaObject', encodingFormat: 'text/markdown', contentUrl: `${url}.md` },
+        about: { '@type': 'SoftwareApplication', name: site.name, url: site.url },
+        publisher,
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: c.url })),
+      },
+    ],
+  };
+}
