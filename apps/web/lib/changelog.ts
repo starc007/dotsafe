@@ -16,6 +16,17 @@ export type Release = {
 
 export const RELEASES: Release[] = [
   {
+    version: '0.1.3',
+    title: 'Cron jobs on servers, and arm64 Linux',
+    summary: 'Nightly jobs on a server can use your secrets without the master password or a token stored on it.',
+    changes: [
+      '`dotsafe daemon --detach` unlocks once after a reboot and keeps the vault key in memory only.',
+      'Cron jobs run with `dotsafe run -- ./job.sh`. Each new job, key or changed script is approved once with `dotsafe approve`, which asks for the master password.',
+      '`dotsafe run --only A,B` passes just the keys a command needs.',
+      'Linux builds for arm64: the app, the .deb and the CLI.',
+    ],
+  },
+  {
     version: '0.1.2',
     date: '2026-11-05',
     title: 'dotsafe on Linux',
