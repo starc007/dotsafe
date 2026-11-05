@@ -3,9 +3,9 @@ export const links = {
   // The .dmg itself, so the button downloads instead of opening GitHub. Every
   // release uploads an unversioned copy (scripts/release.sh), so this never changes.
   download: 'https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg',
-  // Linux builds come from .github/workflows/release-linux.yml, with the same
-  // unversioned copies. The install guide has both and says which to pick.
-  linux: '/docs/install#linux',
+  // Every platform's installers, on one page (lib/downloads.ts).
+  downloads: '/download',
+  linux: '/download#linux',
   github: 'https://github.com/starc007/dotsafe',
   releases: 'https://github.com/starc007/dotsafe/releases',
   issues: 'https://github.com/starc007/dotsafe/issues',

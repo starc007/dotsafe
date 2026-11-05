@@ -3,7 +3,8 @@
 import { useEffect } from 'react';
 import { createTracwell } from 'tracwell';
 import { getAnalytics, setAnalytics, track } from '@/lib/analytics';
-import { links, tracwell } from '@/lib/site';
+import { isDownloadLink } from '@/lib/downloads';
+import { tracwell } from '@/lib/site';
 
 /** Query parameters that must never reach analytics: Dodo's return URL to
  * /thanks carries the license key and the buyer's email. */
@@ -39,7 +40,7 @@ export function TracwellAnalytics() {
     // sees. One listener covers every download link on the site.
     const onClick = (e: MouseEvent) => {
       const link = (e.target as Element | null)?.closest?.('a');
-      if (link?.href === links.download) track('download_link_opened', { path: window.location.pathname });
+      if (link && isDownloadLink(link.href)) track('download_link_opened', { path: window.location.pathname, file: link.href.split('/').pop() ?? '' });
     };
     document.addEventListener('click', onClick);
     return () => document.removeEventListener('click', onClick);

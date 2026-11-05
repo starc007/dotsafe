@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import type { ContentItem, Section } from '@/lib/content-pages';
 import { FinalCta } from '@/components/landing/FinalCta';
+import { BrandMark } from '@/components/BrandMark';
 
 /** A hub page: every page of a section as a card, grouped, linking each one
  * so none is an orphan. Cards show the short label and blurb from
@@ -40,7 +41,7 @@ function HubCard({ item, href }: { item: ContentItem; href: string }) {
     >
       <div className="flex items-center gap-3">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-ds-shell text-ds-fg/85">
-          {item.logo ? <Logo src={`/brands/${item.logo}.svg`} /> : <Initials label={item.label} />}
+          {item.logo ? <BrandMark name={item.logo} /> :<Initials label={item.label} />}
         </span>
         <span className="min-w-0 truncate text-[15px] font-medium">{item.label}</span>
         <ArrowUpRight
@@ -51,14 +52,6 @@ function HubCard({ item, href }: { item: ContentItem; href: string }) {
       <p className="line-clamp-2 text-sm leading-snug text-pretty text-ds-muted">{item.blurb}</p>
     </Link>
   );
-}
-
-/** A product's mark as a one-colour mask: every logo, gradients included,
- * takes the chip's text colour, so the cards read as one set. Decorative:
- * the product's name is right beside it. */
-function Logo({ src }: { src: string }) {
-  const mask = `url(${src}) center / contain no-repeat`;
-  return <span aria-hidden className="size-[18px] bg-current" style={{ mask, WebkitMask: mask }} />;
 }
 
 /** "HashiCorp Vault" → "HV", "1Password" → "1P": a neutral mark instead of a

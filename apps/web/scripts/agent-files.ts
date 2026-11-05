@@ -1,6 +1,6 @@
 /**
  * Writes the site's files for AI agents into public/, before every dev and
- * build: Markdown copies of the home, pricing and changelog pages, llms.txt,
+ * build: Markdown copies of the home, pricing, download and changelog pages, llms.txt,
  * llms-full.txt (every docs page in one file) and an RSS feed of releases.
  *
  * They're built from the same data as the pages (lib/), so they can't drift.
@@ -16,6 +16,7 @@ import { ALTERNATIVES, USE_CASES, type Section } from '@/lib/content-pages';
 import { DOCS } from '@/lib/docs';
 import { docsContent } from '@/lib/docs-content';
 import { FAQ } from '@/lib/faq';
+import { PLATFORMS } from '@/lib/downloads';
 import { PLAN } from '@/lib/pricing';
 import { links, site } from '@/lib/site';
 
@@ -25,7 +26,7 @@ const abs = (path: string) => (path.startsWith('http') ? path : `${site.url}${pa
 const absolutize = (md: string) => md.replace(/\]\(\//g, `](${site.url}/`);
 
 const SUMMARY =
-  'dotsafe is an open source, local-first, zero-knowledge secret manager for developers and their AI agents. Secrets are encrypted on your Mac and synced through storage you already own (iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV). There is no dotsafe server holding your vault. It ships as a macOS app and a `dotsafe` CLI that share one vault, and AI agents can run commands with your secrets through its MCP server after you approve them, without dotsafe ever handing them a value.';
+  'dotsafe is an open source, local-first, zero-knowledge secret manager for developers and their AI agents. Secrets are encrypted on your Mac and synced through storage you already own (iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV). There is no dotsafe server holding your vault. It ships as an app for macOS and Linux and a `dotsafe` CLI that share one vault, and AI agents can run commands with your secrets through its MCP server after you approve them, without dotsafe ever handing them a value.';
 
 const docs = DOCS.map((group) => ({
   ...group,
@@ -48,7 +49,7 @@ out(
 
 ${SUMMARY}
 
-- [Download for macOS](${links.download})
+- [Download for macOS and Linux](${site.url}/download.md)
 - [Docs](${site.url}/docs.md)
 - [Pricing](${site.url}/pricing.md)
 - [Changelog](${site.url}/changelog.md)
@@ -80,13 +81,34 @@ out(
   'pricing.md',
   `# Pricing
 
-> One ${site.name} license, ${PLAN.price} once, for up to 2 Macs.
+> One ${site.name} license, ${PLAN.price} once, for up to 2 computers, Mac or Linux.
 
 ${pricing}
 
 ## FAQ
 
 ${faq}
+`,
+);
+
+out(
+  'download.md',
+  `# Download
+
+> Download ${site.name} for macOS or Linux. The app and the CLI share one encrypted vault.
+
+${PLATFORMS.map(
+  (p) => `## ${p.name}
+
+${p.detail}.
+
+${p.downloads.map((d) => `- [${d.label}](${d.href})`).join('\n')}
+- CLI only: \`${p.cli}\` from the [latest release](${links.releases}/latest)
+
+${p.notes.map((n) => `- ${n}`).join('\n')}`,
+).join('\n\n')}
+
+The first screen asks for your license key. See [pricing](${site.url}/pricing.md) and the [install guide](${site.url}/docs/install.md).
 `,
 );
 
@@ -148,6 +170,7 @@ ${sectionGroups(USE_CASES)
 
 - [Home](${site.url}/index.md): What dotsafe is, in short
 - [Pricing](${site.url}/pricing.md): The one plan and the FAQ
+- [Download](${site.url}/download.md): The app and CLI for macOS and Linux
 - [Privacy policy](${site.url}/privacy.md): What dotsafe collects and what never leaves your Mac
 - [Terms of service](${site.url}/terms.md): The license, refunds and updates
 - [Changelog](${site.url}/changelog.md): What changed in each release
@@ -195,4 +218,4 @@ ${released
 </rss>`,
 );
 
-console.log('agent files: index.md, pricing.md, changelog.md, changelog.xml, alternatives.md, for.md, llms.txt, llms-full.txt');
+console.log('agent files: index.md, pricing.md, download.md, changelog.md, changelog.xml, alternatives.md, for.md, llms.txt, llms-full.txt');
