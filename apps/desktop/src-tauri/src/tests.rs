@@ -199,7 +199,7 @@ fn the_cli_is_only_offered_when_bundled() {
     let desktop = Desktop::new();
     let status = desktop.ok("cli_status", json!({}));
     assert_eq!((status["available"].clone(), status["installed"].clone()), (json!(false), json!(false)));
-    assert_eq!(status["path"], "/usr/local/bin/dotsafe");
+    assert_eq!(status["path"], if cfg!(target_os = "macos") { "/usr/local/bin/dotsafe" } else { "/usr/bin/dotsafe" });
     assert_eq!(desktop.err("install_cli", json!({}))["kind"], "other");
 }
 

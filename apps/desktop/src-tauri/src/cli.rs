@@ -1,5 +1,6 @@
 //! The dotsafe CLI ships inside the app, as `Contents/MacOS/dotsafe` (added by
-//! scripts/release.sh), so it's signed and notarized with it. Installing it
+//! scripts/release.sh), so it's signed and notarized with it. On Linux the
+//! .deb puts it in /usr/bin instead, and there's nothing to install here. Installing it
 //! links `/usr/local/bin/dotsafe` to that copy: no separate download, it
 //! updates with the app, and agents can run `dotsafe mcp`. Debug builds don't
 //! bundle it, so they report it as unavailable.
@@ -11,7 +12,12 @@ use serde::Serialize;
 use crate::state::{CmdError, CmdResult};
 
 /// Where the CLI is linked: on the default PATH of macOS shells.
+#[cfg(target_os = "macos")]
 const LINK: &str = "/usr/local/bin/dotsafe";
+/// On Linux the .deb installs the CLI here, next to the app, so it shows as
+/// installed; the AppImage doesn't carry it (its files move on every launch).
+#[cfg(not(target_os = "macos"))]
+const LINK: &str = "/usr/bin/dotsafe";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

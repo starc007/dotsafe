@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Field } from "@/components/Field";
 import { RecoveryKeyPanel } from "@/components/RecoveryKeyPanel";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
+import { isMac } from "@/lib/platform";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceFooter, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Touch ID unlock for this Mac, the devices that can open the vault,
@@ -53,38 +54,41 @@ export function DeviceSettings() {
 
   return (
     <>
-      <Surface aria-labelledby="touch-id-title">
-        <SurfaceHeader icon={<Fingerprint aria-hidden />}>
-          <SurfaceTitle id="touch-id-title">Touch ID</SurfaceTitle>
-          <SurfaceDescription>Unlock this Mac without typing your password.</SurfaceDescription>
-        </SurfaceHeader>
-        <SurfaceBody>
-          {view === null ? (
-            <Skeleton aria-hidden className="h-5 w-1/2" />
-          ) : view.touchIdAvailable ? (
-            <div className="flex items-start gap-3">
-              <Checkbox
-                id="touch-id-unlock"
-                checked={view.touchIdUnlock}
-                disabled={busy}
-                onCheckedChange={(checked) => setTouchId(checked === true)}
-                className="mt-0.5"
-              />
-              <div className="flex flex-col gap-0.5">
-                <Label htmlFor="touch-id-unlock" className="font-medium">
-                  Unlock with Touch ID
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  dotsafe still asks for your password every two weeks, so you don't forget it.
-                  {stale && " This Mac needs your password once, because a device was removed."}
-                </p>
+      {/* Touch ID only exists on Macs; elsewhere the card would only say so. */}
+      {isMac && (
+        <Surface aria-labelledby="touch-id-title">
+          <SurfaceHeader icon={<Fingerprint aria-hidden />}>
+            <SurfaceTitle id="touch-id-title">Touch ID</SurfaceTitle>
+            <SurfaceDescription>Unlock this Mac without typing your password.</SurfaceDescription>
+          </SurfaceHeader>
+          <SurfaceBody>
+            {view === null ? (
+              <Skeleton aria-hidden className="h-5 w-1/2" />
+            ) : view.touchIdAvailable ? (
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="touch-id-unlock"
+                  checked={view.touchIdUnlock}
+                  disabled={busy}
+                  onCheckedChange={(checked) => setTouchId(checked === true)}
+                  className="mt-0.5"
+                />
+                <div className="flex flex-col gap-0.5">
+                  <Label htmlFor="touch-id-unlock" className="font-medium">
+                    Unlock with Touch ID
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    dotsafe still asks for your password every two weeks, so you don't forget it.
+                    {stale && " This Mac needs your password once, because a device was removed."}
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">Touch ID unlock needs a Mac with Touch ID or a login password.</p>
-          )}
-        </SurfaceBody>
-      </Surface>
+            ) : (
+              <p className="text-muted-foreground">Touch ID unlock needs a Mac with Touch ID or a login password.</p>
+            )}
+          </SurfaceBody>
+        </Surface>
+      )}
 
       <Surface aria-labelledby="devices-title">
         <SurfaceHeader

@@ -5,6 +5,7 @@ import { api, message, type CliStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { isMac } from "@/lib/platform";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceFooter, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Installs the CLI that ships inside the app, so agents can run `dotsafe mcp`. */
@@ -51,13 +52,15 @@ export function CliInstallCard() {
       <SurfaceBody>
         {status === null ? (
           <Skeleton aria-hidden className="h-5 w-2/3" />
-        ) : !status.available ? (
-          <p className="text-muted-foreground">
-            This build doesn't include the command-line tool. The release app from dotsafe.dev does.
-          </p>
         ) : status.installed ? (
           <p className="text-muted-foreground">
             <code className="font-mono">dotsafe</code> is ready in your terminal. It updates with the app.
+          </p>
+        ) : !status.available ? (
+          <p className="text-muted-foreground">
+            {isMac
+              ? "This build doesn't include the command-line tool. The release app from dotsafe.dev does."
+              : "The .deb package installs the command-line tool with the app. With the AppImage, download it from dotsafe.dev."}
           </p>
         ) : (
           <p className="text-muted-foreground">
