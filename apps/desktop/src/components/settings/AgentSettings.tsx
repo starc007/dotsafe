@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ProxyProfilesCard } from "@/components/ProxyProfilesCard";
 import { AgentSetupCard } from "@/components/settings/AgentSetupCard";
 import { CliInstallCard } from "@/components/settings/CliInstallCard";
+import { isMac } from "@/lib/platform";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Connecting agents, the commands they may run without asking, and what
@@ -90,7 +91,9 @@ export function AgentSettings() {
             </div>
           ) : (
             <p className="text-muted-foreground">
-              Requests are approved with a click. Touch ID confirmation needs a Mac with a login password.
+              {isMac
+                ? "Requests are approved with a click. Touch ID confirmation needs a Mac with a login password."
+                : "Requests are approved with a click in this window."}
             </p>
           )}
         </SurfaceBody>

@@ -3,7 +3,9 @@ import { useEffect, useRef } from "react";
 // Every keyboard shortcut in the app, in one place: the handlers and the
 // hints shown in buttons, tooltips and Settings all read from here.
 
-export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+import { isMac } from "./platform";
+
+export { isMac };
 
 export type Shortcut = {
   /** `KeyboardEvent.key`, compared case-insensitively. */

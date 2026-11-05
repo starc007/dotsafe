@@ -11,6 +11,7 @@ import { ServiceFields, fieldsComplete } from "@/components/ServiceFields";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
 import { ServiceLogo } from "@/components/ServiceLogo";
+import { thisDevice } from "@/lib/platform";
 
 const GROUPS = [
   { kind: "provider", title: "Rotate keys with" },
@@ -78,7 +79,7 @@ export function AddConnectionDialog({
       onOpenChange={(o) => !busy && onOpenChange(o)}
       icon={<Plug aria-hidden />}
       title="Add a connection"
-      description="dotsafe calls the service from this Mac with your own token. Nothing goes through a dotsafe server."
+      description={`dotsafe calls the service from ${thisDevice} with your own token. Nothing goes through a dotsafe server.`}
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div role="radiogroup" aria-label="Service" className="flex flex-col gap-3">

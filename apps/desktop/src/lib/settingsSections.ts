@@ -1,4 +1,5 @@
 import { BadgeCheck, Bot, Keyboard, Laptop, Palette, Plug, ShieldCheck, type LucideIcon } from "lucide-react";
+import { isMac, thisDevice } from "./platform";
 
 export type SettingsSection =
   | "license"
@@ -11,10 +12,15 @@ export type SettingsSection =
 
 /** The settings sections, in sidebar order. */
 export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; description: string; icon: LucideIcon }[] = [
-  { id: "license", label: "License", description: "Your dotsafe license on this Mac.", icon: BadgeCheck },
-  { id: "appearance", label: "Appearance", description: "Light, dark, or match your Mac.", icon: Palette },
+  { id: "license", label: "License", description: `Your dotsafe license on ${thisDevice}.`, icon: BadgeCheck },
+  { id: "appearance", label: "Appearance", description: "Light, dark, or match your system.", icon: Palette },
   { id: "security", label: "Security", description: "Your vault, password and how dotsafe protects it.", icon: ShieldCheck },
-  { id: "devices", label: "Devices", description: "Touch ID, and the devices that can open this vault.", icon: Laptop },
+  {
+    id: "devices",
+    label: "Devices",
+    description: isMac ? "Touch ID, and the devices that can open this vault." : "The devices that can open this vault.",
+    icon: Laptop,
+  },
   {
     id: "integrations",
     label: "Integrations",

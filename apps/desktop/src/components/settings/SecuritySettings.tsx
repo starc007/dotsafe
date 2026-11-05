@@ -13,6 +13,7 @@ import { IntegrityNotice } from "@/components/IntegrityNotice";
 import { NewRecoveryKeyDialog } from "@/components/NewRecoveryKeyDialog";
 import { SettingsRow } from "@/components/SettingsRow";
 import { ShortcutKeys } from "@/components/ShortcutKeys";
+import { thisDevice } from "@/lib/platform";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 export function SecuritySettings({
@@ -142,7 +143,7 @@ export function SecuritySettings({
             label="Vault location"
             detail={
               inBucket
-                ? "Your bucket only ever holds encrypted files. A copy is cached on this Mac for offline use."
+                ? `Your bucket only ever holds encrypted files. A copy is cached on ${thisDevice} for offline use.`
                 : "Synced by the service that owns this folder."
             }
           >
@@ -184,7 +185,7 @@ export function SecuritySettings({
               Move
             </Button>
           </SettingsRow>
-          <SettingsRow label="Auto-lock" detail="Locks when you haven't used dotsafe for a while. Set on this Mac.">
+          <SettingsRow label="Auto-lock" detail={`Locks when you haven't used dotsafe for a while. Set on ${thisDevice}.`}>
             <Select value={String(settings.autoLockMinutes)} onValueChange={(value) => setAutoLock(Number(value))}>
               <SelectTrigger aria-label="Auto-lock" className="w-40">
                 <SelectValue />

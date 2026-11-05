@@ -29,6 +29,7 @@ import { SettingsNav } from "@/components/SettingsNav";
 import { SidebarAction } from "@/components/SidebarAction";
 import { SecretsPage } from "@/screens/Secrets";
 import { SettingsPage } from "@/screens/Settings";
+import { isMac } from "@/lib/platform";
 
 /** Slide between projects and settings. `custom` is the direction (see `direction`). */
 const swapMotion = {
@@ -207,8 +208,9 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
   return (
     <div className="flex h-full">
       <aside className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        {/* Space for the macOS traffic lights; also drags the window. */}
-        <DragRegion className="h-12 shrink-0" />
+        {/* Space for the macOS traffic lights; also drags the window. Linux
+            keeps its own title bar, so only a little room is needed there. */}
+        <DragRegion className={isMac ? "h-12 shrink-0" : "h-2 shrink-0"} />
         {/* Projects and settings slide past each other: into Settings to the left,
             back to projects to the right. */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">

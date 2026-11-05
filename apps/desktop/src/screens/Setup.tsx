@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { Centered } from "@/components/Centered";
 import { SurfaceFooter } from "@/components/Surface";
 import { Field } from "@/components/Field";
+import { isMac, keychain, thisDevice } from "@/lib/platform";
 
 const MIN_LENGTH = 8;
 
@@ -36,7 +37,7 @@ export function Setup(props: Props) {
       subtitle={
         connecting
           ? `This ${where === "bucket" ? "bucket" : "folder"} already has a vault.`
-          : `Encrypted on this Mac, ${
+          : `Encrypted on ${thisDevice}, ${
               where === "folder" ? "synced through your own folder" : where === "bucket" ? "stored in your own bucket" : "stored on your own server"
             }.`
       }
@@ -51,7 +52,7 @@ export function Setup(props: Props) {
       >
         <TabsList aria-label="Where to keep the vault" className="w-full bg-muted p-0.5">
           <TabsTrigger value="folder" className="flex-1 py-1 text-[13px]">
-            iCloud Drive
+            {isMac ? "iCloud Drive" : "Synced folder"}
           </TabsTrigger>
           <TabsTrigger value="bucket" className="flex-1 py-1 text-[13px]">
             S3 or R2 bucket
@@ -311,7 +312,7 @@ function BucketSetup({ canJoinWithCode, onCreated, onConnected, onConnectingChan
           label="Secret access key"
           htmlFor="s3-secret"
           error={error}
-          hint="Kept in your Mac's keychain. Give this key access to this bucket only."
+          hint={`Kept in ${keychain}. Give this key access to this bucket only.`}
         >
           <Input
             id="s3-secret"
@@ -433,7 +434,7 @@ function WebDavSetup({ onCreated, onConnected, onConnectingChange }: FormProps) 
         <Field label="Username" htmlFor="dav-user">
           <Input id="dav-user" className="h-9" autoComplete="off" spellCheck={false} value={webdav.username} onChange={set("username")} />
         </Field>
-        <Field label="Password" htmlFor="dav-password" error={error} hint="An app password is best. Kept in your Mac's keychain.">
+        <Field label="Password" htmlFor="dav-password" error={error} hint={`An app password is best. Kept in ${keychain}.`}>
           <Input
             id="dav-password"
             type="password"

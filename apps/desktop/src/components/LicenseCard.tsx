@@ -9,6 +9,7 @@ import { ActionSwapIcon, ActionSwapText } from "@/components/motion/action-swap"
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Field } from "@/components/Field";
 import { IconButton } from "@/components/IconButton";
+import { isMac, thisDevice } from "@/lib/platform";
 import { Surface, SurfaceBody, SurfaceDescription, SurfaceFooter, SurfaceHeader, SurfaceTitle } from "@/components/Surface";
 
 /** Shows the license activated on this Mac, or a form to activate one. */
@@ -76,7 +77,7 @@ function SavedLicense({ license, onChanged }: { license: License; onChanged: () 
     setBusy(true);
     try {
       await api.removeLicense(confirming === "offline");
-      toast("License removed from this Mac");
+      toast(`License removed from ${thisDevice}`);
       setConfirming(false);
       // dotsafe needs a license, so the app goes back to the activation screen.
       window.dispatchEvent(new Event("dotsafe:unlicensed"));
@@ -138,11 +139,11 @@ function SavedLicense({ license, onChanged }: { license: License; onChanged: () 
       <ConfirmDialog
         open={!!confirming}
         busy={busy}
-        title={confirming === "offline" ? "Remove without deactivating?" : "Deactivate this Mac?"}
+        title={confirming === "offline" ? "Remove without deactivating?" : `Deactivate ${thisDevice}?`}
         description={
           confirming === "offline"
-            ? "dotsafe couldn't reach the license server, so this Mac's activation can't be freed right now. If you remove the key anyway, it keeps counting toward your device limit."
-            : "This frees the activation so you can use the key on another Mac. dotsafe asks for a key again here; your vault and secrets aren't affected."
+            ? `dotsafe couldn't reach the license server, so the activation on ${thisDevice} can't be freed right now. If you remove the key anyway, it keeps counting toward your device limit.`
+            : `This frees the activation so you can use the key on another ${isMac ? "Mac" : "computer"}. dotsafe asks for a key again here; your vault and secrets aren't affected.`
         }
         confirmLabel={confirming === "offline" ? "Remove anyway" : "Deactivate"}
         onConfirm={remove}
