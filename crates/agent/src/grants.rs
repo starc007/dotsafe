@@ -18,6 +18,10 @@ pub struct Scope {
     /// Scripts it runs and their fingerprints ([`crate::files`]), so an
     /// edited script isn't covered by an approval of the old one.
     pub files: Vec<(PathBuf, String)>,
+    /// Output goes straight to the caller, unscrubbed (`dotsafe run` through
+    /// the daemon). Kept apart so approving an agent's run never also allows
+    /// the same command with its output unredacted.
+    pub direct: bool,
 }
 
 /// How long an approval lasts.
@@ -87,6 +91,7 @@ mod tests {
             environment: "env-1".into(),
             variables: vec!["API_KEY".into()],
             files: Vec::new(),
+            direct: false,
         }
     }
 
@@ -101,6 +106,8 @@ mod tests {
         assert!(grants.allows(&scope(&["test"]), now));
         assert!(!grants.allows(&scope(&["run", "dev"]), now), "different arguments ask again");
         assert!(!grants.allows(&scope(&["test"]), now + Duration::from_secs(61)), "expired");
+        let direct = Scope { direct: true, ..scope(&["test"]) };
+        assert!(!grants.allows(&direct, now), "an agent's grant doesn't cover unscrubbed output");
 
         grants.add(scope(&["test"]), Lifetime::UntilLock, now);
         assert!(grants.allows(&scope(&["test"]), now + Duration::from_secs(86_400)));

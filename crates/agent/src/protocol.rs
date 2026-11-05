@@ -15,6 +15,86 @@ pub enum Request {
     ListVariables(Target),
     Run(RunRequest),
     Generate(GenerateRequest),
+    /// `dotsafe run` through the daemon: the broker starts the command on the
+    /// caller's own stdin, stdout and stderr (passed over the socket), so the
+    /// caller never holds the values. Only `dotsafe daemon` accepts it.
+    Exec(ExecRequest),
+    /// Requests waiting for approval, for `dotsafe approve`.
+    Pending,
+    /// An answer from `dotsafe approve`, proven with the vault key.
+    Answer(AnswerRequest),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecRequest {
+    /// Shown to the user, never trusted for decisions.
+    pub client: String,
+    /// The program and its arguments. Run directly, never through a shell.
+    pub command: Vec<String>,
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub target: Target,
+    /// Only these variables. `None` means all of the environment's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Send known API keys through the secret proxy instead of injecting them.
+    #[serde(default)]
+    pub proxy: bool,
+    /// How long to wait for an approval before giving up. The request stays
+    /// open for a while after that, so it can still be approved for next time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait_secs: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnswerRequest {
+    pub id: uuid::Uuid,
+    /// `once`, `1h` or `stop` (until the daemon stops). `None` denies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifetime: Option<String>,
+    /// [`answer_message`] tagged with the vault key, in hex: only someone who
+    /// knows the master password can make it, not just any process that can
+    /// reach the socket.
+    pub proof: String,
+}
+
+/// What `dotsafe approve` tags with the vault key to answer `id`.
+pub fn answer_message(id: uuid::Uuid, lifetime: Option<&str>) -> Vec<u8> {
+    format!("dotsafe-approve-v1\n{id}\n{}", lifetime.unwrap_or("deny")).into_bytes()
+}
+
+/// A request waiting for approval. Names and paths only.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingInfo {
+    pub id: uuid::Uuid,
+    /// `run` (an agent), `exec` (`dotsafe run`) or `generate`.
+    pub kind: String,
+    pub client: String,
+    pub project: String,
+    pub environment: String,
+    pub command: Vec<String>,
+    pub program_path: String,
+    pub cwd: String,
+    pub variables: Vec<String>,
+    #[serde(default)]
+    pub proxied: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<PendingFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<String>,
+    /// Whether the command is still waiting. Once it gave up, approving only
+    /// counts for its next run, so "once" isn't offered.
+    pub waiting: bool,
+    pub age_secs: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingFile {
+    pub path: String,
+    /// When it last changed, in Unix milliseconds.
+    pub modified_ms: Option<u64>,
 }
 
 /// Adds a variable with a random value the agent never sees.
@@ -82,7 +162,18 @@ pub enum Response {
     Variables(VariablesInfo),
     Ran(RunOutput),
     Generated(Generated),
+    /// An `exec` finished.
+    Exited(ExitInfo),
+    Pending(Vec<PendingInfo>),
+    Answered,
     Error(ErrorInfo),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExitInfo {
+    /// `None` when it was ended by a signal.
+    pub code: Option<i32>,
+    pub signal: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
