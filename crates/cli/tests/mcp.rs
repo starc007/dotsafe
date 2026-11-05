@@ -41,6 +41,9 @@ impl Handler for FakeBroker {
             Request::ListVariables(_) => {
                 Response::error(dotsafe_agent::protocol::ErrorCode::Locked, "dotsafe is locked.")
             }
+            Request::Exec(_) | Request::Pending | Request::Answer(_) => {
+                Response::error(dotsafe_agent::protocol::ErrorCode::Invalid, "unsupported")
+            }
         }
     }
 }
