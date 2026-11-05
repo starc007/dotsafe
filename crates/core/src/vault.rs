@@ -43,6 +43,15 @@ const RECORD_AAD_V4: &[u8] = b"dotsafe/v4/record";
 const RECORD_AAD_V5: &[u8] = b"dotsafe/v5/record";
 // A domain label, unchanged from v1 so the records key stays the same.
 const RECORDS_KEY_INFO: &[u8] = b"dotsafe/v1/records";
+/// Subkey for `dotsafe approve` answers. Never stored; only tags messages.
+const APPROVAL_KEY_INFO: &[u8] = b"dotsafe/v1/approve";
+
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) || !s.is_ascii() {
+        return None;
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+}
 
 const HEAD_FORMAT: &str = "dotsafe-head";
 const HEAD_VERSION: u32 = 2;
@@ -209,6 +218,21 @@ impl Vault {
     /// can read the vault, so never write it anywhere else.
     pub fn session_key(&self) -> Zeroizing<[u8; KEY_LEN]> {
         Zeroizing::new(*self.vault_key.as_bytes())
+    }
+
+    /// Tags `message` with a subkey of the vault key, in hex. `dotsafe
+    /// approve` uses it to prove to the daemon that the person answering
+    /// knows the master password; any process can reach the socket, but only
+    /// someone who can open the vault can make the tag.
+    pub fn approval_tag(&self, message: &[u8]) -> String {
+        let key = self.vault_key.derive(APPROVAL_KEY_INFO);
+        crypto::mac(&key, message).iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Whether `tag` is [`Vault::approval_tag`] of `message`, in constant time.
+    pub fn check_approval_tag(&self, message: &[u8], tag: &str) -> bool {
+        let Some(bytes) = decode_hex(tag) else { return false };
+        crypto::verify_mac(&self.vault_key.derive(APPROVAL_KEY_INFO), message, &bytes)
     }
 
     fn open(store: Box<dyn Store>, header: VaultHeader, vault_key: SecretKey) -> Vault {

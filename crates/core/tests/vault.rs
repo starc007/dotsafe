@@ -301,3 +301,23 @@ fn default_kdf_params_are_strong() {
     let p = KdfParams::default();
     assert!(p.m_cost_kib >= 64 * 1024 && p.t_cost >= 3);
 }
+
+#[test]
+fn approval_tags_need_the_vault_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::create(FolderStore::new(dir.path()), "pw", FAST).unwrap();
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = Vault::create(FolderStore::new(other_dir.path()), "pw", FAST).unwrap();
+
+    let tag = vault.approval_tag(b"approve request 1");
+    assert_eq!(tag.len(), 64);
+    // The same vault, unlocked again with the password, makes the same tag.
+    let again = Vault::unlock(FolderStore::new(dir.path()), "pw").unwrap();
+    assert!(again.check_approval_tag(b"approve request 1", &tag));
+
+    assert!(!vault.check_approval_tag(b"approve request 2", &tag), "bound to the message");
+    assert!(!other.check_approval_tag(b"approve request 1", &tag), "bound to the vault key");
+    assert!(!vault.check_approval_tag(b"approve request 1", &tag[..62]));
+    assert!(!vault.check_approval_tag(b"approve request 1", "zz"));
+    assert!(!vault.check_approval_tag(b"approve request 1", ""));
+}
