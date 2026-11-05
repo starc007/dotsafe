@@ -1,0 +1,113 @@
+name: Release (Linux)
+
+# scripts/release.sh builds and publishes each release from a Mac. Publishing
+# it starts this workflow, which builds the Linux app (AppImage and .deb) and
+# CLI from the same tag and adds them to that release, including the Linux
+# entry in latest.json. A pull request that changes this file runs it as a
+# dry run: it builds without the updater key and uploads nothing.
+#
+# Secrets: DOTSAFE_UPDATER_KEY (the contents of ~/.tauri/dotsafe.key) and
+# DOTSAFE_UPDATER_KEY_PASSWORD. See docs/releasing.md.
+
+on:
+  release:
+    types: [published]
+  pull_request:
+    paths: [.github/workflows/release-linux.yml, scripts/release-tools.ts]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    # The oldest supported runner, so the app runs on older glibc versions too.
+    runs-on: ubuntu-22.04
+    env:
+      PUBLISH: ${{ github.event_name == 'release' }}
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+
+      - name: Build the CLI
+        run: cargo build --release --locked -p dotsafe-cli
+
+      # The .deb carries the CLI as /usr/bin/dotsafe, next to the app. The
+      # AppImage can't (it mounts somewhere new on every launch), so its users
+      # take the CLI download. A dry run has no updater key, so it skips the
+      # signed update artifacts.
+      - name: Build the app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.PUBLISH == 'true' && secrets.DOTSAFE_UPDATER_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.PUBLISH == 'true' && secrets.DOTSAFE_UPDATER_KEY_PASSWORD || '' }}
+        run: |
+          updater=$([[ "$PUBLISH" == true ]] && echo true || echo false)
+          printf '{"bundle":{"createUpdaterArtifacts":%s,"linux":{"deb":{"files":{"/usr/bin/dotsafe":"%s"}}}}}\n' \
+            "$updater" "$PWD/target/release/dotsafe" > "$RUNNER_TEMP/linux.json"
+          bun run tauri build --bundles appimage,deb --config "$RUNNER_TEMP/linux.json"
+
+      - name: Collect the files
+        run: |
+          version=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)
+          bundle=target/release/bundle
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          cp "$bundle"/appimage/*.AppImage "$out/dotsafe-$version-x86_64.AppImage"
+          cp "$bundle"/deb/*.deb "$out/dotsafe-$version-amd64.deb"
+          # Unversioned copies, so the site can link to releases/latest/download/….
+          cp "$out/dotsafe-$version-x86_64.AppImage" "$out/dotsafe.AppImage"
+          cp "$out/dotsafe-$version-amd64.deb" "$out/dotsafe.deb"
+          tar -czf "$out/dotsafe-$version-linux-x86_64.tar.gz" -C target/release dotsafe
+          dpkg-deb --contents "$out/dotsafe.deb" | grep -q '/usr/bin/dotsafe$'
+          if [[ "$PUBLISH" == true ]]; then
+            cp "$bundle"/appimage/*.AppImage.sig "$out/dotsafe-$version-x86_64.AppImage.sig"
+            cp "$bundle"/deb/*.deb.sig "$out/dotsafe-$version-amd64.deb.sig"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          ls -la "$out"
+
+      - name: Check the version matches the tag
+        if: env.PUBLISH == 'true'
+        run: '[[ "$TAG" == "v$VERSION" ]]'
+
+      # Installs only take updates signed with the key in tauri.conf.json.
+      - name: Check the update signature's key
+        if: env.PUBLISH == 'true'
+        run: bun scripts/release-tools.ts check-update-key "$RUNNER_TEMP/out/dotsafe-$VERSION-x86_64.AppImage.sig" apps/desktop/src-tauri/tauri.conf.json
+
+      - name: Add to the release
+        if: env.PUBLISH == 'true'
+        run: |
+          out="$RUNNER_TEMP/out"
+          gh release download "$TAG" --pattern latest.json --dir "$RUNNER_TEMP/release"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          # The updater looks for linux-x86_64-deb first on a .deb install, and
+          # linux-x86_64 (the AppImage) otherwise.
+          bun scripts/release-tools.ts add-platform "$RUNNER_TEMP/release/latest.json" linux-x86_64 \
+            "$base/dotsafe-$VERSION-x86_64.AppImage" "$out/dotsafe-$VERSION-x86_64.AppImage.sig"
+          bun scripts/release-tools.ts add-platform "$RUNNER_TEMP/release/latest.json" linux-x86_64-deb \
+            "$base/dotsafe-$VERSION-amd64.deb" "$out/dotsafe-$VERSION-amd64.deb.sig"
+          gh release upload "$TAG" "$out"/* "$RUNNER_TEMP/release/latest.json" --clobber
+
+      - name: Keep the dry-run build
+        if: env.PUBLISH != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotsafe-linux
+          path: ${{ runner.temp }}/out
+          retention-days: 3

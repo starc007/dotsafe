@@ -2,6 +2,7 @@
 //
 //   bun scripts/release-tools.ts check-update-key <archive.sig> <tauri.conf.json>
 //   bun scripts/release-tools.ts latest-json <out> <version> <url> <archive.sig> [notes.md]
+//   bun scripts/release-tools.ts add-platform <latest.json> <platform> <url> <archive.sig>
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -41,7 +42,17 @@ switch (command) {
     break;
   }
 
+  // The Linux build runs on GitHub Actions after the Mac release is published,
+  // and adds itself to that release's latest.json.
+  case "add-platform": {
+    const [file, platform, url, sigFile] = args;
+    const latest = JSON.parse(await Bun.file(file).text());
+    latest.platforms[platform] = { signature: (await Bun.file(sigFile).text()).trim(), url };
+    await Bun.write(file, JSON.stringify(latest, null, 2) + "\n");
+    break;
+  }
+
   default:
-    console.error("usage: bun scripts/release-tools.ts check-update-key|latest-json …");
+    console.error("usage: bun scripts/release-tools.ts check-update-key|latest-json|add-platform …");
     process.exit(2);
 }

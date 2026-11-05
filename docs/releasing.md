@@ -33,6 +33,16 @@ before installing it.
 Keep the secrets in one environment, for example a `release` environment in a
 `dotsafe` project.
 
+3. **Linux.** Publishing a release starts `.github/workflows/release-linux.yml`,
+   which builds the Linux app and CLI on GitHub Actions and adds them to the
+   release. It signs updates with the same updater key, so the repo needs it
+   as two Actions secrets:
+
+   ```bash
+   gh secret set DOTSAFE_UPDATER_KEY < ~/.tauri/dotsafe.key
+   gh secret set DOTSAFE_UPDATER_KEY_PASSWORD
+   ```
+
 ## Each release
 
 1. In a PR, bump the version in `Cargo.toml` (`[workspace.package]`),
@@ -54,6 +64,13 @@ Keep the secrets in one environment, for example a `release` environment in a
    CLI download, writes `latest.json`, tags the commit and publishes the
    release, including an unversioned `dotsafe.dmg` that the site's Download
    button links to. Without a notes file, GitHub generates the notes.
+3. The Linux workflow starts as soon as the release is published and takes
+   about 15 minutes. It builds the AppImage, the .deb (with the CLI as
+   `/usr/bin/dotsafe`) and a CLI tarball from the same tag, checks the update
+   signature's key, uploads them with unversioned `dotsafe.AppImage` and
+   `dotsafe.deb` copies, and adds `linux-x86_64` and `linux-x86_64-deb` to the
+   release's `latest.json`. Until it finishes, Linux installs see no update.
+   If it fails, fix it and re-run the job; it overwrites what it uploaded.
 
 Updates only work once the repo is public: the app downloads release assets
 without signing in.
