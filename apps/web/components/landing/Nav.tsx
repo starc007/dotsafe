@@ -31,7 +31,7 @@ export function Nav() {
           <ButtonLink href={links.github} variant="ghost" className="hidden h-9 px-3 sm:inline-flex">
             GitHub
           </ButtonLink>
-          <ButtonLink href={links.download} variant="primary" className="h-9 px-4">
+          <ButtonLink href={links.downloads} variant="primary" className="h-9 px-4">
             Download
           </ButtonLink>
         </div>

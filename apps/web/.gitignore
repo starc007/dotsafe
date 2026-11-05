@@ -6,6 +6,7 @@
 # written by scripts/agent-files.ts on every dev and build
 /public/index.md
 /public/pricing.md
+/public/download.md
 /public/changelog.md
 /public/changelog.xml
 /public/llms.txt
