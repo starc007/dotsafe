@@ -17,6 +17,7 @@ export type Release = {
 export const RELEASES: Release[] = [
   {
     version: '0.1.3',
+    date: '2026-11-05',
     title: 'Cron jobs on servers, and arm64 Linux',
     summary: 'Nightly jobs on a server can use your secrets without the master password or a token stored on it.',
     changes: [
