@@ -16,6 +16,17 @@ export type Release = {
 
 export const RELEASES: Release[] = [
   {
+    version: '0.1.2',
+    date: '2026-11-05',
+    title: 'dotsafe on Linux',
+    summary: 'The app and the CLI now run on Linux too, with the same vault and the same license.',
+    changes: [
+      'A Linux app for x86_64: a .deb that installs the app and the CLI, and an AppImage for any distribution. Both update themselves.',
+      'A standalone Linux CLI download.',
+      'A busy license server now counts as offline, so it never shows as an error.',
+    ],
+  },
+  {
     version: '0.1.1',
     date: '2026-11-03',
     title: 'A sharper icon',
