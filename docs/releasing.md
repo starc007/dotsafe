@@ -68,7 +68,9 @@ Keep the secrets in one environment, for example a `release` environment in a
    about 15 minutes. It builds the AppImage, the .deb (with the CLI as
    `/usr/bin/dotsafe`) and a CLI tarball from the same tag, checks the update
    signature's key, uploads them with unversioned `dotsafe.AppImage` and
-   `dotsafe.deb` copies, and adds `linux-x86_64` and `linux-x86_64-deb` to the
+   `dotsafe.deb` copies (`dotsafe-aarch64.AppImage` and `dotsafe-arm64.deb`
+   for arm64, built on GitHub's ARM runners), and adds `linux-<arch>` and
+   `linux-<arch>-deb` for both architectures to the
    release's `latest.json`. Until it finishes, Linux installs see no update.
    If it fails, fix it and re-run the job; it overwrites what it uploaded.
 
