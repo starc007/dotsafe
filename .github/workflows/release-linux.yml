@@ -73,7 +73,8 @@ jobs:
           cp "$out/dotsafe-$version-x86_64.AppImage" "$out/dotsafe.AppImage"
           cp "$out/dotsafe-$version-amd64.deb" "$out/dotsafe.deb"
           tar -czf "$out/dotsafe-$version-linux-x86_64.tar.gz" -C target/release dotsafe
-          dpkg-deb --contents "$out/dotsafe.deb" | grep -q '/usr/bin/dotsafe$'
+          dpkg-deb --contents "$out/dotsafe.deb" | grep usr/bin/
+          dpkg-deb --contents "$out/dotsafe.deb" | grep -q '/usr/bin/dotsafe$' || { echo "the .deb doesn't include the CLI"; exit 1; }
           if [[ "$PUBLISH" == true ]]; then
             cp "$bundle"/appimage/*.AppImage.sig "$out/dotsafe-$version-x86_64.AppImage.sig"
             cp "$bundle"/deb/*.deb.sig "$out/dotsafe-$version-amd64.deb.sig"
