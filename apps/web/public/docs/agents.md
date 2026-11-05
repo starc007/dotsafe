@@ -37,7 +37,7 @@ codex mcp add dotsafe -- /usr/local/bin/dotsafe mcp
 
 Step-by-step guides: [Claude Code](/for/claude-code), [Cursor](/for/cursor) and [Codex](/for/codex).
 
-`dotsafe mcp` holds no keys. It passes requests to the dotsafe app, which must be running and unlocked. Without the app, run `dotsafe daemon` in a terminal and approve requests there.
+`dotsafe mcp` holds no keys. It passes requests to the dotsafe app, which must be running and unlocked. Without the app, run `dotsafe daemon` in a terminal and approve requests there, or from any other terminal with `dotsafe approve`. On a server, see [Servers and cron jobs](/docs/servers).
 
 ## What an agent can do
 
