@@ -25,7 +25,7 @@ Every command takes `--help`. Commands that work on variables take `-e <env>` fo
 | `dotsafe list` | List variable names |
 | `dotsafe unset KEY… [--hide]` | Delete variables, or hide inherited ones |
 | `dotsafe inherit <parent> \| --none` | Inherit another environment's variables |
-| `dotsafe run [--proxy] -- <command>` | Run a command with the variables in its environment |
+| `dotsafe run [--proxy] [--only A,B] -- <command>` | Run a command with the variables in its environment; through `dotsafe daemon` when this machine can't unlock by itself |
 | `dotsafe import [file] [--from <tool>]` | Import a .env or JSON file, or from Doppler, Infisical, 1Password |
 | `dotsafe export [-o file] [--force]` | Print .env lines, or write a gitignored, owner-only file |
 | `dotsafe scan [paths] [--staged \| --install-hook]` | Find vault values in files before they're committed |
@@ -65,7 +65,8 @@ Every command takes `--help`. Commands that work on variables take `-e <env>` fo
 | --- | --- |
 | `dotsafe mcp` | The MCP server agents talk to |
 | `dotsafe mcp setup` | How to add dotsafe to Claude Code, Cursor and others |
-| `dotsafe daemon [--for 8h]` | Serve agents without the app; approve in the terminal |
+| `dotsafe daemon [--detach] [--for 8h]` | Keep the vault unlocked in memory for agents and [cron jobs](/docs/servers), without the app |
+| `dotsafe approve [id] [--for once\|1h\|stop \| --deny \| --list]` | Answer commands waiting in the daemon (asks for the master password) |
 | `dotsafe proxy list \| add \| remove` | Proxy profiles for more API keys |
 | `dotsafe audit [--limit 30]` | What agents asked for, from every device |
 

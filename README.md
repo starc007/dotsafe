@@ -108,6 +108,8 @@ dotsafe mcp setup                              # other agents
 dotsafe daemon                                 # serve agents without the app; approve in the terminal
 ```
 
+On a server, `dotsafe daemon --detach` keeps the vault key in memory only, and cron jobs run with `dotsafe run -- ./job.sh`. Each new job is approved once with `dotsafe approve`, which asks for the master password. Nothing usable is left on disk. See [Servers and cron jobs](https://dotsafe.dev/docs/servers).
+
 The proxy protects your own dev servers too: `dotsafe run --proxy -- bun dev` gives the process a placeholder key and a local URL. Add more providers with `dotsafe proxy add` or in Settings → Agents. Profiles live in the vault, so an agent can't redirect a key.
 
 ### Leak checks
