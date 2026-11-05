@@ -2,7 +2,7 @@
 
 > What dotsafe collects, why, who handles it, and what never leaves your Mac.
 
-Last updated: November 4, 2026
+Last updated: November 5, 2026
 
 dotsafe is built so that your secrets never reach us. This page explains the little we do collect: what you give us when you buy a license, what the app sends to check it, and what the website measures.
 
@@ -31,7 +31,7 @@ We use these to issue and email your license key, to help you if you lose it, an
 
 We store your license key only as a one-way hash, plus its last four characters so we can identify it when you contact us. The email we send you is the only full copy.
 
-When you activate dotsafe on a Mac, and when the app checks the license about twice a day, it sends the key and the activation's ID. On activation it also sends your Mac's name (for example, "Ada's MacBook") so you can tell your devices apart. We keep each activation's device name and when it was activated, last checked and deactivated.
+When you activate dotsafe on a computer, and when the app checks the license about twice a day, it sends the key and the activation's ID. On activation it also sends your computer's name (for example, "Ada's MacBook") so you can tell your devices apart. We keep each activation's device name and when it was activated, last checked and deactivated.
 
 ### Emails
 

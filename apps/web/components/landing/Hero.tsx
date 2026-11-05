@@ -39,6 +39,9 @@ export function Hero() {
             Read the docs
             <ArrowRight aria-hidden />
           </ButtonLink>
+          <ButtonLink href={links.linux} variant="ghost" className="px-3">
+            Also on Linux
+          </ButtonLink>
         </motion.div>
       </motion.div>
       <ProductShot />

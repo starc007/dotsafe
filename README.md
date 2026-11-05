@@ -34,8 +34,9 @@ Download the latest release from [GitHub Releases](https://github.com/starc007/d
 
 - **Desktop app:** [dotsafe.dmg](https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.dmg) (universal, signed and notarized). It updates itself.
 - **CLI:** comes inside the app. Settings → Agents → Install links it into `/usr/local/bin`, and it updates with the app. Without the app, download `dotsafe-<version>-macos-universal.tar.gz` (signed and notarized), unpack it and put `dotsafe` on your `PATH`.
+- **Linux (x86_64):** [dotsafe.deb](https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.deb) installs the app and the CLI. Elsewhere, [dotsafe.AppImage](https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.AppImage) plus `dotsafe-<version>-linux-x86_64.tar.gz` for the CLI. See [Install](https://dotsafe.dev/docs/install#linux) for what differs.
 
-dotsafe is paid, with no free version: one license is $49 and covers up to 2 Macs. Activate it in the app's first screen or with `dotsafe license activate <key>`. Either one is enough.
+dotsafe is paid, with no free version: one license is $49 and covers up to 2 computers, Mac or Linux. Activate it in the app's first screen or with `dotsafe license activate <key>`. Either one is enough.
 
 ## Quick start
 
