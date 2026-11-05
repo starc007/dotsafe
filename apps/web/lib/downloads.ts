@@ -11,6 +11,8 @@ export type Platform = {
   logo: string;
   detail: string;
   downloads: { label: string; href: string }[];
+  /** The same installers for another architecture, as a small line under the buttons. */
+  other?: { arch: string; downloads: { label: string; href: string }[] };
   notes: string[];
   /** The standalone CLI's file name in each release. */
   cli: string;
@@ -35,18 +37,25 @@ export const PLATFORMS: Platform[] = [
     id: 'linux',
     name: 'Linux',
     logo: 'linux',
-    detail: 'x86_64, Debian, Ubuntu and other distributions',
+    detail: 'x86_64 and arm64, Debian, Ubuntu and other distributions',
     downloads: [
       { label: 'Download .deb', href: `${latest}/dotsafe.deb` },
       { label: 'AppImage', href: `${latest}/dotsafe.AppImage` },
     ],
+    other: {
+      arch: 'arm64',
+      downloads: [
+        { label: '.deb', href: `${latest}/dotsafe-arm64.deb` },
+        { label: 'AppImage', href: `${latest}/dotsafe-aarch64.AppImage` },
+      ],
+    },
     notes: [
       'The .deb installs the app and the CLI',
       'The AppImage runs on any distribution',
       'Both update themselves when you click',
       'Needs a Secret Service keyring, such as GNOME Keyring or KWallet',
     ],
-    cli: 'dotsafe-<version>-linux-x86_64.tar.gz',
+    cli: 'dotsafe-<version>-linux-<x86_64|aarch64>.tar.gz',
   },
 ];
 

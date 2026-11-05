@@ -2,7 +2,7 @@
 
 > Download the app and the CLI, and activate your license.
 
-dotsafe runs on macOS (Apple silicon and Intel) and on Linux (x86_64). Every release is also on [GitHub](https://github.com/starc007/dotsafe/releases/latest).
+dotsafe runs on macOS (Apple silicon and Intel) and on Linux (x86_64 and arm64). Every release is also on [GitHub](https://github.com/starc007/dotsafe/releases/latest).
 
 ## Desktop app
 
@@ -29,7 +29,9 @@ sudo mv dotsafe /usr/local/bin/
 
 ## Linux
 
-The Linux app and CLI are built for x86_64. On Debian or Ubuntu, the .deb is the easiest: it installs the app and the CLI together.
+The Linux app and CLI are built for x86_64 and arm64. The commands below are for x86_64; on arm64 (`uname -m` says `aarch64`), use `dotsafe-arm64.deb`, `dotsafe-aarch64.AppImage` and `dotsafe-<version>-linux-aarch64.tar.gz` instead.
+
+On Debian or Ubuntu, the .deb is the easiest: it installs the app and the CLI together.
 
 ```bash
 curl -LO https://github.com/starc007/dotsafe/releases/latest/download/dotsafe.deb

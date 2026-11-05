@@ -37,7 +37,20 @@ export function DownloadOptions() {
                 </ButtonLink>
               ))}
             </div>
-            <p className="mt-4 text-xs text-ds-muted">
+            {p.other && (
+              <p className="mt-4 text-sm text-ds-muted">
+                On {p.other.arch}:{' '}
+                {p.other.downloads.map((d, j) => (
+                  <span key={d.href}>
+                    {j > 0 && ' · '}
+                    <a href={d.href} className="text-ds-fg underline decoration-ds-line underline-offset-2">
+                      {d.label}
+                    </a>
+                  </span>
+                ))}
+              </p>
+            )}
+            <p className={`${p.other ? 'mt-2' : 'mt-4'} text-xs text-ds-muted`}>
               CLI only?{' '}
               <a href={`${links.releases}/latest`} className="underline decoration-ds-line underline-offset-2 hover:text-ds-fg">
                 <code className="font-mono">{p.cli}</code>

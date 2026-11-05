@@ -102,7 +102,7 @@ ${PLATFORMS.map(
 
 ${p.detail}.
 
-${p.downloads.map((d) => `- [${d.label}](${d.href})`).join('\n')}
+${p.downloads.map((d) => `- [${d.label}](${d.href})`).join('\n')}${(p.other?.downloads ?? []).map((d) => `\n- [${d.label} for ${p.other?.arch}](${d.href})`).join('')}
 - CLI only: \`${p.cli}\` from the [latest release](${links.releases}/latest)
 
 ${p.notes.map((n) => `- ${n}`).join('\n')}`,
