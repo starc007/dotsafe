@@ -1,3 +1,4 @@
+import { DemoVideo } from '@/components/landing/DemoVideo';
 import { Features } from '@/components/landing/Features';
 import { FinalCta } from '@/components/landing/FinalCta';
 import { Hero } from '@/components/landing/Hero';
@@ -18,6 +19,7 @@ export default function HomePage() {
       <JsonLd data={faqData} />
       <Hero />
       <StorageStrip />
+      <DemoVideo />
       <Features />
       <Security />
       <Faq />

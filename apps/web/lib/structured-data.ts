@@ -1,5 +1,5 @@
 import { FAQ } from '@/lib/faq';
-import { links, site } from '@/lib/site';
+import { demo, links, site } from '@/lib/site';
 
 /** schema.org data for <JsonLd>, so search engines and agents read the
  * product, its price, the FAQ and the docs without parsing the layout. */
@@ -23,6 +23,19 @@ export const homeData = {
       offers: { '@type': 'Offer', price: site.price, priceCurrency: 'USD', url: `${site.url}/pricing` },
       publisher,
     },
+    {
+      '@type': 'VideoObject',
+      name: 'dotsafe demo',
+      description:
+        'A one-minute walkthrough of dotsafe: add a variable, switch environments, find any key and lock the vault.',
+      thumbnailUrl: `${site.url}${demo.poster}`,
+      contentUrl: `${site.url}${demo.mp4}`,
+      uploadDate: demo.uploaded,
+      duration: demo.duration,
+      width: demo.width,
+      height: demo.height,
+      publisher,
+    },
   ],
 };
 
@@ -36,10 +49,7 @@ export const faqData = {
 /** A docs page, and where it sits under Docs. */
 export function docsData({ href, title, description }: { href: string; title: string; description: string }) {
   const url = `${site.url}${href}`;
-  const crumbs = [
-    { name: 'Docs', url: `${site.url}/docs` },
-    ...(href === '/docs' ? [] : [{ name: title, url }]),
-  ];
+  const crumbs = [{ name: 'Docs', url: `${site.url}/docs` }, ...(href === '/docs' ? [] : [{ name: title, url }])];
   return {
     '@context': 'https://schema.org',
     '@graph': [
@@ -73,7 +83,10 @@ export function contentPageData({
   section?: { name: string; href: string };
 }) {
   const url = `${site.url}${href}`;
-  const crumbs = [...(section ? [{ name: section.name, url: `${site.url}${section.href}` }] : []), { name: title, url }];
+  const crumbs = [
+    ...(section ? [{ name: section.name, url: `${site.url}${section.href}` }] : []),
+    { name: title, url },
+  ];
   return {
     '@context': 'https://schema.org',
     '@graph': [
