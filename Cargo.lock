@@ -1180,7 +1180,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-agent"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "aho-corasick",
  "base64 0.23.1",
@@ -1198,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-cli"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "argon2",
  "base64 0.23.1",
@@ -1239,7 +1239,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-desktop"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "block2",
  "dotsafe-agent",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-integrations"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dotsafe-core",
  "serde",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "dotsafe-stores"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.23.1",
  "dotsafe-core",
