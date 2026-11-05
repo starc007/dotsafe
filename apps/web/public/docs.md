@@ -2,7 +2,7 @@
 
 > What dotsafe is and how it keeps your secrets.
 
-dotsafe keeps your environment variables and API keys encrypted on your Mac and syncs them through storage you already own: iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV. There's no dotsafe server holding your vault.
+dotsafe is an open source, local-first secret manager for developers and their AI agents. It keeps your environment variables and API keys encrypted on your Mac and syncs them through storage you already own: iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV. There's no dotsafe server holding your vault.
 
 It comes as a desktop app and a `dotsafe` command-line tool. Both open the same vault, so a change in one shows up in the other.
 

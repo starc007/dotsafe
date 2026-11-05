@@ -26,7 +26,9 @@ export function Hero() {
           className="max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]"
         >
           Secrets that never leave your Mac.{' '}
-          <span className="text-ds-muted">Encrypted on your device, synced through storage you already own.</span>
+          <span className="text-ds-muted">
+            The open source secret manager for developers and their AI agents, synced through storage you already own.
+          </span>
         </motion.h1>
         <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-2.5">
           <ButtonLink href={links.download} variant="primary">

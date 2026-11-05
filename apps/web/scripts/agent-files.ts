@@ -12,6 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RELEASES } from '@/lib/changelog';
+import { ALTERNATIVES, USE_CASES, type Section } from '@/lib/content-pages';
 import { DOCS } from '@/lib/docs';
 import { docsContent } from '@/lib/docs-content';
 import { FAQ } from '@/lib/faq';
@@ -24,7 +25,7 @@ const abs = (path: string) => (path.startsWith('http') ? path : `${site.url}${pa
 const absolutize = (md: string) => md.replace(/\]\(\//g, `](${site.url}/`);
 
 const SUMMARY =
-  'dotsafe is a local-first, zero-knowledge secret manager for developers. Secrets are encrypted on your Mac and synced through storage you already own (iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV). There is no dotsafe server holding your vault. It ships as a macOS app and a `dotsafe` CLI that share one vault, and AI agents can run commands with your secrets through its MCP server after you approve them, without dotsafe ever handing them a value.';
+  'dotsafe is an open source, local-first, zero-knowledge secret manager for developers and their AI agents. Secrets are encrypted on your Mac and synced through storage you already own (iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV). There is no dotsafe server holding your vault. It ships as a macOS app and a `dotsafe` CLI that share one vault, and AI agents can run commands with your secrets through its MCP server after you approve them, without dotsafe ever handing them a value.';
 
 const docs = DOCS.map((group) => ({
   ...group,
@@ -106,6 +107,23 @@ ${r.summary ? `${r.summary}\n\n` : ''}${r.changes.map((c) => `- ${c}`).join('\n'
 const list = (pages: { href: string; title: string; description: string }[]) =>
   pages.map((p) => `- [${p.title}](${abs(`${p.href}.md`)}): ${p.description}`).join('\n');
 
+/** The alternatives and use-case pages, grouped as their hubs show them. */
+const sectionGroups = (section: Section) =>
+  section.groups.map((g) => ({
+    title: g.title,
+    pages: g.items.map(({ slug }) => ({ href: `${section.href}/${slug}`, ...docsContent(`${section.href}/${slug}`) })),
+  }));
+
+// Each hub's Markdown copy: its pages, with what each covers.
+for (const section of [ALTERNATIVES, USE_CASES]) {
+  out(
+    `${section.href.slice(1)}.md`,
+    `# ${section.title}\n\n> ${section.description}\n\n${sectionGroups(section)
+      .map((g) => `## ${g.title}\n\n${list(g.pages)}`)
+      .join('\n\n')}`,
+  );
+}
+
 out(
   'llms.txt',
   `# ${site.name}
@@ -115,6 +133,16 @@ out(
 Every page on this site is also plain Markdown: add \`.md\` to its URL (the home page is ${site.url}/index.md). [llms-full.txt](${site.url}/llms-full.txt) has every docs page in one file.
 
 ${docs.map((g) => `## ${g.title}\n\n${list(g.pages)}`).join('\n\n')}
+
+## Compared with other secret managers
+
+${list(sectionGroups(ALTERNATIVES).flatMap((g) => g.pages))}
+
+## dotsafe for your stack
+
+${sectionGroups(USE_CASES)
+  .map((g) => list(g.pages))
+  .join('\n')}
 
 ## More
 
@@ -167,4 +195,4 @@ ${released
 </rss>`,
 );
 
-console.log('agent files: index.md, pricing.md, changelog.md, changelog.xml, llms.txt, llms-full.txt');
+console.log('agent files: index.md, pricing.md, changelog.md, changelog.xml, alternatives.md, for.md, llms.txt, llms-full.txt');

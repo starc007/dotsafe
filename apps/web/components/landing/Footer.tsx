@@ -19,6 +19,8 @@ const COLUMNS = [
     items: [
       { label: 'Docs', href: links.docs },
       { label: 'Changelog', href: '/changelog' },
+      { label: 'Use cases', href: '/for' },
+      { label: 'Alternatives', href: '/alternatives' },
       { label: 'Releases', href: links.releases },
       { label: 'GitHub', href: links.github },
       { label: 'Report an issue', href: links.issues },
@@ -77,7 +79,6 @@ export function Footer() {
             Terms
           </Link>
         </span>
-        <span>macOS 13 or later · Open source</span>
       </div>
       <p
         aria-hidden

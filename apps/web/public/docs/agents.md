@@ -1,6 +1,6 @@
-# AI agents
+# A secret manager for AI agents
 
-> Let Claude Code, Cursor and other agents run commands with secrets they never see.
+> Let Claude Code, Cursor, Codex and other MCP agents run commands with your secrets, without dotsafe ever handing them a value.
 
 Coding agents need your keys to run tests, migrations and dev servers. With dotsafe they run those commands only after you approve, and no request an agent makes ever returns a secret.
 
@@ -34,6 +34,8 @@ codex mcp add dotsafe -- /usr/local/bin/dotsafe mcp
 ```
 
 `dotsafe mcp setup` prints the same, with the path of the `dotsafe` you ran.
+
+Step-by-step guides: [Claude Code](/for/claude-code), [Cursor](/for/cursor) and [Codex](/for/codex).
 
 `dotsafe mcp` holds no keys. It passes requests to the dotsafe app, which must be running and unlocked. Without the app, run `dotsafe daemon` in a terminal and approve requests there.
 
