@@ -219,6 +219,8 @@ fn call_tool(client: &str, params: &Value) -> Value {
             g.name, g.project, g.environment, g.description
         )),
         Response::Error(error) => tool_error(&error.message),
+        // Answers to requests the MCP tools never make.
+        Response::Exited(_) | Response::Pending(_) | Response::Answered => tool_error("Unexpected answer from dotsafe."),
     }
 }
 

@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod approve;
 mod connect;
 #[cfg(unix)]
 mod daemon;
@@ -191,11 +193,31 @@ enum Cmd {
     /// Secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
-    /// Serve agents without the desktop app: approvals are asked in this terminal
+    /// Keep the vault unlocked in memory for agents and `dotsafe run` (cron jobs, scripts), without the desktop app
     Daemon {
         /// Stop after this long, e.g. 8h (default: until stopped)
         #[arg(long = "for", value_parser = session::parse_duration)]
         stop_after: Option<Duration>,
+        /// Unlock, then keep running in the background after this terminal closes
+        #[arg(long)]
+        detach: bool,
+        /// Internal: the vault key from a detaching `dotsafe daemon`
+        #[arg(long, hide = true, conflicts_with = "detach")]
+        key_from_stdin: bool,
+    },
+    /// Answer commands waiting for approval in `dotsafe daemon` (asks for the master password)
+    Approve {
+        /// The request to answer (the start of its id); default: each one in turn
+        id: Option<String>,
+        /// Allow it: once, 1h, or stop (until the daemon stops)
+        #[arg(long = "for", value_parser = ["once", "1h", "stop"], conflicts_with = "deny")]
+        lifetime: Option<String>,
+        /// Deny it
+        #[arg(long)]
+        deny: bool,
+        /// Only list what's waiting
+        #[arg(long, conflicts_with_all = ["lifetime", "deny"])]
+        list: bool,
     },
     /// Serve the MCP tools AI agents use to run commands with secrets they never see
     Mcp {
@@ -209,6 +231,15 @@ enum Cmd {
         /// Keep API keys out of the process (OpenAI, Anthropic, and `dotsafe proxy` profiles): it gets a local URL that adds the key
         #[arg(long)]
         proxy: bool,
+        /// Only these variables, comma-separated (default: all of the environment's)
+        #[arg(long, value_delimiter = ',', value_name = "NAMES")]
+        only: Option<Vec<String>>,
+        /// Run through `dotsafe daemon` even if the vault could be opened here
+        #[arg(long)]
+        daemon: bool,
+        /// Through the daemon: how long to wait for approval, e.g. 30s or 10m
+        #[arg(long, value_parser = session::parse_duration, default_value = "5m")]
+        wait: Duration,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true, value_name = "COMMAND")]
         command: Vec<String>,
     },
@@ -631,15 +662,47 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Reconnect { name, token_stdin } => connect::reconnect(&name, token_stdin)?,
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         #[cfg(unix)]
-        Cmd::Daemon { stop_after } => daemon::run(stop_after)?,
+        Cmd::Daemon { stop_after, detach, key_from_stdin } => {
+            let start = match (detach, key_from_stdin) {
+                (true, _) => daemon::Start::Detach,
+                (_, true) => daemon::Start::KeyFromStdin,
+                _ => daemon::Start::Here,
+            };
+            daemon::run(stop_after, start)?
+        }
         #[cfg(not(unix))]
         Cmd::Daemon { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
+        #[cfg(unix)]
+        Cmd::Approve { id, lifetime, deny, list } => approve::run(id, lifetime, deny, list)?,
+        #[cfg(not(unix))]
+        Cmd::Approve { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
-        Cmd::Run { env, proxy, command } => {
+        Cmd::Run { env, proxy, only, daemon: through_daemon, wait, command } => {
+            #[cfg(unix)]
+            if let Some(code) =
+                daemon::exec_through(env.env.as_deref(), proxy, only.as_deref(), through_daemon, wait, &command)?
+            {
+                return Ok(code);
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = wait;
+                if through_daemon {
+                    bail!("dotsafe daemon needs macOS or Linux for now");
+                }
+            }
             let ctx = Ctx::open()?;
             let target = ctx.target(env.env, false)?;
-            let vars = ctx.resolver()?.resolve(target.env.id)?;
+            let mut vars = ctx.resolver()?.resolve(target.env.id)?;
+            if let Some(only) = &only {
+                let missing: Vec<&str> =
+                    only.iter().filter(|n| !vars.iter().any(|(k, _)| k == *n)).map(String::as_str).collect();
+                if !missing.is_empty() {
+                    bail!("{} has no {}", target.env.name, missing.join(", "));
+                }
+                vars.retain(|(k, _)| only.contains(k));
+            }
             let profiles = if proxy { dotsafe_agent::proxy::profiles(&ctx.vault.list()?) } else { Vec::new() };
             drop(ctx);
             let mut cmd = Command::new(&command[0]);

@@ -1208,6 +1208,7 @@ dependencies = [
  "dotsafe-stores",
  "jiff",
  "keyring",
+ "libc",
  "rpassword",
  "serde",
  "serde_json",

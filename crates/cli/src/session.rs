@@ -49,6 +49,11 @@ fn from_cache(config: &Config) -> Result<Option<Vault>> {
     Ok(Vault::unlock_with_session_key(store, &key).ok())
 }
 
+/// Whether `dotsafe unlock` left a key that hasn't expired.
+pub fn has_cached_key(config: &Config) -> bool {
+    cached_key(config).is_some()
+}
+
 fn cached_key(config: &Config) -> Option<Zeroizing<[u8; 32]>> {
     let entry = entry(config).ok()?;
     let blob = Zeroizing::new(entry.get_secret().ok()?);
