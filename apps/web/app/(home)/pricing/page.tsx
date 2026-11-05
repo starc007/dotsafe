@@ -7,7 +7,7 @@ import { faqData } from '@/lib/structured-data';
 
 export const metadata = pageMetadata({
   title: 'Pricing',
-  description: 'One dotsafe license, $49 once, for up to 2 Macs. Every feature included, with lifetime updates.',
+  description: 'One dotsafe license, $49 once, for up to 2 computers, Mac or Linux. Every feature included, with lifetime updates.',
   path: '/pricing',
   markdown: '/pricing.md',
 });

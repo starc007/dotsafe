@@ -9,7 +9,7 @@ These terms cover the dotsafe app, the `dotsafe` CLI, the license you buy, and t
 ## Your license
 
 - A license costs a one-time payment. There's no subscription.
-- It's for one person, on up to 2 Macs at a time. Deactivate it on one Mac to move it to another.
+- It's for one person, on up to 2 computers (Mac or Linux) at a time. Deactivate it on one to move it to another.
 - It includes every update we release, with no renewal fee.
 - Don't share, resell or publish your license key. A key that's shared or abused can be revoked.
 

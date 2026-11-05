@@ -17,7 +17,7 @@ export const homeData = {
       description: site.description,
       url: site.url,
       applicationCategory: 'DeveloperApplication',
-      operatingSystem: 'macOS 13 or later',
+      operatingSystem: 'macOS 13 or later, Linux (x86_64)',
       downloadUrl: links.download,
       license: 'https://opensource.org/license/mit',
       offers: { '@type': 'Offer', price: site.price, priceCurrency: 'USD', url: `${site.url}/pricing` },

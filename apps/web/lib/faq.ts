@@ -7,7 +7,7 @@ export const FAQ = [
   },
   {
     q: 'Can dotsafe see my secrets?',
-    a: "No. There's no dotsafe server holding your vault. The only server we run handles licenses, and it sees your license key and your Mac's name, nothing else.",
+    a: "No. There's no dotsafe server holding your vault. The only server we run handles licenses, and it sees your license key and your computer's name, nothing else.",
   },
   {
     q: 'What if I forget my password?',
@@ -23,7 +23,7 @@ export const FAQ = [
   },
   {
     q: 'Is there a free version?',
-    a: "No. dotsafe is $49, paid once, for up to 2 Macs. You enter your license key the first time you open the app or the CLI.",
+    a: "No. dotsafe is $49, paid once, for up to 2 computers (Mac or Linux). You enter your license key the first time you open the app or the CLI.",
   },
   {
     q: 'Can I move my license to another Mac?',

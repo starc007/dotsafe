@@ -72,12 +72,15 @@ export function ThanksContent() {
         <ButtonLink href={links.docs} variant="outline">
           Read the docs
         </ButtonLink>
+        <ButtonLink href={links.linux} variant="ghost" className="px-3">
+          On Linux?
+        </ButtonLink>
       </Heading>
       <Reveal className="mt-12 max-w-xl rounded-3xl border border-ds-line p-6 text-sm sm:p-8">
         {ret.licenseKey && <LicenseKey value={ret.licenseKey.split(',')[0]} />}
         <ol className="flex flex-col gap-3">
           <Step n={1}>Download dotsafe and open it.</Step>
-          <Step n={2}>Paste your license key on the first screen. It works on up to 2 Macs.</Step>
+          <Step n={2}>Paste your license key on the first screen. It works on up to 2 computers.</Step>
           <Step n={3}>
             Using the CLI instead? Run <code className="font-mono text-[13px]">dotsafe license activate &lt;key&gt;</code>
           </Step>

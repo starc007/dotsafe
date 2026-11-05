@@ -4,9 +4,9 @@ export const PLAN = {
   was: '$79',
   price: '$49',
   term: 'one-time',
-  blurb: 'Everything dotsafe does, on up to 2 Macs. Pay once, every update included.',
+  blurb: 'Everything dotsafe does, on up to 2 computers. Pay once, every update included.',
   perks: [
-    'Up to 2 Macs',
+    'Up to 2 computers, Mac or Linux',
     'Unlimited projects, variables and environments',
     'The dotsafe CLI',
     'iCloud, Google Drive, Dropbox, S3 and WebDAV',
