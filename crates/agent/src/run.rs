@@ -43,16 +43,31 @@ pub struct RunPlan {
     pub timeout: Duration,
 }
 
-pub fn run(plan: RunPlan) -> std::io::Result<RunOutput> {
-    let mut cmd = Command::new(&plan.program);
-    cmd.args(&plan.args).current_dir(&plan.cwd).env_clear();
+/// The command with only the fixed environment: the broker's allowlisted
+/// variables, the caller's `PATH`, and `env`. Shared by agent runs and
+/// `dotsafe run` through the daemon, so neither can slip in `LD_PRELOAD` and
+/// the like.
+pub fn command(
+    program: &std::path::Path,
+    args: &[String],
+    cwd: &std::path::Path,
+    path: Option<&str>,
+    env: &[(String, String)],
+) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.args(args).current_dir(cwd).env_clear();
     for name in PASSTHROUGH {
         if let Ok(value) = std::env::var(name) {
             cmd.env(name, value);
         }
     }
-    cmd.env("PATH", plan.path.as_deref().unwrap_or(DEFAULT_PATH));
-    cmd.envs(plan.env.iter().map(|(k, v)| (k, v)));
+    cmd.env("PATH", path.unwrap_or(DEFAULT_PATH));
+    cmd.envs(env.iter().map(|(k, v)| (k, v)));
+    cmd
+}
+
+pub fn run(plan: RunPlan) -> std::io::Result<RunOutput> {
+    let mut cmd = command(&plan.program, &plan.args, &plan.cwd, plan.path.as_deref(), &plan.env);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd.spawn()?;

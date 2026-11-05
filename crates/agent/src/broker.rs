@@ -22,8 +22,8 @@ use crate::files;
 use crate::grants::{Lifetime, Scope};
 use crate::policy;
 use crate::protocol::{
-    ErrorCode, GenerateRequest, Generated, ProjectInfo, Request, Response, RunRequest, Target, VariableInfo,
-    VariablesInfo,
+    AnswerRequest, ErrorCode, ExecRequest, ExitInfo, GenerateRequest, Generated, PendingFile, PendingInfo,
+    ProjectInfo, Request, Response, RunRequest, Target, VariableInfo, VariablesInfo, answer_message,
 };
 use crate::proxy::{self, ProxyServer};
 use crate::run::{self, DEFAULT_TIMEOUT, MAX_TIMEOUT, RunPlan};
@@ -52,6 +52,35 @@ pub struct ApprovalRequest {
     pub files: Vec<ApprovalFile>,
     /// Generate: what kind of value, for example "48 random characters".
     pub generated: Option<String>,
+    /// Run and exec: the grant an approval adds, so it can still be approved
+    /// after the caller stopped waiting.
+    #[serde(skip)]
+    pub scope: Option<Scope>,
+    /// How long the caller waits for an answer, when it said.
+    #[serde(skip)]
+    pub wait: Option<Duration>,
+}
+
+impl ApprovalRequest {
+    /// The request as `dotsafe approve` lists it.
+    pub fn info(&self, waiting: bool, age: Duration) -> PendingInfo {
+        PendingInfo {
+            id: self.id,
+            kind: self.kind.to_string(),
+            client: self.client.clone(),
+            project: self.project.clone(),
+            environment: self.environment.clone(),
+            command: self.command.clone(),
+            program_path: self.program_path.clone(),
+            cwd: self.cwd.clone(),
+            variables: self.variables.clone(),
+            proxied: self.proxied.clone(),
+            files: self.files.iter().map(|f| PendingFile { path: f.path.clone(), modified_ms: f.modified_ms }).collect(),
+            generated: self.generated.clone(),
+            waiting,
+            age_secs: age.as_secs(),
+        }
+    }
 }
 
 /// A script in an approval.
@@ -78,6 +107,21 @@ pub trait Host: Send + Sync + 'static {
     fn activity(&self) {}
     /// The vault changed (a generated secret was added).
     fn vault_changed(&self) {}
+    /// Whether it runs `dotsafe run` commands on the caller's own stdio.
+    /// Only `dotsafe daemon` does; the app's approvals stay agent runs.
+    fn runs_for_callers(&self) -> bool {
+        false
+    }
+    /// Requests waiting for an answer from `dotsafe approve`, or `None` where
+    /// approvals happen elsewhere (the app's dialog).
+    fn pending(&self) -> Option<Vec<PendingInfo>> {
+        None
+    }
+    /// Answers a waiting request. The broker has already checked the answer's
+    /// proof. `None` denies.
+    fn answer(&self, _id: Uuid, _lifetime: Option<Lifetime>) -> Result<(), String> {
+        Err("Approve requests in the desktop app.".into())
+    }
 }
 
 pub struct Broker<H: Host> {
@@ -149,126 +193,156 @@ impl<H: Host> Broker<H> {
         Response::Variables(VariablesInfo { project: project.name, environment: env.name, variables })
     }
 
-    fn run(&self, request: RunRequest) -> Response {
-        let label = request.command.join(" ");
-        if let Some(reason) = policy::refusal(&request.command) {
-            self.audit(&request.client, AuditAction::Run, AuditOutcome::Refused, &label, "", &[], Some(reason.clone()));
-            return Response::error(ErrorCode::Refused, reason);
+    /// Works out what a command would run with, without any values: the
+    /// refusal list, the program, the environment and its variables, and the
+    /// grant that would cover it.
+    fn prepare(&self, ask: Ask<'_>) -> Result<Prepared, Response> {
+        let label = ask.command.join(" ");
+        if let Some(reason) = policy::refusal(ask.command) {
+            self.audit(ask.client, AuditAction::Run, AuditOutcome::Refused, &label, "", &[], Some(reason.clone()));
+            return Err(Response::error(ErrorCode::Refused, reason));
         }
-        let cwd = match request.cwd.canonicalize() {
+        let cwd = match ask.cwd.canonicalize() {
             Ok(cwd) if cwd.is_dir() => cwd,
-            _ => return Response::error(ErrorCode::NotFound, format!("{} isn't a directory.", request.cwd.display())),
+            _ => return Err(Response::error(ErrorCode::NotFound, format!("{} isn't a directory.", ask.cwd.display()))),
         };
-        let Some(program) = policy::resolve_program(&request.command[0], request.path.as_deref(), &cwd) else {
-            return Response::error(ErrorCode::NotFound, format!("Couldn't find {} on PATH.", request.command[0]));
+        let Some(program) = policy::resolve_program(&ask.command[0], ask.path, &cwd) else {
+            return Err(Response::error(ErrorCode::NotFound, format!("Couldn't find {} on PATH.", ask.command[0])));
         };
         // Read before taking the vault, so a big file never holds it up.
-        let run_files = files::files_run(&program, &request.command[1..], &cwd);
+        let run_files = files::files_run(&program, &ask.command[1..], &cwd);
 
-        // Work out what would run, under the lock, without any values.
-        let (scope, project, environment, approved, profiles) = {
-            let Some((vault, _)) = self.host.vault() else { return locked() };
-            let records = match vault.list() {
-                Ok(records) => records,
-                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
-            };
-            let target = Target { cwd: request.target.cwd.clone().or(Some(cwd.clone())), ..request.target.clone() };
-            let (project, env) = match resolve(&records, &target) {
-                Ok(found) => found,
-                Err(response) => return response,
-            };
-            // Own and inherited variables.
-            let mut variables: Vec<String> = match dotsafe_core::Resolver::from_records(&records).entries(env.id) {
-                Ok(entries) => entries.into_iter().map(|e| e.key).collect(),
-                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
-            };
-            if let Some(wanted) = &request.variables {
-                let missing: Vec<&String> = wanted.iter().filter(|w| !variables.contains(w)).collect();
-                if !missing.is_empty() {
-                    let missing: Vec<&str> = missing.iter().map(|s| s.as_str()).collect();
-                    return Response::error(
-                        ErrorCode::NotFound,
-                        format!("{}/{} has no {}.", project.name, env.name, missing.join(", ")),
-                    );
-                }
-                variables.retain(|v| wanted.contains(v));
-            }
-            variables.sort();
-            let scope = Scope {
-                program: program.clone(),
-                args: request.command[1..].to_vec(),
-                cwd: cwd.clone(),
-                environment: env.id.to_string(),
-                variables,
-                files: run_files.iter().map(|f| (f.path.clone(), f.fingerprint.clone())).collect(),
-            };
-            let approved = self.host.allows(&scope, Instant::now());
-            // Built-in and custom profiles; custom ones come from the vault,
-            // which agents can't edit.
-            let profiles = proxy::profiles(&records);
-            (scope, project.name, env.name, approved, profiles)
+        let Some((vault, _)) = self.host.vault() else { return Err(locked()) };
+        let records = vault.list().map_err(|e| Response::error(ErrorCode::Internal, e.to_string()))?;
+        let target = Target { cwd: ask.target.cwd.clone().or(Some(cwd.clone())), ..ask.target.clone() };
+        let (project, env) = resolve(&records, &target)?;
+        // Own and inherited variables.
+        let mut variables: Vec<String> = match dotsafe_core::Resolver::from_records(&records).entries(env.id) {
+            Ok(entries) => entries.into_iter().map(|e| e.key).collect(),
+            Err(e) => return Err(Response::error(ErrorCode::Internal, e.to_string())),
         };
-        let env_label = format!("{project}/{environment}");
-
-        let proxied_names: Vec<String> = if request.proxy && self.proxy().is_some() {
+        if let Some(wanted) = ask.variables {
+            let missing: Vec<&str> = wanted.iter().filter(|w| !variables.contains(w)).map(String::as_str).collect();
+            if !missing.is_empty() {
+                return Err(Response::error(
+                    ErrorCode::NotFound,
+                    format!("{}/{} has no {}.", project.name, env.name, missing.join(", ")),
+                ));
+            }
+            variables.retain(|v| wanted.contains(v));
+        }
+        variables.sort();
+        let scope = Scope {
+            program: program.clone(),
+            args: ask.command[1..].to_vec(),
+            cwd: cwd.clone(),
+            environment: env.id.to_string(),
+            variables,
+            files: run_files.iter().map(|f| (f.path.clone(), f.fingerprint.clone())).collect(),
+            direct: ask.direct,
+        };
+        // Built-in and custom profiles; custom ones come from the vault,
+        // which agents can't edit.
+        let profiles = proxy::profiles(&records);
+        let proxied = if ask.proxy && self.proxy().is_some() {
             proxy::proxied_names(scope.variables.iter().map(String::as_str), &profiles)
         } else {
             Vec::new()
         };
-        if !approved {
-            let prompt = ApprovalRequest {
-                id: Uuid::new_v4(),
-                kind: "run",
-                client: request.client.clone(),
-                project: project.clone(),
-                environment: environment.clone(),
-                command: request.command.clone(),
-                program_path: scope.program.display().to_string(),
-                cwd: scope.cwd.display().to_string(),
-                variables: scope.variables.clone(),
-                proxied: proxied_names.clone(),
-                files: run_files
-                    .iter()
-                    .map(|f| ApprovalFile { path: f.path.display().to_string(), modified_ms: f.modified_ms })
-                    .collect(),
-                generated: None,
-            };
-            match self.ask(prompt) {
-                Some(lifetime) => self.host.grant(scope.clone(), lifetime, Instant::now()),
-                None => {
-                    self.audit(
-                        &request.client,
-                        AuditAction::Run,
-                        AuditOutcome::Denied,
-                        &label,
-                        &env_label,
-                        &scope.variables,
-                        None,
-                    );
-                    return Response::error(ErrorCode::Denied, "The user didn't allow this command.");
-                }
+        Ok(Prepared {
+            label,
+            env_label: format!("{}/{}", project.name, env.name),
+            project: project.name,
+            environment: env.name,
+            files: run_files
+                .iter()
+                .map(|f| ApprovalFile { path: f.path.display().to_string(), modified_ms: f.modified_ms })
+                .collect(),
+            scope,
+            profiles,
+            proxied,
+        })
+    }
+
+    /// Asks the person unless a grant already covers it, and remembers the answer.
+    fn approve(&self, prepared: &Prepared, ask: &Ask<'_>, kind: &'static str) -> Result<(), Response> {
+        if self.host.allows(&prepared.scope, Instant::now()) {
+            return Ok(());
+        }
+        let scope = &prepared.scope;
+        let prompt = ApprovalRequest {
+            id: Uuid::new_v4(),
+            kind,
+            client: ask.client.to_string(),
+            project: prepared.project.clone(),
+            environment: prepared.environment.clone(),
+            command: ask.command.to_vec(),
+            program_path: scope.program.display().to_string(),
+            cwd: scope.cwd.display().to_string(),
+            variables: scope.variables.clone(),
+            proxied: prepared.proxied.clone(),
+            files: prepared.files.clone(),
+            generated: None,
+            scope: Some(scope.clone()),
+            wait: ask.wait,
+        };
+        match self.ask(prompt) {
+            Some(lifetime) => {
+                self.host.grant(scope.clone(), lifetime, Instant::now());
+                Ok(())
+            }
+            None => {
+                let (label, env) = (&prepared.label, &prepared.env_label);
+                self.audit(ask.client, AuditAction::Run, AuditOutcome::Denied, label, env, &scope.variables, None);
+                Err(Response::error(ErrorCode::Denied, "The user didn't allow this command."))
             }
         }
+    }
 
-        // Fetch the values only now, and only if the vault is still unlocked.
-        let secrets = {
-            let Some((vault, _)) = self.host.vault() else { return locked() };
-            let records = match vault.list() {
-                Ok(records) => records,
-                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
-            };
-            let Some(env) = records.iter().find_map(|r| match r {
-                Record::Environment(e) if e.id.to_string() == scope.environment && !e.deleted => Some(e.clone()),
-                _ => None,
-            }) else {
-                return Response::error(ErrorCode::NotFound, "That environment no longer exists.");
-            };
-            // Inherited variables, links and references, worked out in one place.
-            match dotsafe_core::Resolver::from_records(&records).resolve(env.id) {
-                Ok(all) => all.into_iter().filter(|(k, _)| scope.variables.iter().any(|v| v == k)).collect::<Vec<_>>(),
-                Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
-            }
+    /// The approved variables' values, fetched only now, and only if the
+    /// vault is still unlocked.
+    fn values(&self, scope: &Scope) -> Result<Vec<(String, String)>, Response> {
+        let Some((vault, _)) = self.host.vault() else { return Err(locked()) };
+        let records = vault.list().map_err(|e| Response::error(ErrorCode::Internal, e.to_string()))?;
+        let Some(env) = records.iter().find_map(|r| match r {
+            Record::Environment(e) if e.id.to_string() == scope.environment && !e.deleted => Some(e.clone()),
+            _ => None,
+        }) else {
+            return Err(Response::error(ErrorCode::NotFound, "That environment no longer exists."));
         };
+        // Inherited variables, links and references, worked out in one place.
+        match dotsafe_core::Resolver::from_records(&records).resolve(env.id) {
+            Ok(all) => Ok(all.into_iter().filter(|(k, _)| scope.variables.iter().any(|v| v == k)).collect()),
+            Err(e) => Err(Response::error(ErrorCode::Internal, e.to_string())),
+        }
+    }
+
+    fn run(&self, request: RunRequest) -> Response {
+        let ask = Ask {
+            client: &request.client,
+            command: &request.command,
+            cwd: &request.cwd,
+            target: &request.target,
+            variables: request.variables.as_deref(),
+            path: request.path.as_deref(),
+            proxy: request.proxy,
+            direct: false,
+            wait: None,
+        };
+        let prepared = match self.prepare(ask.clone()) {
+            Ok(prepared) => prepared,
+            Err(response) => return response,
+        };
+        if let Err(response) = self.approve(&prepared, &ask, "run") {
+            return response;
+        }
+        let secrets = match self.values(&prepared.scope) {
+            Ok(secrets) => secrets,
+            Err(response) => return response,
+        };
+        let Prepared { scope, profiles, label, env_label, .. } = prepared;
+        let program = scope.program.clone();
+        let cwd = scope.cwd.clone();
 
         let timeout = request
             .timeout_secs
@@ -313,6 +387,107 @@ impl<H: Host> Broker<H> {
                 self.audit(client, AuditAction::Run, AuditOutcome::Failed, &label, &env_label, vars, detail);
                 Response::error(ErrorCode::Internal, format!("Couldn't start {}: {e}", request.command[0]))
             }
+        }
+    }
+
+    /// `dotsafe run` through the daemon: like an agent run, but the command
+    /// gets the caller's stdin, stdout and stderr, isn't timed out, and its
+    /// output isn't scrubbed. The caller never holds the values: they exist
+    /// only in the process started here. Hanging up stops the command.
+    #[cfg(unix)]
+    fn exec(&self, request: ExecRequest, caller: crate::ipc::Caller) -> Response {
+        use std::os::unix::process::CommandExt;
+
+        if !self.host.runs_for_callers() {
+            return Response::error(
+                ErrorCode::Unavailable,
+                "The desktop app doesn't run commands for dotsafe run; it opens the vault itself.",
+            );
+        }
+        let ask = Ask {
+            client: &request.client,
+            command: &request.command,
+            cwd: &request.cwd,
+            target: &request.target,
+            variables: request.variables.as_deref(),
+            path: request.path.as_deref(),
+            proxy: request.proxy,
+            direct: true,
+            wait: request.wait_secs.map(Duration::from_secs),
+        };
+        let prepared = match self.prepare(ask.clone()) {
+            Ok(prepared) => prepared,
+            Err(response) => return response,
+        };
+        if let Err(response) = self.approve(&prepared, &ask, "exec") {
+            return response;
+        }
+        let secrets = match self.values(&prepared.scope) {
+            Ok(secrets) => secrets,
+            Err(response) => return response,
+        };
+        let Prepared { scope, profiles, label, env_label, .. } = prepared;
+        let proxied = match (request.proxy, self.proxy()) {
+            (true, Some(server)) => Some(proxy::apply(server, secrets.clone(), &profiles)),
+            _ => None,
+        };
+        let env = proxied.as_ref().map_or(secrets, |p| p.env.clone());
+        let mut cmd = run::command(&scope.program, &scope.args, &scope.cwd, request.path.as_deref(), &env);
+        drop(env);
+        let crate::ipc::Caller { stdin, stdout, stderr, .. } = &caller;
+        let stdio = (|| Ok::<_, std::io::Error>((stdin.try_clone()?, stdout.try_clone()?, stderr.try_clone()?)))();
+        let spawned = stdio.and_then(|(stdin, stdout, stderr)| {
+            // Its own process group, so stopping it stops what it started too.
+            cmd.stdin(stdin).stdout(stdout).stderr(stderr).process_group(0).spawn()
+        });
+        drop(cmd);
+        let (vars, client) = (&scope.variables, &request.client);
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(e) => {
+                self.audit(client, AuditAction::Run, AuditOutcome::Failed, &label, &env_label, vars, Some(e.to_string()));
+                return Response::error(ErrorCode::Internal, format!("Couldn't start {}: {e}", request.command[0]));
+            }
+        };
+        let status = wait_or_stop(&mut child, &caller);
+        drop(proxied);
+        use std::os::unix::process::ExitStatusExt;
+        let exit = ExitInfo { code: status.as_ref().and_then(|s| s.code()), signal: status.as_ref().and_then(|s| s.signal()) };
+        let outcome = match (exit.code, exit.signal, status.is_some()) {
+            (_, _, false) => "stopped: dotsafe run went away".to_string(),
+            (Some(code), _, _) => format!("exit {code}"),
+            (None, Some(signal), _) => format!("ended by signal {signal}"),
+            (None, None, _) => "ended".to_string(),
+        };
+        self.audit(client, AuditAction::Run, AuditOutcome::Allowed, &label, &env_label, vars, Some(outcome));
+        Response::Exited(exit)
+    }
+
+    fn pending(&self) -> Response {
+        match self.host.pending() {
+            Some(pending) => Response::Pending(pending),
+            None => Response::error(ErrorCode::Unavailable, "Approve requests in the desktop app."),
+        }
+    }
+
+    /// An answer from `dotsafe approve`. Any process can reach the socket, so
+    /// the answer has to carry a tag only the vault key can make.
+    fn answer(&self, request: AnswerRequest) -> Response {
+        let Some((vault, _)) = self.host.vault() else { return locked() };
+        let message = answer_message(request.id, request.lifetime.as_deref());
+        if !vault.check_approval_tag(&message, &request.proof) {
+            return Response::error(ErrorCode::Denied, "That answer isn't signed with this vault's key.");
+        }
+        let lifetime = match request.lifetime.as_deref() {
+            None => None,
+            Some("once") => Some(Lifetime::Once),
+            Some("1h") => Some(Lifetime::For(Duration::from_secs(60 * 60))),
+            Some("stop") => Some(Lifetime::UntilLock),
+            Some(other) => return Response::error(ErrorCode::Invalid, format!("Unknown duration {other}.")),
+        };
+        match self.host.answer(request.id, lifetime) {
+            Ok(()) => Response::Answered,
+            Err(message) => Response::error(ErrorCode::NotFound, message),
         }
     }
 
@@ -361,6 +536,8 @@ impl<H: Host> Broker<H> {
             proxied: Vec::new(),
             files: Vec::new(),
             generated: Some(description.clone()),
+            scope: None,
+            wait: None,
         };
         if self.ask(prompt).is_none() {
             self.audit(&client, AuditAction::Generate, AuditOutcome::Denied, &name, &env_label, &[], None);
@@ -441,7 +618,73 @@ impl<H: Host> crate::ipc::Handler for Broker<H> {
             Request::ListVariables(target) => self.list_variables(&target),
             Request::Run(run) => self.run(run),
             Request::Generate(generate) => self.generate(generate),
+            // Exec arrives with the caller's descriptors, through `exec` below.
+            Request::Exec(_) => Response::error(ErrorCode::Invalid, "dotsafe run sends its stdin, stdout and stderr."),
+            Request::Pending => self.pending(),
+            Request::Answer(answer) => self.answer(answer),
         }
+    }
+
+    fn exec(&self, request: ExecRequest, caller: crate::ipc::Caller) -> Response {
+        Broker::exec(self, request, caller)
+    }
+}
+
+/// What a run or exec asks for, before anything is looked up.
+#[derive(Clone)]
+struct Ask<'a> {
+    client: &'a str,
+    command: &'a [String],
+    cwd: &'a Path,
+    target: &'a Target,
+    variables: Option<&'a [String]>,
+    path: Option<&'a str>,
+    proxy: bool,
+    direct: bool,
+    wait: Option<Duration>,
+}
+
+/// A command worked out, with no values yet.
+struct Prepared {
+    scope: Scope,
+    project: String,
+    environment: String,
+    /// The command as typed, for the audit log.
+    label: String,
+    env_label: String,
+    files: Vec<ApprovalFile>,
+    profiles: Vec<proxy::Profile>,
+    proxied: Vec<String>,
+}
+
+/// Waits for the command, stopping it if the caller goes away: a polite
+/// SIGTERM to its process group, then SIGKILL after a few seconds. Returns
+/// `None` when it had to be stopped.
+#[cfg(unix)]
+fn wait_or_stop(child: &mut std::process::Child, caller: &crate::ipc::Caller) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => {}
+            Err(_) => return child.wait().ok(),
+        }
+        if caller.gone() {
+            let group = -(child.id() as libc::pid_t);
+            // SAFETY: kill only sends a signal; the group is the child's own.
+            unsafe { libc::kill(group, libc::SIGTERM) };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if let Ok(Some(_)) = child.try_wait() {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            // SAFETY: as above.
+            unsafe { libc::kill(group, libc::SIGKILL) };
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
