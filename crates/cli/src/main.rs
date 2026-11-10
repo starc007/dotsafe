@@ -22,6 +22,7 @@ use dotsafe_core::{
     CachedStore, Config, Environment, Error, FolderStore, KdfParams, Project, Record, S3Location, Stamp, Store, Vault,
     Entry, config, dotenv, is_valid_var_name,
 };
+use dotsafe_core::resolve::Change;
 use dotsafe_stores::{S3Credentials, S3Store};
 use zeroize::Zeroizing;
 use uuid::Uuid;
@@ -664,8 +665,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             if a.env.id == b.env.id {
                 bail!("that's the same environment twice");
             }
-            let resolver = ctx.resolver()?;
-            let changes = compare::diff(&resolver.resolve(a.env.id)?, &resolver.resolve(b.env.id)?, names);
+            let changes = ctx.resolver()?.diff(a.env.id, b.env.id, names)?;
             if changes.is_empty() {
                 let what = if names { "the same variables" } else { "the same variables and values" };
                 eprintln!("{} and {} have {what}.", a.label(), b.label());
@@ -674,9 +674,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let width = changes.iter().map(|c| c.key().len()).max().unwrap_or(0);
             for change in &changes {
                 let (mark, note) = match change {
-                    compare::Change::Removed(_) => ('-', format!("only in {}", a.env.name)),
-                    compare::Change::Added(_) => ('+', format!("only in {}", b.env.name)),
-                    compare::Change::Changed(_) => ('~', "different values".to_string()),
+                    Change::Removed(_) => ('-', format!("only in {}", a.env.name)),
+                    Change::Added(_) => ('+', format!("only in {}", b.env.name)),
+                    Change::Changed(_) => ('~', "different values".to_string()),
                 };
                 println!("{mark} {:<width$}  {note}", change.key());
             }

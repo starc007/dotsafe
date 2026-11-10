@@ -1,8 +1,7 @@
-//! `dotsafe diff`, `check` and `example`: compare environments with each
-//! other and with a committed `.env.example`, by name.
+//! `dotsafe check` and `example`: compare an environment with a committed
+//! `.env.example`, by name. (`dotsafe diff` uses `Resolver::diff` in core.)
 //!
-//! Nothing here prints or writes a value from the vault. `diff` compares
-//! values in memory and only says whether they differ; `example` writes
+//! Nothing here prints or writes a value from the vault: `example` writes
 //! names, keeping only the values the example file already had.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,40 +13,6 @@ use dotsafe_core::dotenv;
 
 /// First line of every file `example` writes.
 pub const EXAMPLE_HEADER: &str = "# Written by `dotsafe example`";
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Change {
-    /// Only the first environment has it.
-    Removed(String),
-    /// Only the second environment has it.
-    Added(String),
-    /// Both have it, with different values.
-    Changed(String),
-}
-
-impl Change {
-    pub fn key(&self) -> &str {
-        match self {
-            Change::Removed(k) | Change::Added(k) | Change::Changed(k) => k,
-        }
-    }
-}
-
-/// How `b` differs from `a`, in key order. With `names_only`, values aren't
-/// compared.
-pub fn diff(a: &[(String, String)], b: &[(String, String)], names_only: bool) -> Vec<Change> {
-    let a: BTreeMap<&str, &str> = a.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let b: BTreeMap<&str, &str> = b.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let keys: BTreeSet<&str> = a.keys().chain(b.keys()).copied().collect();
-    keys.into_iter()
-        .filter_map(|k| match (a.get(k), b.get(k)) {
-            (Some(_), None) => Some(Change::Removed(k.to_string())),
-            (None, Some(_)) => Some(Change::Added(k.to_string())),
-            (Some(x), Some(y)) if !names_only && x != y => Some(Change::Changed(k.to_string())),
-            _ => None,
-        })
-        .collect()
-}
 
 /// The names in an example file, with the values it gives them.
 pub fn read_example(path: &Path) -> Result<Vec<(String, String)>> {
@@ -104,18 +69,6 @@ mod tests {
 
     fn vars(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
-    }
-
-    #[test]
-    fn diff_lists_missing_extra_and_changed() {
-        let a = vars(&[("A", "1"), ("B", "2"), ("C", "3")]);
-        let b = vars(&[("B", "2"), ("C", "x"), ("D", "4")]);
-        assert_eq!(
-            diff(&a, &b, false),
-            vec![Change::Removed("A".into()), Change::Changed("C".into()), Change::Added("D".into())]
-        );
-        assert_eq!(diff(&a, &b, true), vec![Change::Removed("A".into()), Change::Added("D".into())]);
-        assert!(diff(&a, &a, false).is_empty());
     }
 
     #[test]
