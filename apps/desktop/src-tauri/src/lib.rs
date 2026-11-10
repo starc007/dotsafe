@@ -92,6 +92,7 @@ pub fn run() {
             commands::create_environment,
             commands::delete_environment,
             commands::list_variables,
+            commands::compare_environments,
             commands::all_variables,
             commands::vault_health,
             commands::reveal_variable,

@@ -26,6 +26,7 @@ export const SHORTCUTS = {
   nextProject: { key: "ArrowDown", label: "Next project", group: "Projects" },
   previousEnvironment: { key: "[", label: "Previous environment", group: "Projects" },
   nextEnvironment: { key: "]", label: "Next environment", group: "Projects" },
+  compareEnvironments: { key: "d", label: "Compare environments", group: "Projects" },
   addVariable: { key: "n", label: "Add a variable", group: "Variables" },
   importVariables: { key: "i", label: "Import from .env", group: "Variables" },
   filterVariables: { key: "f", label: "Filter variables", group: "Variables" },

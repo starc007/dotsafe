@@ -558,6 +558,55 @@ pub async fn list_variables(state: State<'_, AppState>, environment_id: Uuid) ->
         .await
 }
 
+/// How two environments differ, by name only.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentDiff {
+    /// Only the first environment has these.
+    only_in_first: Vec<String>,
+    /// Only the second environment has these.
+    only_in_second: Vec<String>,
+    /// Both have these, with different values.
+    different: Vec<String>,
+    /// Both have these, with the same value.
+    same: Vec<String>,
+}
+
+/// Compares two environments' final variables (inheritance, links and
+/// references applied). Values are compared in Rust and never returned.
+#[tauri::command]
+pub async fn compare_environments(
+    state: State<'_, AppState>,
+    environment_id: Uuid,
+    other_id: Uuid,
+) -> CmdResult<EnvironmentDiff> {
+    use dotsafe_core::resolve::Change as Difference;
+    state
+        .run(move |s| {
+            s.environment(environment_id)?;
+            s.environment(other_id)?;
+            let resolver = Resolver::from_records(&s.vault()?.list()?);
+            let first = resolver.resolve(environment_id)?;
+            let second = resolver.resolve(other_id)?;
+            let mut out =
+                EnvironmentDiff { only_in_first: Vec::new(), only_in_second: Vec::new(), different: Vec::new(), same: Vec::new() };
+            for change in dotsafe_core::resolve::diff(&first, &second, false) {
+                match change {
+                    Difference::Removed(k) => out.only_in_first.push(k),
+                    Difference::Added(k) => out.only_in_second.push(k),
+                    Difference::Changed(k) => out.different.push(k),
+                }
+            }
+            out.same = first
+                .into_iter()
+                .map(|(k, _)| k)
+                .filter(|k| second.iter().any(|(s, _)| s == k) && !out.different.contains(k))
+                .collect();
+            Ok(out)
+        })
+        .await
+}
+
 /// Removes an inherited variable here, so the parent's value doesn't apply.
 #[tauri::command]
 pub async fn hide_variable(state: State<'_, AppState>, environment_id: Uuid, key: String) -> CmdResult<()> {

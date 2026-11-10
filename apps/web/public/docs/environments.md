@@ -47,6 +47,8 @@ dotsafe diff production                  # the linked environment against produc
 dotsafe diff staging production --names  # names only; values are expected to differ
 ```
 
+In the app, press `⌘D` or choose Compare in the project's ⋯ menu. A variable missing from one side can be added there; you type its value.
+
 ## .env.example
 
 Keep a committed `.env.example` in step with the vault, and check that an environment has everything it lists.
