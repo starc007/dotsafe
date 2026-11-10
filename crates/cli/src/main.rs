@@ -1,5 +1,6 @@
 #[cfg(unix)]
 mod approve;
+mod compare;
 mod connect;
 #[cfg(unix)]
 mod daemon;
@@ -149,6 +150,42 @@ enum Cmd {
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Write the file even if git would commit it, or dotsafe didn't write it
+        #[arg(long, requires = "output")]
+        force: bool,
+    },
+    /// Compare two environments by name: what's only in one, and which values differ (values aren't shown)
+    Diff {
+        /// Compare the linked environment (or -e) with this one, or with the second name if given
+        #[arg(value_name = "ENV")]
+        first: String,
+        /// The environment to compare `first` with
+        #[arg(value_name = "OTHER")]
+        second: Option<String>,
+        /// Only compare names, not values
+        #[arg(long)]
+        names: bool,
+        #[command(flatten)]
+        env: EnvArg,
+    },
+    /// Check that every variable in .env.example is set in the environment
+    Check {
+        /// The example file
+        #[arg(default_value = ".env.example")]
+        file: PathBuf,
+        /// Also fail when the environment has variables the file doesn't list
+        #[arg(long)]
+        strict: bool,
+        #[command(flatten)]
+        env: EnvArg,
+    },
+    /// Print the variable names as a .env.example, or write them to a file to commit
+    Example {
+        #[command(flatten)]
+        env: EnvArg,
+        /// Write to this file instead, e.g. .env.example (values it already has are kept)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Replace a file dotsafe didn't write (its comments are lost)
         #[arg(long, requires = "output")]
         force: bool,
     },
@@ -616,6 +653,80 @@ fn run(cli: Cli) -> Result<ExitCode> {
                     );
                 }
                 None => print!("{}", *text),
+            }
+        }
+        Cmd::Diff { first, second, names, env } => {
+            let ctx = Ctx::open()?;
+            let (a, b) = match second {
+                Some(second) => (ctx.target(Some(first), false)?, ctx.target(Some(second), false)?),
+                None => (ctx.target(env.env, false)?, ctx.target(Some(first), false)?),
+            };
+            if a.env.id == b.env.id {
+                bail!("that's the same environment twice");
+            }
+            let resolver = ctx.resolver()?;
+            let changes = compare::diff(&resolver.resolve(a.env.id)?, &resolver.resolve(b.env.id)?, names);
+            if changes.is_empty() {
+                let what = if names { "the same variables" } else { "the same variables and values" };
+                eprintln!("{} and {} have {what}.", a.label(), b.label());
+                return Ok(ExitCode::SUCCESS);
+            }
+            let width = changes.iter().map(|c| c.key().len()).max().unwrap_or(0);
+            for change in &changes {
+                let (mark, note) = match change {
+                    compare::Change::Removed(_) => ('-', format!("only in {}", a.env.name)),
+                    compare::Change::Added(_) => ('+', format!("only in {}", b.env.name)),
+                    compare::Change::Changed(_) => ('~', "different values".to_string()),
+                };
+                println!("{mark} {:<width$}  {note}", change.key());
+            }
+            return Ok(ExitCode::FAILURE);
+        }
+        Cmd::Check { file, strict, env } => {
+            let example = compare::read_example(&file)?;
+            let ctx = Ctx::open()?;
+            let target = ctx.target(env.env, false)?;
+            let names: Vec<String> = ctx.resolver()?.resolve(target.env.id)?.into_iter().map(|(k, _)| k).collect();
+            let result = compare::check(&example, &names);
+            let source = file.display();
+            if !result.missing.is_empty() {
+                eprintln!(
+                    "{} is missing {} from {source}: {}",
+                    target.label(),
+                    count(result.missing.len()),
+                    result.missing.join(", ")
+                );
+            }
+            if !result.extra.is_empty() {
+                eprintln!(
+                    "{source} doesn't list {}: {}. Update it with `dotsafe example -o {source}`.",
+                    count(result.extra.len()),
+                    result.extra.join(", ")
+                );
+            }
+            if result.missing.is_empty() && (result.extra.is_empty() || !strict) {
+                if result.extra.is_empty() {
+                    eprintln!("{} has every variable in {source}.", target.label());
+                }
+                return Ok(ExitCode::SUCCESS);
+            }
+            return Ok(ExitCode::FAILURE);
+        }
+        Cmd::Example { env, output, force } => {
+            let ctx = Ctx::open()?;
+            let target = ctx.target(env.env, false)?;
+            let names: Vec<String> = ctx.resolver()?.entries(target.env.id)?.into_iter().map(|e| e.key).collect();
+            let existing = match &output {
+                Some(path) if path.exists() => compare::read_example(path)?,
+                _ => Vec::new(),
+            };
+            let text = compare::example_text(&names, &existing, &target.label());
+            match output {
+                Some(path) => {
+                    compare::write_example(&path, &text, force)?;
+                    eprintln!("Wrote {} from {} to {}. Commit it.", count(names.len()), target.label(), path.display());
+                }
+                None => print!("{text}"),
             }
         }
         Cmd::Scan { install_hook: true, .. } => {
@@ -1192,6 +1303,11 @@ fn time_in(ms: u64, tz: &jiff::tz::TimeZone) -> String {
         Ok(at) => at.to_zoned(tz.clone()).strftime("%Y-%m-%d %H:%M").to_string(),
         Err(_) => "unknown time".to_string(),
     }
+}
+
+/// "1 variable", "3 variables".
+fn count(n: usize) -> String {
+    format!("{n} {}", if n == 1 { "variable" } else { "variables" })
 }
 
 fn human(d: Duration) -> String {
