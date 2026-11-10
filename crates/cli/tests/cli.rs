@@ -711,3 +711,60 @@ fn backups_and_moving_the_vault() {
     assert!(config.contains("new-home"), "this machine points at the new place: {config}");
     assert_eq!(m.ok(&project, &["get", "API_KEY"]), "sk_move\n");
 }
+
+#[test]
+fn diff_compares_environments_by_name() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "SHARED=same", "DB=dev-db", "DEBUG=1"]);
+    m.ok(&project, &["set", "-e", "production", "SHARED=same", "DB=prod-db", "SENTRY_DSN=https://x"]);
+
+    let out = m.run(&project, &["diff", "production"]);
+    assert_eq!(out.status.code(), Some(1), "differences exit 1");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        text,
+        "~ DB          different values\n- DEBUG       only in development\n+ SENTRY_DSN  only in production\n"
+    );
+    assert!(!text.contains("dev-db") && !text.contains("prod-db"), "values never shown");
+
+    let names = String::from_utf8(m.run(&project, &["diff", "development", "production", "--names"]).stdout).unwrap();
+    assert!(!names.contains("DB "), "{names}");
+
+    m.ok(&project, &["set", "-e", "staging", "SHARED=same", "DB=dev-db", "DEBUG=1"]);
+    let same = m.run(&project, &["diff", "staging"]);
+    assert!(same.status.success());
+    assert!(stderr(&same).contains("the same variables and values"));
+}
+
+#[test]
+fn example_and_check_track_env_example() {
+    let (_root, m, project) = setup();
+    m.init();
+    m.ok(&project, &["set", "API_KEY=sk-secret", "PORT=8080"]);
+
+    // A hand-written file is only replaced with --force, keeping its values.
+    fs::write(project.join(".env.example"), "# mine\nPORT=3000\nOLD=1\n").unwrap();
+    let refused = m.run(&project, &["example", "-o", ".env.example"]);
+    assert!(!refused.status.success());
+    m.ok(&project, &["example", "-o", ".env.example", "--force"]);
+    let text = fs::read_to_string(project.join(".env.example")).unwrap();
+    assert!(text.ends_with("API_KEY=\nPORT=3000\n"), "{text}");
+    assert!(!text.contains("sk-secret") && !text.contains("8080"));
+    // Once dotsafe wrote it, it updates without --force.
+    m.ok(&project, &["example", "-o", ".env.example"]);
+
+    let ok = m.run(&project, &["check"]);
+    assert!(ok.status.success(), "{}", stderr(&ok));
+
+    m.ok(&project, &["set", "EXTRA=1"]);
+    let extra = m.run(&project, &["check"]);
+    assert!(extra.status.success());
+    assert!(stderr(&extra).contains("doesn't list 1 variable: EXTRA"), "{}", stderr(&extra));
+    assert!(!m.run(&project, &["check", "--strict"]).status.success());
+
+    m.ok(&project, &["unset", "API_KEY"]);
+    let missing = m.run(&project, &["check"]);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(stderr(&missing).contains("missing 1 variable from .env.example: API_KEY"), "{}", stderr(&missing));
+}
