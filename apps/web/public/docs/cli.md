@@ -28,6 +28,9 @@ Every command takes `--help`. Commands that work on variables take `-e <env>` fo
 | `dotsafe run [--proxy] [--only A,B] -- <command>` | Run a command with the variables in its environment; through `dotsafe daemon` when this machine can't unlock by itself |
 | `dotsafe import [file] [--from <tool>]` | Import a .env or JSON file, or from Doppler, Infisical, 1Password |
 | `dotsafe export [-o file] [--force]` | Print .env lines, or write a gitignored, owner-only file |
+| `dotsafe diff <env> [other] [--names]` | Compare two environments by name; values aren't shown |
+| `dotsafe example [-o file] [--force]` | Print the names as a .env.example, or write one to commit |
+| `dotsafe check [file] [--strict]` | Fail if a variable in .env.example isn't set |
 | `dotsafe scan [paths] [--staged \| --install-hook]` | Find vault values in files before they're committed |
 
 ## Secrets

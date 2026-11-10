@@ -60,6 +60,8 @@ Each project has environments (development, staging, production…). An environm
 dotsafe set 'DB_URL=postgres://${{ DB_HOST }}/app'
 dotsafe inherit production -e staging          # staging gets production's variables; its own win
 dotsafe unset -e staging --hide SENTRY_DSN     # drop an inherited variable from staging only
+dotsafe diff staging production                # what's only in one, which values differ; names only
+dotsafe example -o .env.example                # names to commit; `dotsafe check` fails if one isn't set
 ```
 
 ### Secrets and rotation

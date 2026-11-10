@@ -38,6 +38,27 @@ dotsafe set 'DB_URL=postgres://${{ DB_HOST }}/app'   # single quotes, so the she
 > [!NOTE]
 > A reference to a variable that doesn't exist is an error, never an empty string, so a typo can't quietly reach your app.
 
+## Comparing environments
+
+`dotsafe diff` shows what's only in one environment and which values differ. It prints names, never values, and exits 1 when anything differs.
+
+```bash
+dotsafe diff production                  # the linked environment against production
+dotsafe diff staging production --names  # names only; values are expected to differ
+```
+
+## .env.example
+
+Keep a committed `.env.example` in step with the vault, and check that an environment has everything it lists.
+
+```bash
+dotsafe example -o .env.example   # names only; values the file already had are kept
+dotsafe check                     # fails if a variable in .env.example isn't set
+dotsafe check -e production --strict   # also fails on variables the file doesn't list
+```
+
+`dotsafe check` exits 1 when something is missing, so it fits a pre-commit hook or a deploy script.
+
 ## In the app
 
 - `⌘K` finds a variable in any project and copies it, or jumps to an environment.
