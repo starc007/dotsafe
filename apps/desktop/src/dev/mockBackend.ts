@@ -594,6 +594,23 @@ export function installMockBackend() {
               rows.push({ key, secret: null, references: false, inheritedFrom: fromParent.get(key)![1].name, overrides: null, removed: true });
           return rows.sort((x, y) => x.key.localeCompare(y.key));
         }
+        case "compare_environments": {
+          const first = env(a.environmentId);
+          const second = env(a.otherId);
+          const values = (e: Env) =>
+            new Map([...effective(e).keys()].flatMap((k) => {
+              const v = finalValue(e, k);
+              return v === undefined ? [] : [[k, v] as const];
+            }));
+          const [x, y] = [values(first), values(second)];
+          const keys = [...new Set([...x.keys(), ...y.keys()])].sort();
+          return {
+            onlyInFirst: keys.filter((k) => x.has(k) && !y.has(k)),
+            onlyInSecond: keys.filter((k) => !x.has(k) && y.has(k)),
+            different: keys.filter((k) => x.has(k) && y.has(k) && x.get(k) !== y.get(k)),
+            same: keys.filter((k) => x.has(k) && y.has(k) && x.get(k) === y.get(k)),
+          };
+        }
         case "hide_variable": {
           const e = env(a.environmentId);
           e.vars.delete(a.key);

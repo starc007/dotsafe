@@ -21,6 +21,7 @@ export function VariableDialog({
   environmentId,
   environmentLabel,
   initial,
+  defaultKey,
   onSaved,
   onImported,
 }: {
@@ -29,6 +30,8 @@ export function VariableDialog({
   environmentId: string;
   environmentLabel: string;
   initial?: { key: string; value: string };
+  /** A name to start a new variable with, e.g. one missing from another environment. */
+  defaultKey?: string;
   onSaved: (key: string, previousKey?: string) => void;
   onImported: (result: ImportResult) => void;
 }) {
@@ -77,9 +80,10 @@ export function VariableDialog({
     >
       {/* Keyed so each opening starts from fresh state. */}
       <VariableForm
-        key={initial?.key ?? "new"}
+        key={initial?.key ?? `new:${defaultKey ?? ""}`}
         environmentId={environmentId}
         initial={initial}
+        defaultKey={defaultKey}
         onSaved={onSaved}
         onBulkPaste={setBulkText}
       />
@@ -90,15 +94,19 @@ export function VariableDialog({
 function VariableForm({
   environmentId,
   initial,
+  defaultKey,
   onSaved,
   onBulkPaste,
 }: {
   environmentId: string;
   initial?: { key: string; value: string };
+  defaultKey?: string;
   onSaved: (key: string, previousKey?: string) => void;
   onBulkPaste: (text: string) => void;
 }) {
-  const [key, setKey] = useState(initial?.key ?? "");
+  const [key, setKey] = useState(initial?.key ?? defaultKey ?? "");
+  // With the name given, start in the value box.
+  const valueFirst = !!initial || !!defaultKey;
   const [value, setValue] = useState(initial?.value ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -150,7 +158,7 @@ function VariableForm({
         <Input
           id="var-name"
           placeholder="API_KEY, or paste KEY=value lines"
-          autoFocus={!initial}
+          autoFocus={!valueFirst}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"
@@ -176,7 +184,7 @@ function VariableForm({
         <Textarea
           id="var-value"
           placeholder="Paste or type the value"
-          autoFocus={!!initial}
+          autoFocus={valueFirst}
           autoComplete="off"
           autoCorrect="off"
           autoCapitalize="off"

@@ -60,6 +60,7 @@ impl Desktop {
                 commands::create_environment,
                 commands::delete_environment,
                 commands::list_variables,
+                commands::compare_environments,
                 commands::all_variables,
                 commands::vault_health,
                 commands::reveal_variable,
@@ -333,6 +334,7 @@ fn listing_commands_never_return_values() {
         desktop.ok("list_projects", json!({})),
         desktop.ok("list_variables", json!({ "environmentId": dev })),
         desktop.ok("list_variables", json!({ "environmentId": web })),
+        desktop.ok("compare_environments", json!({ "environmentId": dev, "otherId": web })),
         desktop.ok("all_variables", json!({})),
         desktop.ok("vault_health", json!({})),
         desktop.ok("list_secrets", json!({})),
@@ -353,6 +355,27 @@ fn listing_commands_never_return_values() {
     // Only the reveal commands return values.
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": web, "key": "SHARED" })), SHARED);
     assert_eq!(desktop.ok("reveal_secret", json!({ "id": id })), SHARED);
+}
+
+#[test]
+fn compare_environments_by_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (project, dev) = desktop.project("api");
+    let prod = desktop.ok("create_environment", json!({ "projectId": project, "name": "production" }));
+    let prod = prod["id"].as_str().unwrap();
+    desktop.set(&dev, "SHARED", "same");
+    desktop.set(&dev, "DB", "dev-db");
+    desktop.set(&dev, "DEBUG", "1");
+    desktop.set(prod, "SHARED", "same");
+    desktop.set(prod, "DB", "prod-db");
+    desktop.set(prod, "SENTRY_DSN", "https://x");
+
+    let diff = desktop.ok("compare_environments", json!({ "environmentId": dev, "otherId": prod }));
+    assert_eq!(
+        diff,
+        json!({ "onlyInFirst": ["DEBUG"], "onlyInSecond": ["SENTRY_DSN"], "different": ["DB"], "same": ["SHARED"] })
+    );
 }
 
 #[test]

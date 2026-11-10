@@ -43,6 +43,14 @@ export type VariableView = {
   removed: boolean;
 };
 
+/** How two environments differ, by name. Values are compared in Rust and never sent. */
+export type EnvironmentDiff = {
+  onlyInFirst: string[];
+  onlyInSecond: string[];
+  different: string[];
+  same: string[];
+};
+
 /** A variable anywhere in the vault, for the quick-copy palette. Names only. */
 export type VariableHit = {
   projectId: string;
@@ -329,6 +337,8 @@ export const api = {
   deleteEnvironment: (environmentId: string) => call<void>("delete_environment", { environmentId }),
 
   listVariables: (environmentId: string) => call<VariableView[]>("list_variables", { environmentId }),
+  compareEnvironments: (environmentId: string, otherId: string) =>
+    call<EnvironmentDiff>("compare_environments", { environmentId, otherId }),
   allVariables: () => call<VariableHit[]>("all_variables"),
   vaultHealth: () => call<VaultHealth>("vault_health"),
   listSecrets: () => call<SecretView[]>("list_secrets"),

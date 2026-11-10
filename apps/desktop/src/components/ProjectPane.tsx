@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { CornerDownRight, Ellipsis, Plus, Trash2 } from "lucide-react";
-import { api, message, type ProjectView } from "@/lib/api";
-import { SHORTCUTS, useShortcut } from "@/lib/shortcuts";
+import { CornerDownRight, Ellipsis, GitCompareArrows, Plus, Trash2 } from "lucide-react";
+import { api, message, type EnvironmentView, type ProjectView } from "@/lib/api";
+import { SHORTCUTS, ariaShortcut, useShortcut } from "@/lib/shortcuts";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,7 +17,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
+import { CompareDialog, defaultOther } from "@/components/CompareDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { ShortcutKeys } from "@/components/ShortcutKeys";
+import { VariableDialog } from "@/components/VariableDialog";
 import { DragRegion } from "@/components/DragRegion";
 import { IconButton } from "@/components/IconButton";
 import { InlineCreate } from "@/components/InlineCreate";
@@ -39,7 +42,25 @@ export function ProjectPane({
   const [creating, setCreating] = useState(false);
   const [confirm, setConfirm] = useState<Pending>(null);
   const [busy, setBusy] = useState(false);
+  const [compareWith, setCompareWith] = useState<string | null>(null);
+  /** A variable being added from the compare dialog, which hides meanwhile. */
+  const [adding, setAdding] = useState<{ environment: EnvironmentView; key: string } | null>(null);
+  /** Bumped to reload the variable list after the compare dialog adds one. */
+  const [listVersion, setListVersion] = useState(0);
   const env = project.environments.find((e) => e.id === envId) ?? project.environments[0] ?? null;
+  const canCompare = !!env && project.environments.length > 1;
+
+  function openCompare() {
+    if (!env || !canCompare) return;
+    setCompareWith(defaultOther(project.environments, env)?.id ?? null);
+  }
+  useShortcut(SHORTCUTS.compareEnvironments, openCompare, canCompare);
+
+  async function addedFromCompare() {
+    setAdding(null);
+    setListVersion((v) => v + 1);
+    await onChanged();
+  }
 
   function stepEnvironment(delta: number) {
     const envs = project.environments;
@@ -129,8 +150,13 @@ export function ProjectPane({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-auto min-w-44 *:whitespace-nowrap">
-            {env && project.environments.length > 1 && (
+            {env && canCompare && (
               <>
+                <DropdownMenuItem onSelect={openCompare} aria-keyshortcuts={ariaShortcut(SHORTCUTS.compareEnvironments)}>
+                  <GitCompareArrows aria-hidden />
+                  Compare {env.name}
+                  <ShortcutKeys shortcut={SHORTCUTS.compareEnvironments} className="ml-auto pl-4" />
+                </DropdownMenuItem>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <CornerDownRight aria-hidden />
@@ -168,13 +194,39 @@ export function ProjectPane({
 
       {env ? (
         // Remounts when the parent changes, so inherited rows reload.
-        <VariableList key={`${env.id}:${env.parent ?? ""}`} environment={env} projectName={project.name} onChanged={onChanged} />
+        <VariableList key={`${env.id}:${env.parent ?? ""}:${listVersion}`} environment={env} projectName={project.name} onChanged={onChanged} />
       ) : (
         <div className="relative flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <DragRegion className="absolute inset-x-0 top-0 h-12" />
           <p className="text-sm font-semibold">No environments</p>
           <p className="text-muted-foreground">Add one with the + button above.</p>
         </div>
+      )}
+
+      {env && canCompare && compareWith && (
+        <CompareDialog
+          open={!adding}
+          onOpenChange={(open) => !open && setCompareWith(null)}
+          environment={env}
+          environments={project.environments}
+          otherId={compareWith}
+          onOtherChange={setCompareWith}
+          onAdd={(environment, key) => setAdding({ environment, key })}
+        />
+      )}
+      {adding && (
+        <VariableDialog
+          open
+          onOpenChange={(open) => !open && setAdding(null)}
+          environmentId={adding.environment.id}
+          environmentLabel={`${project.name}/${adding.environment.name}`}
+          defaultKey={adding.key}
+          onSaved={(key) => {
+            toast(`Added ${key} to ${adding.environment.name}`);
+            void addedFromCompare();
+          }}
+          onImported={() => void addedFromCompare()}
+        />
       )}
 
       <ConfirmDialog
