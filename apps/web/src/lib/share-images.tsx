@@ -53,7 +53,7 @@ export async function shareImage() {
   const [regular, medium, shot] = await Promise.all([
     readFile(join(fonts, 'inter-latin-400-normal.woff')),
     readFile(join(fonts, 'inter-latin-500-normal.woff')),
-    readFile(join(process.cwd(), 'public/app.png')),
+    readFile(join(process.cwd(), 'src/assets/app.png')),
   ]);
   const screenshot = `data:image/png;base64,${shot.toString('base64')}`;
 

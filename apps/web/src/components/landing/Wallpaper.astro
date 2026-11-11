@@ -5,7 +5,7 @@ import { WallpaperPaint } from '@/components/landing/WallpaperPaint';
 
 /** A framed, slowly moving painting for product shots and demos to sit on.
  * The frame and its content are plain HTML; only the paint is an island,
- * started as it nears the screen. */
+ * loaded once the page is idle so it never slows the first paint. */
 interface Props {
   scene: Scene;
   class?: string;
@@ -15,6 +15,6 @@ const { scene, class: className } = Astro.props;
 ---
 
 <div class={cn('relative isolate overflow-hidden rounded-2xl', className)} style={{ background: SCENE_FALLBACKS[scene] }}>
-  <WallpaperPaint client:visible={{ rootMargin: '200px' }} scene={scene} />
+  <WallpaperPaint client:idle scene={scene} />
   <slot />
 </div>

@@ -1,3 +1,5 @@
+import type { ImageMetadata } from 'astro';
+import appShot from '@/assets/app.png';
 import type { Scene } from '@/lib/scenes';
 
 /** What changed in each release, newest first. Add an entry with every
@@ -8,8 +10,8 @@ export type Release = {
   date?: string;
   title: string;
   summary?: string;
-  /** A screenshot from /public, shown on a painted wallpaper. */
-  image?: { src: string; alt: string; width: number; height: number };
+  /** A screenshot imported from src/assets, shown on a painted wallpaper. */
+  image?: { src: ImageMetadata; alt: string };
   scene?: Scene;
   changes: string[];
 };
@@ -50,10 +52,8 @@ export const RELEASES: Release[] = [
     title: 'The first release',
     summary: 'A desktop app and a CLI that share one encrypted vault, synced through storage you already own.',
     image: {
-      src: '/app.png',
+      src: appShot,
       alt: "The dotsafe app: a project's variables, with a secret linked across environments",
-      width: 2080,
-      height: 1120,
     },
     scene: 'tide',
     changes: [

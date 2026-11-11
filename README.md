@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="apps/web/public/app.png" alt="The dotsafe desktop app" width="840">
+  <img src="apps/web/src/assets/app.png" alt="The dotsafe desktop app" width="840">
 </p>
 
 ## Why dotsafe

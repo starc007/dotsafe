@@ -19,6 +19,7 @@
   --color-ds-primary-fg: var(--ds-primary-fg);
   --color-ds-accent: var(--ds-accent);
   --color-ds-yc: var(--ds-yc);
+  --color-ds-yc-ink: var(--ds-yc-ink);
   --color-ds-warn: var(--ds-warn);
   --color-ds-code: var(--ds-code);
   --color-ds-code-fg: var(--ds-code-fg);
@@ -41,6 +42,8 @@
   --ds-accent: #3f6212;
   /* The orange of the joke "not backed by YC" badge in the hero. Nowhere else. */
   --ds-yc: #f26625;
+  /* The same orange as small text on white, dark enough to read (5:1). */
+  --ds-yc-ink: #c2410c;
   /* Docs warnings: their icon and a faint border. */
   --ds-warn: #c2410c;
   /* Docs code blocks: a near-black panel, so lime commands read like a terminal. */

@@ -1,4 +1,5 @@
 ---
+import { Picture } from 'astro:assets';
 import Layout from '@/layouts/Layout.astro';
 import Reveal from '@/components/landing/Reveal.astro';
 import Wallpaper from '@/components/landing/Wallpaper.astro';
@@ -39,12 +40,12 @@ const dateFormat = new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric
               {release.image && (
                 <Wallpaper scene={release.scene ?? 'meadow'} class="mt-8 px-4 pt-8 sm:px-10 sm:pt-12">
                   <div class="rounded-t-xl bg-white/40 p-1.5 pb-0 backdrop-blur-md">
-                    <img
+                    <Picture
                       src={release.image.src}
+                      formats={['avif', 'webp']}
+                      widths={[480, 800, 1200, 1600]}
+                      sizes="(min-width: 1152px) 760px, calc(100vw - 72px)"
                       alt={release.image.alt}
-                      width={release.image.width}
-                      height={release.image.height}
-                      loading="lazy"
                       class="h-auto w-full rounded-t-lg"
                     />
                   </div>

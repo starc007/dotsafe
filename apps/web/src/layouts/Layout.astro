@@ -1,5 +1,6 @@
 ---
 import '@/styles/global.css';
+import interMedium from '@fontsource/inter/files/inter-latin-500-normal.woff2?url';
 import type { PageMeta } from '@/lib/seo';
 import Head from '@/components/Head.astro';
 import Nav from '@/components/landing/Nav.astro';
@@ -16,6 +17,10 @@ const { meta } = Astro.props;
 <html lang="en">
   <head>
     <Head meta={meta} />
+    <!-- Headings are Inter Medium. Fetched with the page rather than after the
+         CSS, so the first paint already uses it and nothing re-wraps. -->
+    <link rel="preload" href={interMedium} as="font" type="font/woff2" crossorigin />
+
     <!-- Scroll-in reveals hide content only once scripts can show it again. -->
     <script is:inline>document.documentElement.classList.add('js');</script>
     <slot name="head" />
