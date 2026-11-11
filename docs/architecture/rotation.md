@@ -95,7 +95,7 @@ trait Provider {
 
 ## Push targets
 
-- First candidates: Vercel, Cloudflare Workers secrets, GitHub Actions secrets, Netlify, Fly.io.
+- First candidates: Vercel, Cloudflare Workers secrets, GitHub Actions secrets, Netlify, Fly.io. All but GitHub Actions are built, plus AWS Parameter Store.
 - **Mapping:** a target binds a secret (or a whole environment) to a project, environment and variable name at the provider.
 - **Push** happens on promote, on demand, and when an inline value changes, if the user enabled auto-push.
 - **Drift:** most targets are write-only (GitHub secrets can't be read back), so dotsafe records the SHA-256 of what it last pushed and when, and shows "changed outside dotsafe" where the provider exposes an update time.
@@ -145,7 +145,10 @@ dotsafe restore STRIPE_SECRET_KEY <version>
   - **AWS** requests are signed with SigV4 (`crates/integrations/src/sigv4.rs`), built on `crypto::hmac_sha256` and `crypto::sha256_hex` in core, and checked against AWS's published example. An AWS secret holds the secret access key; the optional `access_key_id_secret` setting names the shared secret holding `AWS_ACCESS_KEY_ID`, which is rotated, pushed and retired along with it. IAM allows two keys per user, so retire the old key before the next rotation.
   - **Revoking by hand:** `retire` can be told the old key was revoked in the provider's console (`--by-hand`, "I revoked it"); it's then just marked retired. If dotsafe doesn't know a previous key's id and can't find it, it says so instead of guessing.
   - **Not checked against the real APIs yet:** Anthropic's Admin API auth header (`x-api-key` is sent; the current reference shows `Authorization: Bearer`), and AWS end to end.
-- **Targets:** Vercel (`POST /v10/projects/{p}/env?upsert=true`, type `encrypted`) and Cloudflare Workers (`PUT /accounts/{a}/workers/scripts/{s}/secrets`).
+- **Targets:** Vercel (`POST /v10/projects/{p}/env?upsert=true`, type `encrypted`), Cloudflare Workers (`PUT /accounts/{a}/workers/scripts/{s}/secrets`), and since then:
+  - **Netlify:** `PATCH /api/v1/accounts/{team}/env/{key}?site_id=…` once per deploy context, which keeps the variable's other contexts, scopes and secret flag. A 404 on the first creates it with `POST /accounts/{team}/env`, flagged `is_secret` with scopes builds, functions and runtime, unless a context is `all` or `dev` (Netlify only keeps values secret in explicit contexts).
+  - **Fly.io:** `POST https://api.machines.dev/v1/apps/{app}/secrets/{name}`. Tokens starting `FlyV1 ` (from `fly tokens create`) are sent as the `Authorization` header as they are, others as `Bearer`. Running Machines only see the value after a redeploy.
+  - **AWS Parameter Store:** SSM `PutParameter` (JSON protocol, `X-Amz-Target: AmazonSSM.PutParameter`, signed along with the other headers), `SecureString` with `Overwrite`, at `<path>/<name>`. The region becomes part of the host (`ssm.<region>.amazonaws.com`), so only region-shaped values are accepted, and paths are limited to SSM's characters.
 - **The flow, in this order:** create → **save the new key as staged at once** (so a crash never loses the only working key) → verify → promote → push to every target → with `leaked`, or for a provider without overlap, revoke and retire the old key. If verification fails and the provider has overlap, the key stays staged and nothing else changes. Without overlap it goes live anyway, because the old key is already dead. `retire` revokes the previous versions' keys at the provider before marking them retired, and stops at the first failure.
 - **Pushes** also happen on manual promote and on demand. Each target records the SHA-256 of what was pushed, so the UI can show "out of date" without reading anything back.
 - **Audit:** each provider rotation, revoke and push is written to the audit log (actor "You"), next to agent requests.

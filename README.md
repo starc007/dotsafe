@@ -25,7 +25,7 @@
 - **No server holds your vault.** Secrets are encrypted on your device and synced through iCloud Drive, Google Drive, Dropbox, an S3 or R2 bucket, or WebDAV. The only dotsafe server handles licenses and never sees a secret.
 - **One vault, two tools.** A desktop app and a `dotsafe` CLI share the same vault and the same Rust core.
 - **Agents run with your keys, never see them.** Claude Code, Cursor and other MCP agents can run commands with your secrets after you approve with Touch ID. Output comes back redacted.
-- **Rotation built in.** Link one secret across projects, rotate it everywhere at once, and push the new key to Vercel or Cloudflare Workers.
+- **Rotation built in.** Link one secret across projects, rotate it everywhere at once, and push the new key to Vercel, Cloudflare Workers, Netlify, Fly.io or AWS Parameter Store.
 - **Works offline.** Every machine keeps an encrypted copy and syncs when it's back online.
 
 ## Install
@@ -80,7 +80,7 @@ dotsafe secret due                             # what's due under each secret's 
 
 Connect OpenAI, a Cloudflare API token or AWS IAM, and rotating a secret asks the provider for a new key. Anthropic and Stripe keys are made in their own console: paste the new one and dotsafe checks it, makes it live and pushes it.
 
-The new key is saved first, then checked, made live in every linked environment, and pushed to the Vercel projects and Cloudflare Workers you choose. The old key keeps working until you retire it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, stored in the vault.
+The new key is saved first, then checked, made live in every linked environment, and pushed to the deploy targets you choose: Vercel projects, Cloudflare Workers, Netlify sites, Fly.io apps or AWS Parameter Store. The old key keeps working until you retire it, or is revoked at once if it leaked. dotsafe calls the services from your machine with your own admin tokens, stored in the vault.
 
 ```bash
 dotsafe connect openai --set project_id=proj_…
@@ -91,7 +91,7 @@ dotsafe secret rotate OPENAI_API_KEY           # new key from OpenAI, live every
 dotsafe secret retire OPENAI_API_KEY           # revokes the old key at OpenAI
 ```
 
-Set it up in Settings → Integrations, or with `dotsafe connect` (`openai`, `cloudflare_token`, `aws_iam`, `anthropic`, `stripe`, `vercel`, `cloudflare_workers`).
+Set it up in Settings → Integrations, or with `dotsafe connect` (`openai`, `cloudflare_token`, `aws_iam`, `anthropic`, `stripe`, `vercel`, `cloudflare_workers`, `netlify`, `fly`, `aws_ssm`).
 
 ### AI agents
 
