@@ -1,0 +1,57 @@
+---
+import { ArrowRight, Download } from 'lucide-react';
+import { links } from '@/lib/site';
+import ButtonLink from '@/components/landing/ButtonLink.astro';
+import NotYcBadge from '@/components/landing/NotYcBadge.astro';
+import Wallpaper from '@/components/landing/Wallpaper.astro';
+
+/** Plain white headline; the colour lives in the frame around the product
+ * below. Each line fades up in turn as the page loads, then the product. */
+const step = (i: number) => ({ '--delay': `${i * 0.08}s` });
+---
+
+<section>
+  <div class="mx-auto max-w-6xl px-4 pt-32 sm:px-6 sm:pt-40">
+    <div class="fade-up mb-6" style={step(0)}>
+      <NotYcBadge />
+    </div>
+    <h1
+      class="fade-up max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]"
+      style={step(1)}
+    >
+      Secrets that never leave your Mac.{' '}
+      <span class="text-ds-muted">
+        The open source secret manager for developers and their AI agents, synced through storage you already own.
+      </span>
+    </h1>
+    <div class="fade-up mt-8 flex flex-wrap items-center gap-2.5" style={step(2)}>
+      <ButtonLink href={links.download} variant="primary">
+        Download for macOS
+        <Download aria-hidden />
+      </ButtonLink>
+      <ButtonLink href={links.docs} variant="outline">
+        Read the docs
+        <ArrowRight aria-hidden />
+      </ButtonLink>
+      <ButtonLink href={links.linux} variant="ghost" class="px-3">Also on Linux</ButtonLink>
+    </div>
+  </div>
+  <!-- The real app, set on a painted wallpaper like a window on a desktop. -->
+  <div
+    class="fade-up mx-auto mt-14 max-w-6xl px-4 sm:mt-16 sm:px-6"
+    style={{ '--rise': '24px', '--duration': '0.9s', '--delay': '0.25s' }}
+  >
+    <Wallpaper scene="meadow" class="px-4 pt-10 sm:px-12 sm:pt-16 md:px-20 md:pt-20">
+      <div class="rounded-t-xl bg-white/40 p-1.5 pb-0 backdrop-blur-md sm:p-2 sm:pb-0">
+        <img
+          src="/app.png"
+          alt="The dotsafe app: a project's variables, with a secret linked across environments"
+          width="2080"
+          height="1120"
+          fetchpriority="high"
+          class="h-auto w-full rounded-t-lg"
+        />
+      </div>
+    </Wallpaper>
+  </div>
+</section>

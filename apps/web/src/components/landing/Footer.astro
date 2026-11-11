@@ -1,0 +1,80 @@
+---
+import { Download } from 'lucide-react';
+import { links } from '@/lib/site';
+import ButtonLink from '@/components/landing/ButtonLink.astro';
+import { Logo } from '@/components/landing/Logo';
+
+const COLUMNS = [
+  {
+    title: 'Product',
+    items: [
+      { label: 'Features', href: '/#features' },
+      { label: 'Security', href: '/#security' },
+      { label: 'Pricing', href: '/pricing' },
+      { label: 'Download', href: links.downloads },
+      { label: 'FAQ', href: '/#faq' },
+    ],
+  },
+  {
+    title: 'Resources',
+    items: [
+      { label: 'Docs', href: links.docs },
+      { label: 'Changelog', href: '/changelog' },
+      { label: 'Use cases', href: '/for' },
+      { label: 'Alternatives', href: '/alternatives' },
+      { label: 'Releases', href: links.releases },
+      { label: 'GitHub', href: links.github },
+      { label: 'Report an issue', href: links.issues },
+      { label: 'For AI agents', href: '/llms.txt' },
+    ],
+  },
+];
+---
+
+<!-- Brand and download on the left, link columns on the right, and the
+     wordmark set large underneath, fading into the page. -->
+<footer class="overflow-hidden border-t border-ds-line">
+  <div class="mx-auto grid max-w-6xl gap-12 px-4 pt-16 sm:px-6 md:grid-cols-[1fr_auto]">
+    <div class="max-w-xs">
+      <Logo />
+      <p class="mt-2 text-sm text-pretty text-ds-muted">
+        Secrets encrypted on your Mac, synced through storage you already own.
+      </p>
+      <ButtonLink href={links.download} variant="primary" class="mt-6 h-9 px-4">
+        Download for macOS
+        <Download aria-hidden />
+      </ButtonLink>
+    </div>
+    <nav aria-label="Footer" class="grid grid-cols-2 gap-x-16 gap-y-10">
+      {
+        COLUMNS.map((col) => (
+          <div>
+            <p class="text-sm font-medium">{col.title}</p>
+            <ul class="mt-4 flex flex-col gap-2.5 text-sm text-ds-muted">
+              {col.items.map((item) => (
+                <li>
+                  <a href={item.href} class="transition-colors hover:text-ds-fg">
+                    {item.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </nav>
+  </div>
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pt-14 text-xs text-ds-muted sm:px-6">
+    <span class="flex items-center gap-4">
+      © 2026 dotsafe
+      <a href="/privacy" class="transition-colors hover:text-ds-fg">Privacy</a>
+      <a href="/terms" class="transition-colors hover:text-ds-fg">Terms</a>
+    </span>
+  </div>
+  <p
+    aria-hidden="true"
+    class="mx-auto -mb-[0.22em] max-w-6xl bg-gradient-to-b from-ds-fg/[0.09] to-ds-fg/0 bg-clip-text px-4 pt-6 text-center text-[clamp(5rem,22vw,17rem)] leading-none font-medium tracking-[-0.06em] text-transparent select-none sm:px-6"
+  >
+    dotsafe
+  </p>
+</footer>

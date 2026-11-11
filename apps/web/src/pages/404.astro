@@ -1,0 +1,17 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import ButtonLink from '@/components/landing/ButtonLink.astro';
+import { links } from '@/lib/site';
+---
+
+<Layout meta={{ title: 'Page not found', private: true }}>
+  <section class="mx-auto max-w-6xl px-4 pt-32 pb-24 sm:px-6 sm:pt-40">
+    <h1 class="max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]">
+      Page not found. <span class="text-ds-muted">It may have moved, or the link is wrong.</span>
+    </h1>
+    <div class="mt-8 flex flex-wrap items-center gap-2.5">
+      <ButtonLink href="/" variant="primary">Go home</ButtonLink>
+      <ButtonLink href={links.docs}>Read the docs</ButtonLink>
+    </div>
+  </section>
+</Layout>

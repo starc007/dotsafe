@@ -3,17 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "bun scripts/agent-files.ts && next build",
-    "dev": "bun scripts/agent-files.ts && next dev",
+    "build": "bun scripts/agent-files.ts && astro build",
+    "dev": "bun scripts/agent-files.ts && astro dev --port 3000",
     "preview": "bun run build && wrangler dev",
-    "types:check": "next typegen && tsc --noEmit"
+    "types:check": "astro check"
   },
   "dependencies": {
+    "@astrojs/react": "^7.1.7",
     "@paper-design/shaders-react": "0.0.82",
+    "astro": "^7.4.10",
     "cn": "^0.5.0",
     "lucide-react": "^1.61.0",
     "motion": "^14.9.0",
-    "next": "16.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "10.1.0",
@@ -21,14 +22,17 @@
     "tracwell": "0.5.0"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.12",
     "@fontsource/inter": "^5.3.0",
-    "@tailwindcss/postcss": "^4.3.3",
+    "@resvg/resvg-js": "^2.6.2",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "postcss": "^8.5.31",
+    "satori": "^0.63.2",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2",
+    "typescript": "~6.0.3",
     "wrangler": "^4.152.0"
-  }
+  },
+  "type": "module"
 }

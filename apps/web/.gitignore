@@ -1,8 +1,6 @@
 # deps
 /node_modules
 
-# generated content
-.source
 # written by scripts/agent-files.ts on every dev and build
 /public/index.md
 /public/pricing.md
@@ -16,8 +14,8 @@
 
 # test & build
 /coverage
-/.next/
-/out/
+/dist/
+/.astro/
 /.wrangler/
 /build
 *.tsbuildinfo
@@ -33,5 +31,3 @@ yarn-error.log*
 
 # others
 .env*.local
-.vercel
-next-env.d.ts

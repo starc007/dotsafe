@@ -1,0 +1,48 @@
+---
+import { site } from '@/lib/site';
+import { ogImage, type PageMeta } from '@/lib/seo';
+
+interface Props {
+  meta: PageMeta;
+}
+
+const { meta } = Astro.props;
+const title = meta.title ? `${meta.title} · ${site.name}` : site.title;
+const description = meta.description ?? site.description;
+const abs = (path: string) => `${site.url}${path === '/' ? '' : path}`;
+const image = abs(ogImage.path);
+---
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{title}</title>
+<meta name="description" content={description} />
+<meta name="application-name" content={site.name} />
+{
+  meta.private && (
+    <>
+      <meta name="referrer" content="no-referrer" />
+      <meta name="robots" content="noindex, nofollow" />
+    </>
+  )
+}
+{meta.path && <link rel="canonical" href={abs(meta.path)} />}
+{meta.markdown && <link rel="alternate" type="text/markdown" href={abs(meta.markdown)} />}
+{meta.feed && <link rel="alternate" type="application/rss+xml" href={abs('/changelog.xml')} />}
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+{meta.path && <meta property="og:url" content={abs(meta.path)} />}
+<meta property="og:site_name" content={site.name} />
+<meta property="og:image" content={image} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content={String(ogImage.width)} />
+<meta property="og:image:height" content={String(ogImage.height)} />
+<meta property="og:image:alt" content={ogImage.alt} />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={image} />
+<meta name="twitter:image:alt" content={ogImage.alt} />
+<link rel="icon" href="/icon.svg" type="image/svg+xml" sizes="any" />
+<link rel="apple-touch-icon" href="/apple-icon.png" sizes="180x180" />

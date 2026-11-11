@@ -1,0 +1,14 @@
+---
+import { DemoPlayer } from '@/components/landing/DemoPlayer';
+import Reveal from '@/components/landing/Reveal.astro';
+import SectionHeading from '@/components/landing/SectionHeading.astro';
+---
+
+<section id="demo" class="mx-auto max-w-6xl scroll-mt-20 px-4 pt-20 sm:px-6 sm:pt-28">
+  <SectionHeading eyebrow="Demo" title="See it in a minute.">
+    Add a variable, switch environments, find any key and lock the vault.
+  </SectionHeading>
+  <Reveal class="mt-10">
+    <DemoPlayer client:visible />
+  </Reveal>
+</section>

@@ -1,0 +1,50 @@
+---
+import { ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import type { Scene } from '@/lib/scenes';
+import Reveal from '@/components/landing/Reveal.astro';
+import Wallpaper from '@/components/landing/Wallpaper.astro';
+
+/** A feature as a wide row: the claim on one side, its live demo (the `demo`
+ * slot) in a white window on a painted wallpaper on the other. `flip` puts the
+ * demo first; `bare` skips the window for demos that bring their own. */
+interface Props {
+  title: string;
+  scene: Scene;
+  href?: string;
+  flip?: boolean;
+  bare?: boolean;
+}
+
+const { title, scene, href, flip, bare } = Astro.props;
+---
+
+<Reveal class="grid overflow-hidden rounded-3xl border border-ds-line p-2 md:grid-cols-5">
+  <div class={cn('flex flex-col justify-end p-5 sm:p-8 md:col-span-2', flip && 'md:order-last')}>
+    <p class="max-w-sm text-[17px] leading-[1.4] font-medium text-pretty sm:text-lg">
+      {title} <span class="text-ds-muted"><slot /></span>
+    </p>
+    {
+      href && (
+        <a
+          href={href}
+          class="group mt-5 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-ds-accent outline-none focus-visible:underline"
+        >
+          Learn more
+          <ArrowRight aria-hidden className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+        </a>
+      )
+    }
+  </div>
+  <Wallpaper scene={scene} class="flex min-h-[340px] items-center justify-center p-3 sm:min-h-[420px] sm:p-10 md:col-span-3">
+    {
+      bare ? (
+        <slot name="demo" />
+      ) : (
+        <div class="flex w-full max-w-md justify-center rounded-xl bg-white p-4 sm:p-6">
+          <slot name="demo" />
+        </div>
+      )
+    }
+  </Wallpaper>
+</Reveal>

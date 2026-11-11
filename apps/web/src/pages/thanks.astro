@@ -1,0 +1,27 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import { ThanksContent } from '@/components/landing/ThanksContent';
+
+// Where Dodo sends buyers after checkout. Kept out of search, and never sends
+// a referrer, since the URL arrives carrying the license key.
+---
+
+<Layout meta={{ title: 'Thanks', private: true }}>
+  <!-- Reads Dodo's return (status, license key, email) before any other script
+       on the page runs, then wipes it from the address bar so the key doesn't
+       linger in history or reach analytics. ThanksContent shows it. -->
+  <script is:inline>
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      window.__dotsafeReturn = {
+        status: params.get('status'),
+        licenseKey: params.get('license_key'),
+        email: params.get('email'),
+      };
+      if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
+    })();
+  </script>
+  <section class="mx-auto w-full max-w-6xl px-4 pt-32 pb-24 sm:px-6 sm:pt-40">
+    <ThanksContent client:load />
+  </section>
+</Layout>

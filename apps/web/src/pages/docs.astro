@@ -1,0 +1,12 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import DocsArticle from '@/components/docs/DocsArticle.astro';
+import { DocsCards } from '@/components/docs/DocsCards';
+import { docsMeta } from '@/lib/seo';
+---
+
+<Layout meta={docsMeta('/docs')}>
+  <DocsArticle href="/docs">
+    <DocsCards />
+  </DocsArticle>
+</Layout>

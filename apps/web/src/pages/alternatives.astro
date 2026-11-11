@@ -1,0 +1,11 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import ContentHub from '@/components/ContentHub.astro';
+import { ALTERNATIVES } from '@/lib/content-pages';
+
+const { href, title, description } = ALTERNATIVES;
+---
+
+<Layout meta={{ title, description, path: href, markdown: `${href}.md` }}>
+  <ContentHub section={ALTERNATIVES} />
+</Layout>

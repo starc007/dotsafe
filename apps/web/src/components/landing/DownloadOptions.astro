@@ -1,0 +1,65 @@
+---
+import { Check, Download } from 'lucide-react';
+import { PLATFORMS } from '@/lib/downloads';
+import { links } from '@/lib/site';
+import { BrandMark } from '@/components/BrandMark';
+import ButtonLink from '@/components/landing/ButtonLink.astro';
+import Reveal from '@/components/landing/Reveal.astro';
+
+/** One card per platform: its installers, what they include, and the standalone CLI. */
+---
+
+<div class="grid gap-4 md:grid-cols-2">
+  {
+    PLATFORMS.map((p, i) => (
+      <Reveal delay={i * 0.06}>
+        <section id={p.id} class="flex h-full scroll-mt-28 flex-col rounded-2xl border border-ds-line p-6 sm:p-8">
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-full bg-ds-shell text-ds-fg/85">
+              <BrandMark name={p.logo} className="size-5" />
+            </span>
+            <div class="min-w-0">
+              <h2 class="text-xl leading-tight font-medium tracking-[-0.01em]">{p.name}</h2>
+              <p class="text-sm text-ds-muted">{p.detail}</p>
+            </div>
+          </div>
+          <ul class="mt-6 flex flex-col gap-2.5 text-sm">
+            {p.notes.map((note) => (
+              <li class="flex gap-2.5">
+                <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-ds-accent" />
+                {note}
+              </li>
+            ))}
+          </ul>
+          <div class="mt-auto flex flex-wrap gap-2.5 pt-8">
+            {p.downloads.map((d, j) => (
+              <ButtonLink href={d.href} variant={j === 0 ? 'primary' : 'outline'}>
+                {d.label}
+                {j === 0 && <Download aria-hidden />}
+              </ButtonLink>
+            ))}
+          </div>
+          {p.other && (
+            <p class="mt-4 text-sm text-ds-muted">
+              On {p.other.arch}:{' '}
+              {p.other.downloads.map((d, j) => (
+                <span>
+                  {j > 0 && ' · '}
+                  <a href={d.href} class="text-ds-fg underline decoration-ds-line underline-offset-2">
+                    {d.label}
+                  </a>
+                </span>
+              ))}
+            </p>
+          )}
+          <p class:list={[p.other ? 'mt-2' : 'mt-4', 'text-xs text-ds-muted']}>
+            CLI only?{' '}
+            <a href={`${links.releases}/latest`} class="underline decoration-ds-line underline-offset-2 hover:text-ds-fg">
+              <code class="font-mono">{p.cli}</code>
+            </a>
+          </p>
+        </section>
+      </Reveal>
+    ))
+  }
+</div>

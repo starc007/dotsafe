@@ -1,0 +1,30 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import DownloadOptions from '@/components/landing/DownloadOptions.astro';
+import { links } from '@/lib/site';
+
+const meta = {
+  title: 'Download',
+  description: 'Download dotsafe for macOS (Apple silicon and Intel) or Linux (.deb and AppImage). The app and the CLI share one encrypted vault.',
+  path: '/download',
+  markdown: '/download.md',
+};
+const link = 'text-ds-fg underline decoration-ds-line underline-offset-2';
+---
+
+<Layout meta={meta}>
+  <section class="mx-auto max-w-6xl px-4 pt-32 pb-24 sm:px-6 sm:pt-40">
+    <h1 class="max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]">
+      Download dotsafe. <span class="text-ds-muted">For macOS and Linux.</span>
+    </h1>
+    <div class="mt-12">
+      <DownloadOptions />
+    </div>
+    <p class="mt-8 text-sm text-ds-muted">
+      The first screen asks for your license key. <a href="/pricing" class={link}>Get a license</a>, read the <a
+        href="/docs/install"
+        class={link}>install guide</a
+      >, or see <a href={links.releases} class={link}>every release</a>.
+    </p>
+  </section>
+</Layout>

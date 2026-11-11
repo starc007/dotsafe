@@ -1,0 +1,19 @@
+---
+import { DocsMarkdown } from '@/components/docs/DocsMarkdown';
+
+/** A page body from Markdown, rendered at build time, with working copy
+ * buttons on its code blocks. */
+interface Props {
+  body: string;
+}
+
+const { body } = Astro.props;
+---
+
+<div class="docs-prose mt-10">
+  <DocsMarkdown markdown={body} />
+</div>
+
+<script>
+  import '@/scripts/copy-code';
+</script>
