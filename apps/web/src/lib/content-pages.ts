@@ -61,11 +61,38 @@ export const USE_CASES = {
   ],
 };
 
-export type Section = typeof ALTERNATIVES | typeof USE_CASES;
+/** How to rotate each provider's keys, by hand and with dotsafe. The
+ * providers are the ones dotsafe rotates through (`SERVICES` in
+ * crates/integrations); keep the two in step. */
+export const ROTATION = {
+  href: '/rotate',
+  title: 'Rotate an API key',
+  description:
+    'How to rotate OpenAI, Anthropic, Stripe, AWS and Cloudflare keys without downtime, what to do when one leaks, and how dotsafe does it in one step.',
+  groups: [
+    {
+      title: 'Rotated by dotsafe',
+      items: [
+        { slug: 'openai', label: 'OpenAI', blurb: 'New project key, live everywhere, old one deleted when you say.' },
+        { slug: 'cloudflare', label: 'Cloudflare', blurb: 'Roll an API token and push the new value to your Workers.', logo: 'cloudflare-workers' },
+        { slug: 'aws', label: 'AWS access keys', blurb: 'Create, switch and delete IAM access keys in one step.' },
+      ] as ContentItem[],
+    },
+    {
+      title: 'Guided by dotsafe',
+      items: [
+        { slug: 'anthropic', label: 'Anthropic', blurb: 'Make the key in the Console; dotsafe does the rest.', logo: 'claude' },
+        { slug: 'stripe', label: 'Stripe', blurb: 'Rotate in the Dashboard; dotsafe pushes the new key everywhere.' },
+      ] as ContentItem[],
+    },
+  ],
+};
+
+export type Section = typeof ALTERNATIVES | typeof USE_CASES | typeof ROTATION;
 
 /** Every page of a section, as `/section/slug`. */
 export function sectionPaths(section: Section) {
   return section.groups.flatMap((g) => g.items.map((item) => `${section.href}/${item.slug}`));
 }
 
-export const CONTENT_PATHS = [ALTERNATIVES, USE_CASES].flatMap((s) => [s.href, ...sectionPaths(s)]);
+export const CONTENT_PATHS = [ALTERNATIVES, USE_CASES, ROTATION].flatMap((s) => [s.href, ...sectionPaths(s)]);

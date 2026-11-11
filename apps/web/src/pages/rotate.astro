@@ -1,0 +1,11 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import ContentHub from '@/components/ContentHub.astro';
+import { ROTATION } from '@/lib/content-pages';
+
+const { href, title, description } = ROTATION;
+---
+
+<Layout meta={{ title, description, path: href, markdown: `${href}.md` }}>
+  <ContentHub section={ROTATION} />
+</Layout>

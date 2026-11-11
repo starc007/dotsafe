@@ -12,7 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RELEASES } from '@/lib/changelog';
-import { ALTERNATIVES, USE_CASES, type Section } from '@/lib/content-pages';
+import { ALTERNATIVES, ROTATION, USE_CASES, type Section } from '@/lib/content-pages';
 import { DOCS } from '@/lib/docs';
 import { docsContent } from '@/lib/docs-content';
 import { FAQ } from '@/lib/faq';
@@ -129,7 +129,7 @@ ${r.summary ? `${r.summary}\n\n` : ''}${r.changes.map((c) => `- ${c}`).join('\n'
 const list = (pages: { href: string; title: string; description: string }[]) =>
   pages.map((p) => `- [${p.title}](${abs(`${p.href}.md`)}): ${p.description}`).join('\n');
 
-/** The alternatives and use-case pages, grouped as their hubs show them. */
+/** The alternatives, use-case and rotation pages, grouped as their hubs show them. */
 const sectionGroups = (section: Section) =>
   section.groups.map((g) => ({
     title: g.title,
@@ -137,7 +137,7 @@ const sectionGroups = (section: Section) =>
   }));
 
 // Each hub's Markdown copy: its pages, with what each covers.
-for (const section of [ALTERNATIVES, USE_CASES]) {
+for (const section of [ALTERNATIVES, USE_CASES, ROTATION]) {
   out(
     `${section.href.slice(1)}.md`,
     `# ${section.title}\n\n> ${section.description}\n\n${sectionGroups(section)
@@ -163,6 +163,12 @@ ${list(sectionGroups(ALTERNATIVES).flatMap((g) => g.pages))}
 ## dotsafe for your stack
 
 ${sectionGroups(USE_CASES)
+  .map((g) => list(g.pages))
+  .join('\n')}
+
+## Rotating API keys
+
+${sectionGroups(ROTATION)
   .map((g) => list(g.pages))
   .join('\n')}
 
