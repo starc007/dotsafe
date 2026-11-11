@@ -47,7 +47,18 @@ export const faqData = {
 };
 
 /** A docs page, and where it sits under Docs. */
-export function docsData({ href, title, description }: { href: string; title: string; description: string }) {
+export function docsData({
+  href,
+  title,
+  description,
+  updated,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  /** `YYYY-MM-DD`, from lib/updated.ts. */
+  updated?: string;
+}) {
   const url = `${site.url}${href}`;
   const crumbs = [{ name: 'Docs', url: `${site.url}/docs` }, ...(href === '/docs' ? [] : [{ name: title, url }])];
   return {
@@ -58,6 +69,7 @@ export function docsData({ href, title, description }: { href: string; title: st
         headline: title,
         description,
         url,
+        ...(updated && { dateModified: updated }),
         encoding: { '@type': 'MediaObject', encodingFormat: 'text/markdown', contentUrl: `${url}.md` },
         about: { '@type': 'SoftwareApplication', name: site.name, url: site.url },
         publisher,
@@ -76,11 +88,14 @@ export function contentPageData({
   title,
   description,
   section,
+  updated,
 }: {
   href: string;
   title: string;
   description: string;
   section?: { name: string; href: string };
+  /** `YYYY-MM-DD`, from lib/updated.ts. */
+  updated?: string;
 }) {
   const url = `${site.url}${href}`;
   const crumbs = [
@@ -95,6 +110,7 @@ export function contentPageData({
         name: title,
         description,
         url,
+        ...(updated && { dateModified: updated }),
         encoding: { '@type': 'MediaObject', encodingFormat: 'text/markdown', contentUrl: `${url}.md` },
         about: { '@type': 'SoftwareApplication', name: site.name, url: site.url },
         publisher,

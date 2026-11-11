@@ -1,0 +1,19 @@
+---
+import { formatUpdated } from '@/lib/updated';
+
+/** The "Updated <date>" line under a page's description. `date` is
+ * `YYYY-MM-DD` from lib/updated.ts; without one, nothing is shown. */
+interface Props {
+  date?: string;
+}
+
+const { date } = Astro.props;
+---
+
+{
+  date && (
+    <p class="mt-3 text-sm text-ds-muted">
+      Updated <time datetime={date}>{formatUpdated(date)}</time>
+    </p>
+  )
+}
