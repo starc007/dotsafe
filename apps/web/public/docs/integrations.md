@@ -1,6 +1,6 @@
 # Integrations
 
-> Rotate keys through OpenAI, Cloudflare and AWS, and push them to Vercel and Workers.
+> Rotate keys through OpenAI, Cloudflare and AWS, and push them to Vercel, Workers, Netlify, Fly.io and AWS Parameter Store.
 
 A [secret](/docs/secrets) can have a **provider**, the service that issues its keys, and any number of **targets**, the places its value is deployed. With both set, one rotation asks the provider for a new key, makes it live in every linked environment and pushes it to your deploys.
 
@@ -17,6 +17,24 @@ dotsafe calls these services from your Mac, with admin tokens you give it. The t
 | Stripe | `stripe` | Checks a key you made in the dashboard; you revoke the old one there |
 | Vercel | `vercel` | Target: sets the variable on a project |
 | Cloudflare Workers | `cloudflare_workers` | Target: sets a Worker secret |
+| Netlify | `netlify` | Target: sets the variable on a site, per deploy context |
+| Fly.io | `fly` | Target: sets an app secret |
+| AWS SSM Parameter Store | `aws_ssm` | Target: writes a SecureString parameter |
+
+### Target settings
+
+| Target | Connect with | Settings for each secret |
+| --- | --- | --- |
+| Netlify | `--set account_id=<team slug>` | `site_id`, and `contexts` (default `production, deploy-preview, branch-deploy`). New variables are created as secrets. |
+| Fly.io | nothing else | `app`. Running Machines get the new value on their next deploy. |
+| AWS Parameter Store | `--set access_key_id=AKIA… --set region=us-east-1` | `path` (e.g. `/my-app/production`; the parameter is `<path>/<name>`), and `kms_key_id` for a key other than `aws/ssm` |
+
+```bash
+dotsafe connect fly --name fly                   # asks for a token from `fly tokens create deploy`
+dotsafe secret target add STRIPE_KEY --connection fly --set app=my-app
+dotsafe connect aws_ssm --set access_key_id=AKIA… --set region=eu-west-2
+dotsafe secret target add STRIPE_KEY --connection "AWS SSM" --set path=/my-app/production
+```
 
 ## Connect
 
