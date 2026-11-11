@@ -47,7 +47,7 @@ Keep the secrets in one environment, for example a `release` environment in a
 
 1. In a PR, bump the version in `Cargo.toml` (`[workspace.package]`),
    `apps/desktop/src-tauri/tauri.conf.json` and `apps/desktop/package.json`,
-   add the release to the site's changelog in `apps/web/lib/changelog.ts`
+   add the release to the site's changelog in `apps/web/src/lib/changelog.ts`
    (with its `date`), and merge it.
 2. On an up-to-date, clean `main`:
 

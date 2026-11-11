@@ -13,7 +13,7 @@ crates/cli               the dotsafe command-line tool
 apps/desktop/src-tauri   desktop app (Tauri 2)
 apps/desktop/src         desktop UI (React, Vite, Tailwind, shadcn/ui)
 apps/api                 licensing and checkout API (Cloudflare Worker)
-apps/web                 site and docs (Next.js)
+apps/web                 site and docs (Astro)
 ```
 
 ## Setup

@@ -1,0 +1,34 @@
+---
+import { links } from '@/lib/site';
+import ButtonLink from '@/components/landing/ButtonLink.astro';
+import { Logo } from '@/components/landing/Logo';
+
+const items = [
+  { label: 'Features', href: '/#features' },
+  { label: 'Security', href: '/#security' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'Docs', href: links.docs },
+  { label: 'Changelog', href: '/changelog' },
+];
+---
+
+<header class="fixed inset-x-0 top-0 z-40 border-b border-ds-line/0 bg-white/60 backdrop-blur-md">
+  <nav class="mx-auto flex h-16 max-w-6xl items-center gap-8 px-4 sm:px-6">
+    <a href="/" aria-label="dotsafe home">
+      <Logo />
+    </a>
+    <div class="hidden items-center gap-6 text-sm text-ds-muted sm:flex">
+      {
+        items.map((item) => (
+          <a href={item.href} class="transition-colors hover:text-ds-fg">
+            {item.label}
+          </a>
+        ))
+      }
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <ButtonLink href={links.github} variant="ghost" class="hidden h-9 px-3 sm:inline-flex">GitHub</ButtonLink>
+      <ButtonLink href={links.downloads} variant="primary" class="h-9 px-4">Download</ButtonLink>
+    </div>
+  </nav>
+</header>

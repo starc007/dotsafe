@@ -1,0 +1,32 @@
+---
+import '@/styles/global.css';
+import type { PageMeta } from '@/lib/seo';
+import Head from '@/components/Head.astro';
+import Nav from '@/components/landing/Nav.astro';
+import Footer from '@/components/landing/Footer.astro';
+
+interface Props {
+  meta: PageMeta;
+}
+
+const { meta } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <Head meta={meta} />
+    <!-- Scroll-in reveals hide content only once scripts can show it again. -->
+    <script is:inline>document.documentElement.classList.add('js');</script>
+    <slot name="head" />
+  </head>
+  <body class="flex min-h-screen flex-col">
+    <Nav />
+    <main class="flex-1"><slot /></main>
+    <Footer />
+    <script>
+      import '@/scripts/reveal';
+      import '@/scripts/analytics';
+    </script>
+  </body>
+</html>

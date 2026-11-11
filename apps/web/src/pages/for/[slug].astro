@@ -1,0 +1,18 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import MarkdownPage from '@/components/MarkdownPage.astro';
+import { USE_CASES, sectionPaths } from '@/lib/content-pages';
+import { docsContent } from '@/lib/docs-content';
+
+/** One static page per slug in lib/content-pages.ts; anything else is a 404. */
+export function getStaticPaths() {
+  return sectionPaths(USE_CASES).map((path) => ({ params: { slug: path.slice(`${USE_CASES.href}/`.length) } }));
+}
+
+const href = `${USE_CASES.href}/${Astro.params.slug}`;
+const { title, description } = docsContent(href);
+---
+
+<Layout meta={{ title, description, path: href, markdown: `${href}.md` }}>
+  <MarkdownPage href={href} eyebrow="Use cases" section={{ name: 'Use cases', href: USE_CASES.href }} cta />
+</Layout>

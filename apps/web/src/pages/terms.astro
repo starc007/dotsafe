@@ -1,0 +1,11 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import MarkdownPage from '@/components/MarkdownPage.astro';
+import { docsContent } from '@/lib/docs-content';
+
+const { title, description } = docsContent('/terms');
+---
+
+<Layout meta={{ title, description, path: '/terms', markdown: '/terms.md' }}>
+  <MarkdownPage href="/terms" eyebrow="Legal" />
+</Layout>

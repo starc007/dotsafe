@@ -1,0 +1,18 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import MarkdownPage from '@/components/MarkdownPage.astro';
+import { ALTERNATIVES, sectionPaths } from '@/lib/content-pages';
+import { docsContent } from '@/lib/docs-content';
+
+/** One static page per slug in lib/content-pages.ts; anything else is a 404. */
+export function getStaticPaths() {
+  return sectionPaths(ALTERNATIVES).map((path) => ({ params: { slug: path.slice(`${ALTERNATIVES.href}/`.length) } }));
+}
+
+const href = `${ALTERNATIVES.href}/${Astro.params.slug}`;
+const { title, description } = docsContent(href);
+---
+
+<Layout meta={{ title, description, path: href, markdown: `${href}.md` }}>
+  <MarkdownPage href={href} eyebrow="Alternatives" section={{ name: 'Alternatives', href: ALTERNATIVES.href }} cta />
+</Layout>

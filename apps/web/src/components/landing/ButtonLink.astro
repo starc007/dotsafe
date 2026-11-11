@@ -1,0 +1,13 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+import { buttonClass, type ButtonVariant } from '@/lib/button';
+
+/** A link styled as a pill button: `primary` for the one main action. */
+interface Props extends HTMLAttributes<'a'> {
+  variant?: ButtonVariant;
+}
+
+const { variant = 'outline', class: className, ...rest } = Astro.props;
+---
+
+<a class={buttonClass(variant, className ?? undefined)} {...rest}><slot /></a>

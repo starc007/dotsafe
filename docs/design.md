@@ -12,8 +12,8 @@ lowercase d. The dot is the secret; the gap keeps it apart from everything else.
 
 | Use | File |
 |---|---|
-| Source geometry (64 grid: circle `25,39 r14`, stem `x44 y8 8×45 r4`) | `apps/web/components/landing/Logo.tsx` |
-| Favicon | `apps/web/app/icon.svg` |
+| Source geometry (64 grid: circle `25,39 r14`, stem `x44 y8 8×45 r4`) | `apps/web/src/components/landing/Logo.tsx` |
+| Favicon | `apps/web/public/icon.svg` |
 | App icon, every size | `apps/desktop/src-tauri/icons/icon.svg` |
 | App icon on macOS 26 (Icon Composer) | `apps/desktop/src-tauri/icons/AppIcon.icon` |
 | Menu bar (macOS template) | `apps/desktop/src-tauri/icons/tray.svg` |
@@ -36,7 +36,7 @@ lowercase d. The dot is the secret; the gap keeps it apart from everything else.
 ## Colour
 
 Light only on the website; the app also has a dark theme. Tokens:
-`apps/web/app/global.css` (`--ds-*`) and `apps/desktop/src/index.css`.
+`apps/web/src/styles/global.css` (`--ds-*`) and `apps/desktop/src/index.css`.
 
 | Role | Value | Use |
 |---|---|---|
@@ -65,7 +65,9 @@ Inter on both. Weights 400 and 500 only.
 ## Shader wallpapers
 
 The colour on the website lives in painted frames, never behind headline text.
-`Wallpaper.tsx` wraps a `@paper-design/shaders-react` shader in a rounded frame.
+`Wallpaper.astro` puts a `@paper-design/shaders-react` shader in a rounded frame.
+The frame and what sits on it are plain HTML; only the shader (`WallpaperPaint.tsx`)
+loads as a React island, as it nears the screen.
 
 | Scene | Look | Used for |
 |---|---|---|
@@ -78,8 +80,8 @@ The colour on the website lives in painted frames, never behind headline text.
 - Each scene has a CSS gradient of the same colours underneath, so the frame
   never flashes empty before WebGL starts.
 - Shaders only animate on screen, and hold still for reduced motion.
-- **Text on a shader** gets a dark scrim behind it (see `FinalCta.tsx`,
-  `PricingPlans.tsx`); the paint turns pale in places.
+- **Text on a shader** gets a dark scrim behind it (see `FinalCta.astro`,
+  `PricingPlans.astro`); the paint turns pale in places.
 - New scenes stay in the brand's greens, with sky, sand or teal as support.
 
 **In the app**, the screens before the vault opens (activate, setup, unlock,
@@ -107,12 +109,16 @@ between screens, and removes it when the vault opens.
 ## Motion
 
 - **Ease-out, short, nothing bouncy.** Website: `cubic-bezier(0.16, 1, 0.3, 1)`
-  (`apps/web/lib/motion.ts`). App: `[0.22, 1, 0.36, 1]` at 150ms and 220ms
+  (`--ease-ds` in `apps/web/src/styles/global.css`, `EASE` in
+  `apps/web/src/lib/motion.ts` for islands). App: `[0.22, 1, 0.36, 1]` at 150ms and 220ms
   (`apps/desktop/src/lib/motion.ts`).
-- Content fades up 16px once as it scrolls in (`Reveal`).
+- Content fades up 16px once as it scrolls in (`Reveal.astro`). The hero fades
+  up as the page loads. Both are CSS, with no JavaScript framework involved;
+  `motion` runs only inside the animated demo islands.
 - Closing mirrors opening. The FAQ grows its row from `0fr` to `1fr` while the
   answer fades in, and runs the same steps back.
-- Everything respects reduced motion: `MotionConfig reducedMotion="user"`,
+- Everything respects reduced motion: fades without movement in the CSS,
+  `MotionConfig reducedMotion="user"` in each animated island (`MotionRoot`),
   `motion-reduce:` on CSS transitions, still shaders.
 - The app runs in WebKit. Check fades and layered animation there, not only in
   Chromium (see AGENTS.md).

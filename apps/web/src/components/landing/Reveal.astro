@@ -1,0 +1,13 @@
+---
+/** Fades its content up the first time it scrolls into view. The CSS is in
+ * global.css and the observer in src/scripts/reveal.ts. */
+interface Props {
+  class?: string;
+  /** Seconds to wait, for staggering a row. */
+  delay?: number;
+}
+
+const { class: className, delay } = Astro.props;
+---
+
+<div data-reveal class={className} style={delay ? { '--reveal-delay': `${delay}s` } : undefined}><slot /></div>

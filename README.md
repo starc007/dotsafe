@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/app/icon.svg" width="72" height="72" alt="dotsafe logo">
+  <img src="apps/web/public/icon.svg" width="72" height="72" alt="dotsafe logo">
 </p>
 
 <h1 align="center">dotsafe</h1>

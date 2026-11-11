@@ -1,0 +1,24 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import DemoVideo from '@/components/landing/DemoVideo.astro';
+import Faq from '@/components/landing/Faq.astro';
+import Features from '@/components/landing/Features.astro';
+import FinalCta from '@/components/landing/FinalCta.astro';
+import Hero from '@/components/landing/Hero.astro';
+import { JsonLd } from '@/components/landing/JsonLd';
+import Security from '@/components/landing/Security.astro';
+import StorageStrip from '@/components/landing/StorageStrip.astro';
+import { faqData, homeData } from '@/lib/structured-data';
+---
+
+<Layout meta={{ path: '/', markdown: '/index.md', feed: true }}>
+  <JsonLd data={homeData} />
+  <JsonLd data={faqData} />
+  <Hero />
+  <StorageStrip />
+  <DemoVideo />
+  <Features />
+  <Security />
+  <Faq />
+  <FinalCta />
+</Layout>

@@ -1,9 +1,4 @@
-# Read by Cloudflare's static assets. The generated share image and home screen
-# icon have no file extension, so their type is set here.
-/opengraph-image
-  Content-Type: image/png
-/apple-icon
-  Content-Type: image/png
+# Read by Cloudflare's static assets.
 # Markdown copies of the pages, llms.txt and the feed, for agents (see
 # scripts/agent-files.ts). Plain text so browsers show it instead of
 # downloading it, and UTF-8 for the ⌘ and → in the pages.

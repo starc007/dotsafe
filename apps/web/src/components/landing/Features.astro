@@ -1,0 +1,37 @@
+---
+import { links } from '@/lib/site';
+import { AgentDemo } from '@/components/landing/AgentDemo';
+import FeatureRow from '@/components/landing/FeatureRow.astro';
+import { OpenSourceDemo } from '@/components/landing/OpenSourceDemo';
+import { RotationDemo } from '@/components/landing/RotationDemo';
+import SectionHeading from '@/components/landing/SectionHeading.astro';
+import { TerminalDemo } from '@/components/landing/TerminalDemo';
+---
+
+<section id="features" class="mx-auto max-w-6xl scroll-mt-20 px-4 py-20 sm:px-6 sm:py-28">
+  <SectionHeading eyebrow="Features" title="One vault for every key.">
+    In the app and in your terminal, with secrets that rotate in one place and agents that never see them.
+  </SectionHeading>
+  <div class="mt-10 flex flex-col gap-4">
+    <FeatureRow scene="grove" title="One secret, linked everywhere.">
+      Link a key into every environment that uses it. Rotate it once, through OpenAI, Cloudflare or AWS, and every
+      project picks up the new value.
+      <RotationDemo slot="demo" client:visible />
+    </FeatureRow>
+    <FeatureRow scene="dune" flip title="Agents never see the values.">
+      A secret manager built for AI agents. Claude Code, Cursor and Codex run commands with your secrets after you
+      approve them with Touch ID, and what they read back has the values taken out.
+      <AgentDemo slot="demo" client:visible />
+    </FeatureRow>
+    <FeatureRow scene="tide" bare title="A CLI for your terminal." href={links.docs}>
+      Replace your .env files: run anything with your variables, catch keys before you commit, or import from
+      Doppler, Infisical and 1Password.
+      <TerminalDemo slot="demo" client:visible />
+    </FeatureRow>
+    <FeatureRow scene="moss" flip title="Open source, nothing to trust." href={links.github}>
+      An open source secret manager under the MIT license: read every line. Your vault is encrypted before it leaves
+      your Mac, and there's no dotsafe server holding it.
+      <OpenSourceDemo slot="demo" client:visible />
+    </FeatureRow>
+  </div>
+</section>

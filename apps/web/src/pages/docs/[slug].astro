@@ -1,0 +1,17 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import DocsArticle from '@/components/docs/DocsArticle.astro';
+import { DOCS_PATHS } from '@/lib/docs';
+import { docsMeta } from '@/lib/seo';
+
+/** One static page per entry in lib/docs.ts; anything else is a 404. */
+export function getStaticPaths() {
+  return DOCS_PATHS.filter((p) => p !== '/docs').map((p) => ({ params: { slug: p.slice('/docs/'.length) } }));
+}
+
+const href = `/docs/${Astro.params.slug}`;
+---
+
+<Layout meta={docsMeta(href)}>
+  <DocsArticle href={href} />
+</Layout>
