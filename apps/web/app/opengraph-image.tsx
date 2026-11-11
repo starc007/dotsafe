@@ -1,5 +1,6 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ImageResponse } from 'next/og';
 
 export const alt = 'dotsafe: secrets that never leave your Mac';
@@ -8,7 +9,18 @@ export const contentType = 'image/png';
 // Rendered once at build time: the site is a static export.
 export const dynamic = 'force-static';
 
-const fonts = join(process.cwd(), 'node_modules/@fontsource/inter/files');
+/** Inter's font files. The package is in this app's node_modules or the
+ * workspace root's, depending on how bun linked the install, so look upward
+ * from here like Node's resolver does. */
+function fontsDir() {
+  for (let dir = process.cwd(); ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules/@fontsource/inter/files');
+    if (existsSync(candidate)) return candidate;
+    if (dirname(dir) === dir) throw new Error('@fontsource/inter is not installed; run bun install');
+  }
+}
+
+const fonts = fontsDir();
 
 /** The link preview: the hero in one frame. The name and claim on white,
  * the app on a painted frame running off the right edge. The OG renderer has
