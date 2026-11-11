@@ -23,12 +23,12 @@ import { TerminalDemo } from '@/components/landing/TerminalDemo';
       approve them with Touch ID, and what they read back has the values taken out.
       <AgentDemo slot="demo" client:visible />
     </FeatureRow>
-    <FeatureRow scene="tide" bare title="A CLI for your terminal." href={links.docs}>
+    <FeatureRow scene="tide" bare title="A CLI for your terminal." href={links.docs} more="about the dotsafe CLI">
       Replace your .env files: run anything with your variables, catch keys before you commit, or import from
       Doppler, Infisical and 1Password.
       <TerminalDemo slot="demo" client:visible />
     </FeatureRow>
-    <FeatureRow scene="moss" flip title="Open source, nothing to trust." href={links.github}>
+    <FeatureRow scene="moss" flip title="Open source, nothing to trust." href={links.github} more="about dotsafe's source code on GitHub">
       An open source secret manager under the MIT license: read every line. Your vault is encrypted before it leaves
       your Mac, and there's no dotsafe server holding it.
       <OpenSourceDemo slot="demo" client:visible />

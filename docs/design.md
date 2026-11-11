@@ -79,7 +79,9 @@ loads as a React island, as it nears the screen.
 
 - Each scene has a CSS gradient of the same colours underneath, so the frame
   never flashes empty before WebGL starts.
-- Shaders only animate on screen, and hold still for reduced motion.
+- Shaders start once the page has loaded and gone idle, then fade in over the
+  gradient, so they never slow the first paint. They only animate on screen,
+  and hold still for reduced motion.
 - **Text on a shader** gets a dark scrim behind it (see `FinalCta.astro`,
   `PricingPlans.astro`); the paint turns pale in places.
 - New scenes stay in the brand's greens, with sky, sand or teal as support.
@@ -112,8 +114,10 @@ between screens, and removes it when the vault opens.
   (`--ease-ds` in `apps/web/src/styles/global.css`, `EASE` in
   `apps/web/src/lib/motion.ts` for islands). App: `[0.22, 1, 0.36, 1]` at 150ms and 220ms
   (`apps/desktop/src/lib/motion.ts`).
-- Content fades up 16px once as it scrolls in (`Reveal.astro`). The hero fades
-  up as the page loads. Both are CSS, with no JavaScript framework involved;
+- Content fades up 16px once as it scrolls in (`Reveal.astro`). The hero's
+  badge, buttons and product fade up as the page loads; its headline doesn't,
+  since it's the largest text on the page and a fade would delay when the page
+  counts as shown. Both are CSS, with no JavaScript framework involved;
   `motion` runs only inside the animated demo islands.
 - Closing mirrors opening. The FAQ grows its row from `0fr` to `1fr` while the
   answer fades in, and runs the same steps back.

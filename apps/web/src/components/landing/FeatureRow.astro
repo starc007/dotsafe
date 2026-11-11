@@ -7,16 +7,18 @@ import Wallpaper from '@/components/landing/Wallpaper.astro';
 
 /** A feature as a wide row: the claim on one side, its live demo (the `demo`
  * slot) in a white window on a painted wallpaper on the other. `flip` puts the
- * demo first; `bare` skips the window for demos that bring their own. */
+ * demo first; `bare` skips the window for demos that bring their own. `more`
+ * finishes "Learn more" for screen readers and search, e.g. "about the CLI". */
 interface Props {
   title: string;
   scene: Scene;
   href?: string;
+  more?: string;
   flip?: boolean;
   bare?: boolean;
 }
 
-const { title, scene, href, flip, bare } = Astro.props;
+const { title, scene, href, more, flip, bare } = Astro.props;
 ---
 
 <Reveal class="grid overflow-hidden rounded-3xl border border-ds-line p-2 md:grid-cols-5">
@@ -30,7 +32,7 @@ const { title, scene, href, flip, bare } = Astro.props;
           href={href}
           class="group mt-5 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-ds-accent outline-none focus-visible:underline"
         >
-          Learn more
+          Learn more<span class="sr-only"> {more}</span>
           <ArrowRight aria-hidden className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
         </a>
       )

@@ -1,7 +1,9 @@
 import { useRef } from 'react';
 import { GrainGradient, MeshGradient, Warp } from '@paper-design/shaders-react';
 import { useInView, useReducedMotion } from 'motion/react';
+import { cn } from '@/lib/cn';
 import type { Scene } from '@/lib/scenes';
+import { useSettled } from '@/lib/use-settled';
 
 const SCENES: Record<Scene, (speed: number) => React.ReactNode> = {
   meadow: (speed) => (
@@ -66,14 +68,27 @@ const SCENES: Record<Scene, (speed: number) => React.ReactNode> = {
 };
 
 /** The moving paint inside a Wallpaper (Wallpaper.astro), as its own island.
- * It only animates while on screen, and holds still for reduced motion. */
+ * Starting a shader is heavy, so it waits until the page has loaded and gone
+ * idle, and until the frame first comes near the screen, then fades in over
+ * the frame's CSS gradient. It only animates while on screen, and holds still
+ * for reduced motion. */
 export function WallpaperPaint({ scene }: { scene: Scene }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { margin: '200px' });
+  const seen = useInView(ref, { margin: '200px', once: true });
   const reduce = useReducedMotion();
+  const settled = useSettled();
+  const started = settled && seen;
   return (
-    <div ref={ref} aria-hidden className="pointer-events-none absolute inset-0 -z-10 [&>*]:size-full">
-      {SCENES[scene](inView && !reduce ? 0.35 : 0)}
+    <div
+      ref={ref}
+      aria-hidden
+      className={cn(
+        'pointer-events-none absolute inset-0 -z-10 transition-opacity duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none [&>*]:size-full',
+        !started && 'opacity-0',
+      )}
+    >
+      {started && SCENES[scene](inView && !reduce ? 0.35 : 0)}
     </div>
   );
 }

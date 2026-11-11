@@ -1,19 +1,18 @@
 ---
 /** A joke YC batch badge: "Backed by Y Combinator", with a small "not" written in
- * above it a beat later, like a proofreader's correction. dotsafe is bootstrapped. */
+ * above it a beat later, like a proofreader's correction. dotsafe is bootstrapped.
+ * Screen readers get the plain sentence instead of the joke's pieces. */
 ---
 
-<p
-  aria-label="Not backed by Y Combinator. Bootstrapped, 2026."
-  class="inline-flex items-center gap-2 rounded-full border border-ds-line py-1 pr-3 pl-1 text-[13px]"
->
+<p class="inline-flex items-center gap-2 rounded-full border border-ds-line py-1 pr-3 pl-1 text-[13px]">
+  <span class="sr-only">Not backed by Y Combinator. Bootstrapped, 2026.</span>
   <span aria-hidden="true" class="flex size-5 items-center justify-center rounded-full bg-ds-yc text-[11px] font-semibold text-white">
     Y
   </span>
   <span aria-hidden="true" class="relative">
     <!-- The page colour behind it breaks the pill's border, like a note written over it. -->
     <span
-      class="write-in absolute -top-3.5 -left-2.5 origin-bottom-left rounded-sm bg-ds-bg px-1 leading-4 font-medium text-ds-yc italic"
+      class="write-in absolute -top-3.5 -left-2.5 origin-bottom-left rounded-sm bg-ds-bg px-1 leading-4 font-medium text-ds-yc-ink italic"
     >
       <span class="text-xs">not</span>
     </span>

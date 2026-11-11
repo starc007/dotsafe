@@ -1,12 +1,16 @@
 ---
+import { Picture } from 'astro:assets';
 import { ArrowRight, Download } from 'lucide-react';
+import appShot from '@/assets/app.png';
 import { links } from '@/lib/site';
 import ButtonLink from '@/components/landing/ButtonLink.astro';
 import NotYcBadge from '@/components/landing/NotYcBadge.astro';
 import Wallpaper from '@/components/landing/Wallpaper.astro';
 
 /** Plain white headline; the colour lives in the frame around the product
- * below. Each line fades up in turn as the page loads, then the product. */
+ * below. The headline is there from the first paint (it's the page's largest
+ * text, so a fade would hold back when the page counts as shown); the badge,
+ * the buttons and then the product fade up around it. */
 const step = (i: number) => ({ '--delay': `${i * 0.08}s` });
 ---
 
@@ -15,16 +19,13 @@ const step = (i: number) => ({ '--delay': `${i * 0.08}s` });
     <div class="fade-up mb-6" style={step(0)}>
       <NotYcBadge />
     </div>
-    <h1
-      class="fade-up max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]"
-      style={step(1)}
-    >
+    <h1 class="max-w-2xl text-[28px] leading-[1.2] font-medium tracking-[-0.02em] text-balance sm:text-[36px]">
       Secrets that never leave your Mac.{' '}
       <span class="text-ds-muted">
         The open source secret manager for developers and their AI agents, synced through storage you already own.
       </span>
     </h1>
-    <div class="fade-up mt-8 flex flex-wrap items-center gap-2.5" style={step(2)}>
+    <div class="fade-up mt-8 flex flex-wrap items-center gap-2.5" style={step(1)}>
       <ButtonLink href={links.download} variant="primary">
         Download for macOS
         <Download aria-hidden />
@@ -43,11 +44,13 @@ const step = (i: number) => ({ '--delay': `${i * 0.08}s` });
   >
     <Wallpaper scene="meadow" class="px-4 pt-10 sm:px-12 sm:pt-16 md:px-20 md:pt-20">
       <div class="rounded-t-xl bg-white/40 p-1.5 pb-0 backdrop-blur-md sm:p-2 sm:pb-0">
-        <img
-          src="/app.png"
+        <Picture
+          src={appShot}
+          formats={['avif', 'webp']}
+          widths={[480, 800, 1200, 1600, 2080]}
+          sizes="(min-width: 1152px) 928px, calc(100vw - 80px)"
           alt="The dotsafe app: a project's variables, with a secret linked across environments"
-          width="2080"
-          height="1120"
+          loading="eager"
           fetchpriority="high"
           class="h-auto w-full rounded-t-lg"
         />
