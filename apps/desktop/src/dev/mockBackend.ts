@@ -177,6 +177,45 @@ const SERVICES = [
     overlap: false,
     guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
   },
+  {
+    id: "netlify",
+    label: "Netlify",
+    kind: "target",
+    tokenHelp: "A personal access token from app.netlify.com/user/applications.",
+    connectionFields: [{ key: "account_id", label: "Team slug", hint: "From the team's URL: app.netlify.com/teams/<slug>.", required: true, secretRef: false }],
+    bindingFields: [
+      { key: "site_id", label: "Site ID", hint: "From the site's configuration, under General.", required: true, secretRef: false },
+      { key: "contexts", label: "Deploy contexts", hint: "Comma-separated. Defaults to production, deploy-preview, branch-deploy.", required: false, secretRef: false },
+    ],
+    overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
+  },
+  {
+    id: "fly",
+    label: "Fly.io",
+    kind: "target",
+    tokenHelp: "A Fly.io token from `fly tokens create deploy` (one app) or `fly tokens create org`.",
+    connectionFields: [],
+    bindingFields: [{ key: "app", label: "App", hint: "The app's name. Running Machines get the new value on their next deploy.", required: true, secretRef: false }],
+    overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
+  },
+  {
+    id: "aws_ssm",
+    label: "AWS SSM",
+    kind: "target",
+    tokenHelp: "For Parameter Store: the secret access key of an IAM user allowed to call ssm:PutParameter on the parameters below.",
+    connectionFields: [
+      { key: "access_key_id", label: "Access key ID", hint: "AKIA…, of the IAM user dotsafe calls SSM as.", required: true, secretRef: false },
+      { key: "region", label: "Region", hint: "e.g. us-east-1.", required: true, secretRef: false },
+    ],
+    bindingFields: [
+      { key: "path", label: "Path", hint: "e.g. /my-app/production. Saved as SecureString at <path>/<name>.", required: false, secretRef: false },
+      { key: "kms_key_id", label: "KMS key", hint: "Optional: a KMS key ID or alias. Defaults to aws/ssm.", required: false, secretRef: false },
+    ],
+    overlap: false,
+    guided: false, manualRevoke: false, needsToken: true, consoleUrl: null,
+  },
 ];
 type MockConnection = { id: string; service: string; name: string; settings: Record<string, string>; credential: string | null };
 type MockTarget = { id: string; connectionId: string; name: string; settings: Record<string, string>; pushedValue: string | null; pushedAt: number | null };
