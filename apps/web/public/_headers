@@ -30,6 +30,10 @@
   Content-Type: text/plain; charset=utf-8
 /for/*.md
   Content-Type: text/plain; charset=utf-8
+/rotate.md
+  Content-Type: text/plain; charset=utf-8
+/rotate/*.md
+  Content-Type: text/plain; charset=utf-8
 /changelog.xml
   Content-Type: application/rss+xml; charset=utf-8
 
