@@ -129,7 +129,7 @@ const SERVICES = [
     connectionFields: [],
     bindingFields: [],
     overlap: true,
-    guided: true, manualRevoke: false, needsToken: true, consoleUrl: "https://console.anthropic.com/settings/keys",
+    guided: true, manualRevoke: false, needsToken: true, consoleUrl: "https://platform.claude.com/settings/keys",
   },
   {
     id: "stripe",
