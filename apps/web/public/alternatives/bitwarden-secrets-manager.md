@@ -14,7 +14,7 @@ dotsafe is end-to-end encrypted too, but there's no account and no service in th
 | Encryption | End to end | End to end (zero-knowledge) |
 | Account needed | No | Yes |
 | Source code | Open source, MIT | Server AGPL 3.0; organization features and the `bws` CLI under Bitwarden's own licenses |
-| Price | $49 once, up to 2 Macs | Free for 2 users; Teams $6 and Enterprise $12 per user per month, billed yearly |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Free for 2 users; Teams $6 and Enterprise $12 per user per month, billed yearly |
 | AI agents | Agents run commands you approve with Touch ID and never get values; output is redacted | Machine accounts scope which secrets an agent's process can use |
 | Local dev | `dotsafe run -- npm run dev` | `bws run -- 'npm run dev'` |
 | Teams | One person per license, no team sharing yet | Users, groups, SSO and SCIM, event logs |

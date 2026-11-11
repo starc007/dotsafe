@@ -11,9 +11,9 @@ dotsafe is for developers who want none of that to run: secrets are encrypted on
 | | dotsafe | Infisical |
 | --- | --- | --- |
 | Where secrets live | Encrypted on your Mac, synced through iCloud, Dropbox, S3 or WebDAV | Infisical Cloud, or a server you host |
-| Encryption | End to end: only your Macs can decrypt | On the server, which decrypts to answer requests |
+| Encryption | End to end: only your devices can decrypt | On the server, which decrypts to answer requests |
 | Source code | Open source, MIT | MIT, except enterprise features under a separate license |
-| Price | $49 once, up to 2 Macs | Free for 5 identities; Pro $20 an identity per month, billed yearly |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Free for 5 identities; Pro $20 an identity per month, billed yearly |
 | Something to run | Nothing | Nothing on the cloud plan, or your own server |
 | AI agents | Agents run approved commands and never get values; local proxy for OpenAI and Anthropic keys | MCP server returns values unless masked; Agent Vault proxies credentials |
 | Local dev | `dotsafe run -- npm run dev` | `infisical sm run -- npm run dev` |
@@ -23,12 +23,12 @@ dotsafe is for developers who want none of that to run: secrets are encrypted on
 
 - **Teams and self-hosting.** An open source server you can run yourself, with access control, approvals and audit.
 - **More than secrets.** Dynamic secrets, certificates, KMS and 100+ integrations, plus a Kubernetes operator.
-- **Platforms.** Linux and Windows, CI and production.
+- **Platforms.** Windows, CI and production.
 
 ## Where dotsafe fits better
 
 - **No server, no account.** Nothing to host, sign in to, or keep up to date.
-- **End to end encryption.** Your vault can only be read on your Macs.
+- **End to end encryption.** Your vault can only be read on your own devices.
 - **Approval per command.** Agents ask, you approve with Touch ID, and every request is in an encrypted audit log.
 - **Pay once**, instead of per identity.
 

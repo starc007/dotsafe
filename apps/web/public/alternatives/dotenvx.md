@@ -13,15 +13,15 @@ dotsafe solves the same problem from the other side: there is no `.env` file at 
 | Where secrets live | Encrypted vault on your Mac, synced through storage you own | Encrypted `.env` files committed to git |
 | The key that unlocks them | Your master password, Touch ID, or a device key in the Keychain | A private key in `.env.keys`, your OS keychain, a password manager, or the paid Armor service |
 | Source code | Open source, MIT | Open source, BSD 3-Clause (Armor is paid) |
-| Price | $49 once, up to 2 Macs | Free; Armor from $5 a month |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Free; Armor from $5 a month |
 | AI agents | Agents run approved commands and never get values; output is redacted | `dotenvx run` gives a process the real values; `redacted` rules mask them in output |
 | Approval | Touch ID per command, with an audit log | None locally; Armor adds approval and audit on decrypt |
 | Rotation | Built in, through OpenAI, Cloudflare and AWS | Edit and re-encrypt the file |
-| Platforms | macOS app and CLI | macOS, Linux and Windows CLI, with SDKs |
+| Platforms | macOS and Linux app and CLI | macOS, Linux and Windows CLI, with SDKs |
 
 ## Where dotenvx is the better choice
 
-- **Cross-platform.** It runs on Linux and Windows too, and in any language with its SDKs.
+- **Cross-platform.** It runs on Windows too, and in any language with its SDKs.
 - **Secrets travel with the code.** CI and production decrypt with one `DOTENV_PRIVATE_KEY`, no other service needed.
 - **No app to install.** It's a single CLI.
 

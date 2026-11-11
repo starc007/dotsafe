@@ -14,7 +14,7 @@ dotsafe is built only for developer secrets: projects, environments, rotation an
 | Encryption | End to end | End to end (dual-key model) |
 | Account needed | No | Yes, plus the desktop app for Environments |
 | Source code | Open source, MIT | Proprietary |
-| Price | $49 once, up to 2 Macs | Subscription: Individual $3.99 a month, Business $8.99 a user per month, billed yearly |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Subscription: Individual $3.99 a month, Business $8.99 a user per month, billed yearly |
 | AI agents | Agents run approved commands and never get values; output is redacted | Environments MCP server shows names only and never returns values |
 | Local dev | `dotsafe run -- npm run dev` | `op run --environment <id> -- npm run dev` |
 | Teams | One person per license, no team sharing yet | Shared vaults, admin policies, service accounts |

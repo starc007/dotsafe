@@ -11,9 +11,9 @@ dotsafe takes the other approach. There's no server: your secrets are encrypted 
 | | dotsafe | HashiCorp Vault |
 | --- | --- | --- |
 | Where secrets live | Encrypted on your Mac, synced through iCloud, Dropbox, S3 or WebDAV | On a Vault server you run, or HCP Vault Dedicated |
-| Encryption | End to end: only your Macs can decrypt | On the server, which holds the keys once unsealed |
+| Encryption | End to end: only your devices can decrypt | On the server, which holds the keys once unsealed |
 | Source code | Open source, MIT | Business Source License 1.1 (since 1.15); the OpenBao fork is MPL 2.0 |
-| Price | $49 once, up to 2 Macs | Community edition free to self-host; HCP Vault Dedicated billed per cluster hour plus per client |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Community edition free to self-host; HCP Vault Dedicated billed per cluster hour plus per client |
 | Something to run | Nothing | A Vault server, unsealing, storage, upgrades |
 | AI agents | MCP server; agents run approved commands and never get values | Official MCP server (beta) whose tools can read and write secret values |
 | Local dev | `dotsafe run -- npm run dev` | Vault Agent in process supervisor mode, or `vault kv get` |
