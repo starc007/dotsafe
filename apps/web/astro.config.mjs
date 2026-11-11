@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import tailwindcss from '@tailwindcss/vite';
+import { linkHeaders } from './scripts/link-headers.mjs';
 
 // Every page is static: the site builds to plain files in `dist/`, served by a
 // Cloudflare Worker as static assets (wrangler.jsonc). No server runs.
@@ -12,7 +13,7 @@ export default defineConfig({
   trailingSlash: 'never',
   // Plain links between pages: no prefetching, no client router.
   prefetch: false,
-  integrations: [react()],
+  integrations: [react(), linkHeaders()],
   vite: {
     plugins: [tailwindcss()],
     // The share images' renderer is a native module, run only at build time.
