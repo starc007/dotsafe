@@ -11,10 +11,10 @@ dotsafe keeps your secrets encrypted on your Mac, end to end, and syncs them thr
 | | dotsafe | Doppler |
 | --- | --- | --- |
 | Where secrets live | Encrypted on your Mac, synced through iCloud, Dropbox, S3 or WebDAV | Doppler's cloud |
-| Encryption | End to end: only your Macs can decrypt | On Doppler's servers, with per-workplace keys wrapped by cloud KMS |
+| Encryption | End to end: only your devices can decrypt | On Doppler's servers, with per-workplace keys wrapped by cloud KMS |
 | Account needed | No | Yes |
 | Source code | Open source, MIT | CLI and MCP server are Apache-2.0; the service is closed source |
-| Price | $49 once, up to 2 Macs | Free for 3 users, then $8 a user; Team plan $21 a user per month |
+| Price | $49 once, up to 2 computers (Mac or Linux) | Free for 3 users, then $8 a user; Team plan $21 a user per month |
 | AI agents | Agents run approved commands and never get values; output is redacted | MCP server (experimental) whose tools can read secret values |
 | Works offline | Yes | From an encrypted snapshot of recently fetched secrets |
 | Local dev | `dotsafe run -- npm run dev` | `doppler run -- npm run dev` |
@@ -25,7 +25,7 @@ dotsafe keeps your secrets encrypted on your Mac, end to end, and syncs them thr
 - **Teams.** Role-based access per environment, change requests, SAML SSO and SCIM.
 - **Syncs everywhere.** Pushes secrets to many platforms, with a Kubernetes operator and CI guides.
 - **Audit.** Activity logs, with forwarding to Splunk and Datadog.
-- **Platforms.** Works on Linux and Windows as well as macOS.
+- **Platforms.** Works on Windows as well as macOS and Linux.
 
 ## Where dotsafe fits better
 
