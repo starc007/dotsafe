@@ -2,6 +2,7 @@
 import { links } from '@/lib/site';
 import ButtonLink from '@/components/landing/ButtonLink.astro';
 import { Logo } from '@/components/landing/Logo';
+import { NavMenu } from '@/components/landing/NavMenu';
 
 const items = [
   { label: 'Features', href: '/#features' },
@@ -29,6 +30,7 @@ const items = [
     <div class="ml-auto flex items-center gap-2">
       <ButtonLink href={links.github} variant="ghost" class="hidden h-9 px-3 sm:inline-flex">GitHub</ButtonLink>
       <ButtonLink href={links.downloads} variant="primary" class="h-9 px-4">Download</ButtonLink>
+      <NavMenu client:media="(max-width: 639px)" items={[...items, { label: 'GitHub', href: links.github }]} />
     </div>
   </nav>
 </header>
