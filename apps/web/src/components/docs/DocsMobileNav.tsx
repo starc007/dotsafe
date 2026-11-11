@@ -1,16 +1,25 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { DOCS } from '@/lib/docs';
 import { cn } from '@/lib/cn';
+import { menuPanelClass } from '@/lib/menu';
+import { useDismiss } from '@/lib/use-dismiss';
 import { DocsSidebar } from '@/components/docs/DocsSidebar';
 
-/** Below `lg` the sidebar folds into a button that names the current page (`href`). */
+/** Below `lg` the sidebar folds into a button that names the current page
+ * (`href`). The list opens over the page instead of pushing it down. */
 export function DocsMobileNav({ href }: { href: string }) {
   const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useDismiss(open, close, root, toggle);
   const current = DOCS.flatMap((g) => g.pages).find((p) => p.href === href);
+
   return (
-    <div className="lg:hidden">
+    <div ref={root} className="relative lg:hidden">
       <button
+        ref={toggle}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -20,20 +29,18 @@ export function DocsMobileNav({ href }: { href: string }) {
         {current?.title ?? 'Docs'}
         <ChevronDown
           aria-hidden
-          className={cn('size-4 text-ds-muted transition-transform duration-200', open && 'rotate-180')}
+          className={cn(
+            'size-4 text-ds-muted transition-transform duration-200 motion-reduce:transition-none',
+            open && 'rotate-180',
+          )}
         />
       </button>
-      {/* Same grid-rows trick as the FAQ: the panel opens to its own height. */}
       <div
         id="docs-mobile-nav"
-        className={cn(
-          'grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
-          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
-        )}
+        inert={!open}
+        className={menuPanelClass(open, 'inset-x-0 top-full mt-2 max-h-[min(32rem,calc(100dvh-10rem))] overflow-y-auto overscroll-contain p-2')}
       >
-        <div className="overflow-hidden" inert={!open}>
-          <DocsSidebar href={href} onNavigate={() => setOpen(false)} className="pt-6 pb-2" />
-        </div>
+        <DocsSidebar href={href} onNavigate={close} className="gap-5 py-2" />
       </div>
     </div>
   );
