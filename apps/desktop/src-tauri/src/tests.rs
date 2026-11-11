@@ -588,7 +588,10 @@ fn connections_providers_and_targets() {
 
     let services = desktop.ok("list_services", json!({}));
     let ids: Vec<&str> = services.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["openai", "cloudflare_token", "anthropic", "stripe", "aws_iam", "vercel", "cloudflare_workers"]);
+    assert_eq!(
+        ids,
+        ["openai", "cloudflare_token", "anthropic", "stripe", "aws_iam", "vercel", "cloudflare_workers", "netlify", "fly", "aws_ssm"]
+    );
 
     // Settings are checked; the token is required.
     let add = |service: &str, name: &str, settings: Value, token: &str| {

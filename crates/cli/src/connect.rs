@@ -129,7 +129,8 @@ pub fn list() -> Result<()> {
     let ctx = Ctx::open()?;
     let list = connections(&ctx)?;
     if list.is_empty() {
-        eprintln!("No connections yet. Add one with `dotsafe connect <service>`: openai, cloudflare_token, vercel, cloudflare_workers.");
+        let services: Vec<&str> = dotsafe_integrations::SERVICES.iter().map(|s| s.id).collect();
+        eprintln!("No connections yet. Add one with `dotsafe connect <service>`: {}.", services.join(", "));
     }
     for c in list {
         let label = service(&c.service).map(|s| s.label).unwrap_or("unknown");

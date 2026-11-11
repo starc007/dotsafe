@@ -201,7 +201,7 @@ enum Cmd {
         #[arg(long, conflicts_with_all = ["paths", "staged"])]
         install_hook: bool,
     },
-    /// Connect an account at a provider (openai, cloudflare_token) or deploy target (vercel, cloudflare_workers)
+    /// Connect an account at a provider (openai, cloudflare_token, aws_iam, anthropic, stripe) or deploy target (vercel, cloudflare_workers, netlify, fly, aws_ssm)
     Connect {
         service: String,
         /// Name for the connection [default: the service's name]

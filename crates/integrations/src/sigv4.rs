@@ -1,20 +1,26 @@
-//! AWS Signature Version 4, for the IAM and STS query APIs. The primitives
-//! (HMAC-SHA256, SHA-256) come from `dotsafe_core::crypto`; this module only
-//! arranges the request the way AWS specifies.
+//! AWS Signature Version 4, for the IAM and STS query APIs (form bodies) and
+//! JSON APIs like SSM (an `X-Amz-Target` header names the action). The
+//! primitives (HMAC-SHA256, SHA-256) come from `dotsafe_core::crypto`; this
+//! module only arranges the request the way AWS specifies.
 
 use dotsafe_core::crypto::{hmac_sha256, sha256_hex};
 
-/// A request to sign: a POST with a form body, as IAM and STS take.
+/// A POST to sign.
 pub struct Request<'a> {
     pub host: &'a str,
     pub region: &'a str,
     pub service: &'a str,
+    /// [`CONTENT_TYPE`] for IAM and STS, [`JSON_CONTENT_TYPE`] for SSM.
+    pub content_type: &'a str,
+    /// The `X-Amz-Target` header, for JSON APIs.
+    pub target: Option<&'a str>,
     pub body: &'a str,
     /// `YYYYMMDD'T'HHMMSS'Z'`, UTC.
     pub amz_date: &'a str,
 }
 
 pub const CONTENT_TYPE: &str = "application/x-www-form-urlencoded; charset=utf-8";
+pub const JSON_CONTENT_TYPE: &str = "application/x-amz-json-1.1";
 
 /// The `Authorization` header for `request`, signed with this access key.
 pub fn authorization(request: &Request, access_key_id: &str, secret_access_key: &str) -> String {
@@ -23,19 +29,18 @@ pub fn authorization(request: &Request, access_key_id: &str, secret_access_key: 
 
 fn signed(method: &str, query: &str, r: &Request, access_key_id: &str, secret: &str) -> String {
     let date = &r.amz_date[..8];
-    let signed_headers = "content-type;host;x-amz-date";
-    let canonical = [
-        method,
-        "/",
-        query,
-        &format!("content-type:{CONTENT_TYPE}"),
-        &format!("host:{}", r.host),
-        &format!("x-amz-date:{}", r.amz_date),
-        "",
-        signed_headers,
-        &sha256_hex(r.body.as_bytes()),
-    ]
-    .join("\n");
+    // Every signed header, lowercase and sorted by name.
+    let mut headers = vec![
+        ("content-type", r.content_type.to_string()),
+        ("host", r.host.to_string()),
+        ("x-amz-date", r.amz_date.to_string()),
+    ];
+    if let Some(target) = r.target {
+        headers.push(("x-amz-target", target.to_string()));
+    }
+    let signed_headers = headers.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(";");
+    let canonical_headers: String = headers.iter().map(|(name, value)| format!("{name}:{value}\n")).collect();
+    let canonical = [method, "/", query, &canonical_headers, &signed_headers, &sha256_hex(r.body.as_bytes())].join("\n");
     let scope = format!("{date}/{}/{}/aws4_request", r.region, r.service);
     let to_sign = ["AWS4-HMAC-SHA256", r.amz_date, &scope, &sha256_hex(canonical.as_bytes())].join("\n");
     let key = signing_key(secret, date, r.region, r.service);
@@ -93,6 +98,8 @@ mod tests {
             host: "iam.amazonaws.com",
             region: "us-east-1",
             service: "iam",
+            content_type: CONTENT_TYPE,
+            target: None,
             body: "",
             amz_date: "20150830T123600Z",
         };

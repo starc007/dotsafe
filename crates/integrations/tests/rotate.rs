@@ -21,6 +21,8 @@ struct Seen {
     auth: String,
     /// Anthropic's key header.
     api_key: String,
+    /// AWS JSON APIs' action header.
+    amz_target: String,
     body: Value,
 }
 
@@ -61,6 +63,12 @@ impl Fake {
                     .find(|h| h.field.equiv("x-api-key"))
                     .map(|h| h.value.to_string())
                     .unwrap_or_default();
+                let amz_target = request
+                    .headers()
+                    .iter()
+                    .find(|h| h.field.equiv("X-Amz-Target"))
+                    .map(|h| h.value.to_string())
+                    .unwrap_or_default();
                 let method = request.method().to_string();
                 let path = request.url().to_string();
                 let (status, reply) = answer(&method, &path, &auth, &body);
@@ -69,6 +77,7 @@ impl Fake {
                     path,
                     auth,
                     api_key,
+                    amz_target,
                     body: serde_json::from_str(&body).unwrap_or(Value::String(body.clone())),
                 });
                 let response = tiny_http::Response::from_string(reply).with_status_code(status);
@@ -439,4 +448,111 @@ fn aws_keys_are_created_signed_verified_and_deleted() {
     assert!(fake.seen().iter().any(|r| r.body.as_str().is_some_and(|b| b.contains("Action=DeleteAccessKey"))));
     let ids = secret(&s.vault, id_secret.id);
     assert!(ids.versions().iter().all(|(_, v)| v.state != VersionState::Previous), "the old ID is retired with it");
+}
+
+/// Pushes `value` to one target of `service` through the fake.
+fn push_to(
+    fake: &Fake,
+    service: &str,
+    token: &str,
+    connection_settings: &[(&str, &str)],
+    target_settings: &[(&str, &str)],
+) -> dotsafe_integrations::Result<()> {
+    let dir = tempfile::tempdir().unwrap();
+    let vault = Vault::create(FolderStore::new(dir.path()), "pw", FAST).unwrap();
+    let stamp = vault.stamp(Uuid::new_v4());
+    let map = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    };
+    let connection = Connection::new(service, "Acme", None, map(connection_settings), stamp);
+    let target = Target { connection: connection.id, name: "API_KEY".into(), settings: map(target_settings), pushed: None, deleted: false, changed: stamp };
+    Client::with_base_for_tests(&fake.url).push(&connection, token, &target, "sk-new")
+}
+
+#[test]
+fn netlify_sets_each_context_and_creates_missing_variables_as_secrets() {
+    // An existing variable: one PATCH per context.
+    let fake = Fake::start(|method, _, _| match method {
+        "PATCH" => (201, json!({})),
+        _ => (500, json!({})),
+    });
+    push_to(&fake, "netlify", "nf-token", &[("account_id", "acme")], &[("site_id", "site 1"), ("contexts", "production, dev")]).unwrap();
+    let seen = fake.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].path, "/accounts/acme/env/API_KEY?site_id=site+1");
+    assert_eq!(seen[0].auth, "Bearer nf-token");
+    assert_eq!(seen[0].body, json!({ "context": "production", "value": "sk-new" }));
+    assert_eq!(seen[1].body, json!({ "context": "dev", "value": "sk-new" }));
+
+    // A missing one: created once, secret, with the default contexts.
+    let fake = Fake::start(|method, _, _| match method {
+        "PATCH" => (404, json!({ "message": "Not Found" })),
+        "POST" => (201, json!([])),
+        _ => (500, json!({})),
+    });
+    push_to(&fake, "netlify", "nf-token", &[("account_id", "acme")], &[("site_id", "s1")]).unwrap();
+    let create = fake.seen().into_iter().find(|r| r.method == "POST").unwrap();
+    assert_eq!(create.path, "/accounts/acme/env?site_id=s1");
+    let var = &create.body[0];
+    assert_eq!(var["key"], "API_KEY");
+    assert_eq!(var["is_secret"], true);
+    let contexts: Vec<&str> = var["values"].as_array().unwrap().iter().map(|v| v["context"].as_str().unwrap()).collect();
+    assert_eq!(contexts, ["production", "deploy-preview", "branch-deploy"]);
+
+    let bad = push_to(&fake, "netlify", "t", &[("account_id", "acme")], &[("site_id", "s1"), ("contexts", "staging")]);
+    assert!(bad.unwrap_err().to_string().contains("no \"staging\" deploy context"));
+}
+
+#[test]
+fn fly_sets_app_secrets_with_either_kind_of_token() {
+    let fake = Fake::start(|method, path, _| match (method, path) {
+        ("POST", "/v1/apps/my-app/secrets/API_KEY") => (201, json!({ "version": 3 })),
+        _ => (404, json!({ "error": "not found" })),
+    });
+    push_to(&fake, "fly", "FlyV1 fm2_abc", &[], &[("app", "my-app")]).unwrap();
+    push_to(&fake, "fly", "old-token", &[], &[("app", "my-app")]).unwrap();
+    let seen = fake.seen();
+    assert_eq!(seen[0].auth, "FlyV1 fm2_abc", "macaroon tokens go as they are");
+    assert_eq!(seen[1].auth, "Bearer old-token");
+    assert_eq!(seen[0].body, json!({ "value": "sk-new" }));
+
+    let missing = push_to(&fake, "fly", "t", &[], &[("app", "other")]).unwrap_err();
+    assert_eq!(missing.to_string(), "Fly.io said no (404): not found");
+}
+
+#[test]
+fn aws_parameter_store_puts_signed_secure_strings() {
+    let fake = Fake::start_raw(|_, _, auth, body| {
+        if body.contains("\"/denied/") {
+            return (400, json!({ "__type": "com.amazonaws.ssm#AccessDeniedException", "message": "not allowed" }).to_string());
+        }
+        assert!(auth.contains("Credential=AKIAPUSH/") && auth.contains("/eu-west-2/ssm/aws4_request"), "{auth}");
+        assert!(auth.contains("SignedHeaders=content-type;host;x-amz-date;x-amz-target"), "{auth}");
+        (200, json!({ "Version": 2, "Tier": "Standard" }).to_string())
+    });
+    let conn = [("access_key_id", "AKIAPUSH"), ("region", "eu-west-2")];
+    push_to(&fake, "aws_ssm", "aws-secret", &conn, &[("path", "/my-app/prod/"), ("kms_key_id", "alias/app")]).unwrap();
+    let put = &fake.seen()[0];
+    assert_eq!(put.amz_target, "AmazonSSM.PutParameter");
+    assert_eq!(
+        put.body,
+        json!({ "Name": "/my-app/prod/API_KEY", "Value": "sk-new", "Type": "SecureString", "Overwrite": true, "KeyId": "alias/app" })
+    );
+
+    // Without a path, the parameter is the variable's name.
+    push_to(&fake, "aws_ssm", "aws-secret", &conn, &[]).unwrap();
+    assert_eq!(fake.seen()[1].body["Name"], "API_KEY");
+
+    let denied = push_to(&fake, "aws_ssm", "s", &conn, &[("path", "/denied")]).unwrap_err();
+    assert_eq!(denied.to_string(), "AWS said no (400): AccessDeniedException: not allowed");
+
+    // The region becomes part of the host name, so it must look like one.
+    for region in ["evil.com/x", "us-east", "us-east-1.attacker.net", ""] {
+        let err = push_to(&fake, "aws_ssm", "s", &[("access_key_id", "A"), ("region", region)], &[]).unwrap_err();
+        assert!(err.to_string().contains("region") || err.to_string().contains("isn't set"), "{region}: {err}");
+    }
+    for path in ["no-slash", "/a//b", "/a b"] {
+        assert!(push_to(&fake, "aws_ssm", "s", &conn, &[("path", path)]).is_err(), "{path}");
+    }
+    assert_eq!(fake.seen().len(), 3, "bad settings never reach the network");
 }
