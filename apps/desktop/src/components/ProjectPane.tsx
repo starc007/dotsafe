@@ -118,7 +118,15 @@ export function ProjectPane({
         </h1>
         <div className="flex min-w-0 items-center gap-1">
           {project.environments.length > 0 && (
-            <Tabs value={env?.id ?? ""} onValueChange={setEnvId} className="min-w-0">
+            <Tabs
+              // Remount when environments come or go. WebKit can keep the
+              // scrolling tab strip's old content width after a tab is
+              // removed, so it thinks it overflows and shows scroll arrows.
+              key={project.environments.map((e) => e.id).join(",")}
+              value={env?.id ?? ""}
+              onValueChange={setEnvId}
+              className="min-w-0"
+            >
               <TabsList aria-label="Environments" className="bg-muted p-0.5">
                 {project.environments.map((e) => (
                   <TabsTrigger key={e.id} value={e.id} className="px-3 py-1 text-[13px]">
