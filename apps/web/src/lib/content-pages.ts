@@ -73,16 +73,16 @@ export const ROTATION = {
     {
       title: 'Rotated by dotsafe',
       items: [
-        { slug: 'openai', label: 'OpenAI', blurb: 'New project key, live everywhere, old one deleted when you say.' },
-        { slug: 'cloudflare', label: 'Cloudflare', blurb: 'Roll an API token and push the new value to your Workers.', logo: 'cloudflare-workers' },
-        { slug: 'aws', label: 'AWS access keys', blurb: 'Create, switch and delete IAM access keys in one step.' },
+        { slug: 'openai', label: 'OpenAI', blurb: 'New project key, live everywhere, old one deleted when you say.', logo: 'openai' },
+        { slug: 'cloudflare', label: 'Cloudflare', blurb: 'Roll an API token and push the new value to your Workers.', logo: 'cloudflare' },
+        { slug: 'aws', label: 'AWS access keys', blurb: 'Create, switch and delete IAM access keys in one step.', logo: 'aws' },
       ] as ContentItem[],
     },
     {
       title: 'Guided by dotsafe',
       items: [
-        { slug: 'anthropic', label: 'Anthropic', blurb: 'Make the key in the Console; dotsafe does the rest.', logo: 'claude' },
-        { slug: 'stripe', label: 'Stripe', blurb: 'Rotate in the Dashboard; dotsafe pushes the new key everywhere.' },
+        { slug: 'anthropic', label: 'Anthropic', blurb: 'Make the key in the Console; dotsafe does the rest.', logo: 'anthropic' },
+        { slug: 'stripe', label: 'Stripe', blurb: 'Rotate in the Dashboard; dotsafe pushes the new key everywhere.', logo: 'stripe' },
       ] as ContentItem[],
     },
   ],
