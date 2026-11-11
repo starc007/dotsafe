@@ -2,7 +2,7 @@
 //! keys (OpenAI service accounts, Cloudflare API tokens, AWS IAM access
 //! keys), providers whose keys you create by hand and dotsafe checks and
 //! revokes (Anthropic, Stripe), and deploy targets that hold them (Vercel,
-//! Cloudflare Workers).
+//! Cloudflare Workers, Netlify, Fly.io, AWS Parameter Store).
 //!
 //! Everything runs on the device with the user's own admin tokens, which are
 //! secrets in the vault. Calls are HTTPS only and never follow redirects, so
@@ -213,6 +213,91 @@ pub const SERVICES: &[Service] = &[
         token_help: "A Cloudflare API token with the \"Workers Scripts: Edit\" permission.",
         connection_fields: &[Field { key: "account_id", label: "Account ID", hint: "From the dashboard's sidebar.", required: true, secret_ref: false }],
         binding_fields: &[Field { key: "script", label: "Worker", hint: "The Worker's name.", required: true, secret_ref: false }],
+        overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: None,
+    },
+    Service {
+        id: "netlify",
+        label: "Netlify",
+        kind: Kind::Target,
+        token_help: "A personal access token from app.netlify.com/user/applications.",
+        connection_fields: &[Field {
+            key: "account_id",
+            label: "Team slug",
+            hint: "From the team's URL: app.netlify.com/teams/<slug>.",
+            required: true,
+            secret_ref: false,
+        }],
+        binding_fields: &[
+            Field { key: "site_id", label: "Site ID", hint: "From the site's configuration, under General.", required: true, secret_ref: false },
+            Field {
+                key: "contexts",
+                label: "Deploy contexts",
+                hint: "Comma-separated: production, deploy-preview, branch-deploy, dev. Defaults to the first three.",
+                required: false,
+                secret_ref: false,
+            },
+        ],
+        overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: None,
+    },
+    Service {
+        id: "fly",
+        label: "Fly.io",
+        kind: Kind::Target,
+        token_help: "A Fly.io token from `fly tokens create deploy` (one app) or `fly tokens create org`.",
+        connection_fields: &[],
+        binding_fields: &[Field {
+            key: "app",
+            label: "App",
+            hint: "The app's name. Running Machines get the new value on their next deploy.",
+            required: true,
+            secret_ref: false,
+        }],
+        overlap: false,
+        guided: false,
+        manual_revoke: false,
+        needs_token: true,
+        console_url: None,
+    },
+    Service {
+        id: "aws_ssm",
+        // "AWS Parameter Store" doesn't fit the app's service cards.
+        label: "AWS SSM",
+        kind: Kind::Target,
+        token_help: "For Parameter Store: the secret access key of an IAM user allowed to call ssm:PutParameter on the parameters below.",
+        connection_fields: &[
+            Field {
+                key: "access_key_id",
+                label: "Access key ID",
+                hint: "AKIA…, of the IAM user dotsafe calls SSM as.",
+                required: true,
+                secret_ref: false,
+            },
+            Field { key: "region", label: "Region", hint: "e.g. us-east-1.", required: true, secret_ref: false },
+        ],
+        binding_fields: &[
+            Field {
+                key: "path",
+                label: "Path",
+                hint: "Where the parameter goes, e.g. /my-app/production. It's saved as SecureString at <path>/<name>.",
+                required: false,
+                secret_ref: false,
+            },
+            Field {
+                key: "kms_key_id",
+                label: "KMS key",
+                hint: "Optional: a KMS key ID or alias to encrypt with. Defaults to aws/ssm.",
+                required: false,
+                secret_ref: false,
+            },
+        ],
         overlap: false,
         guided: false,
         manual_revoke: false,
