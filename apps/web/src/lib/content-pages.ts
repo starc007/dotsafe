@@ -11,7 +11,7 @@ export const ALTERNATIVES = {
   href: '/alternatives',
   title: 'dotsafe alternatives and comparisons',
   description:
-    'How dotsafe compares with Doppler, Infisical, 1Password, HashiCorp Vault, dotenvx and Bitwarden Secrets Manager.',
+    'How dotsafe compares with Doppler, Infisical, 1Password, HashiCorp Vault, dotenvx, Bitwarden Secrets Manager and SOPS.',
   groups: [
     {
       title: 'Compare',
@@ -22,6 +22,7 @@ export const ALTERNATIVES = {
         { slug: 'hashicorp-vault', label: 'HashiCorp Vault', blurb: 'Secrets infrastructure for companies. dotsafe is for your own apps.', logo: 'hashicorp-vault' },
         { slug: 'dotenvx', label: 'dotenvx', blurb: 'Encrypted .env files in git. dotsafe keeps secrets out of the repo.', logo: 'dotenvx' },
         { slug: 'bitwarden-secrets-manager', label: 'Bitwarden Secrets Manager', blurb: 'An encrypted cloud for teams. dotsafe needs no account.', logo: 'bitwarden' },
+        { slug: 'sops', label: 'SOPS', blurb: 'Encrypted config files in git. dotsafe keeps secrets out of the repo.' },
       ] as ContentItem[],
     },
   ],
