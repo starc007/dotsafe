@@ -12,6 +12,7 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RELEASES } from '@/lib/changelog';
+import { BLOG, POSTS } from '@/lib/blog';
 import { ALTERNATIVES, ROTATION, USE_CASES, type Section } from '@/lib/content-pages';
 import { DOCS } from '@/lib/docs';
 import { docsContent } from '@/lib/docs-content';
@@ -146,6 +147,10 @@ for (const section of [ALTERNATIVES, USE_CASES, ROTATION]) {
   );
 }
 
+// The blog, newest first, and its Markdown index.
+const posts = POSTS.map((p) => ({ ...p, href: `${BLOG.href}/${p.slug}`, ...docsContent(`${BLOG.href}/${p.slug}`) }));
+out('blog.md', `# ${BLOG.title}\n\n> ${BLOG.description}\n\n${list(posts)}`);
+
 out(
   'llms.txt',
   `# ${site.name}
@@ -171,6 +176,10 @@ ${sectionGroups(USE_CASES)
 ${sectionGroups(ROTATION)
   .map((g) => list(g.pages))
   .join('\n')}
+
+## Blog
+
+${list(posts)}
 
 ## More
 
@@ -224,4 +233,31 @@ ${released
 </rss>`,
 );
 
-console.log('agent files: index.md, pricing.md, download.md, changelog.md, changelog.xml, alternatives.md, for.md, llms.txt, llms-full.txt');
+out(
+  'blog.xml',
+  `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>${site.name} blog</title>
+    <link>${site.url}${BLOG.href}</link>
+    <description>${xml(BLOG.description)}</description>
+    <language>en</language>
+    <atom:link href="${site.url}/blog.xml" rel="self" type="application/rss+xml" />
+${posts
+  .map(
+    (p) => `    <item>
+      <title>${xml(p.title)}</title>
+      <link>${site.url}${p.href}</link>
+      <guid>${site.url}${p.href}</guid>
+      <pubDate>${new Date(`${p.published}T00:00:00Z`).toUTCString()}</pubDate>
+      <description>${xml(p.description)}</description>
+    </item>`,
+  )
+  .join('\n')}
+  </channel>
+</rss>`,
+);
+
+console.log(
+  'agent files: index.md, pricing.md, download.md, changelog.md, changelog.xml, alternatives.md, for.md, rotate.md, blog.md, blog.xml, llms.txt, llms-full.txt',
+);

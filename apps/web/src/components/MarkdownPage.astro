@@ -1,6 +1,6 @@
 ---
 import { docsContent } from '@/lib/docs-content';
-import { contentPageData } from '@/lib/structured-data';
+import { blogPostData, contentPageData } from '@/lib/structured-data';
 import Markdown from '@/components/docs/Markdown.astro';
 import FinalCta from '@/components/landing/FinalCta.astro';
 import { JsonLd } from '@/components/landing/JsonLd';
@@ -11,15 +11,17 @@ import { pageUpdated } from '@/lib/updated';
  * pages, the alternatives and the use-case pages. The same file is served as
  * is at `<href>.md` for agents. `section` is the hub it belongs to, shown as
  * the eyebrow and in the breadcrumb; `cta` ends the page with the landing
- * page's closing call to action. */
+ * page's closing call to action. `published` (`YYYY-MM-DD`) makes it a blog
+ * post: dated, and described as a BlogPosting. */
 interface Props {
   href: string;
   eyebrow: string;
   section?: { name: string; href: string };
   cta?: boolean;
+  published?: string;
 }
 
-const { href, eyebrow, section, cta } = Astro.props;
+const { href, eyebrow, section, cta, published } = Astro.props;
 const page = docsContent(href);
 // The legal pages carry their own "Last updated" line.
 const updated = section && pageUpdated(href);
@@ -27,9 +29,12 @@ const updated = section && pageUpdated(href);
 
 <article class="mx-auto w-full max-w-2xl px-4 pt-32 pb-24 sm:px-6 sm:pt-40">
   {
-    section && (
-      <JsonLd data={contentPageData({ href, title: page.title, description: page.description, section, updated })} />
-    )
+    section &&
+      (published ? (
+        <JsonLd data={blogPostData({ href, title: page.title, description: page.description, published, updated })} />
+      ) : (
+        <JsonLd data={contentPageData({ href, title: page.title, description: page.description, section, updated })} />
+      ))
   }
   {
     section ? (
@@ -44,7 +49,7 @@ const updated = section && pageUpdated(href);
     {page.title}
   </h1>
   <p class="mt-3 text-base leading-relaxed text-pretty text-ds-muted">{page.description}</p>
-  <Updated date={updated} />
+  <Updated date={updated} published={published} />
   <Markdown body={page.body} />
 </article>
 {cta && <FinalCta />}

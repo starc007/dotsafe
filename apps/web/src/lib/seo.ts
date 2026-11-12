@@ -12,6 +12,8 @@ export type PageMeta = {
   markdown?: string;
   /** Offers the changelog feed. */
   feed?: boolean;
+  /** Offers the blog's feed. */
+  blogFeed?: boolean;
   /** Kept out of search, and never sends a referrer. */
   private?: boolean;
 };
