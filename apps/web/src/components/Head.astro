@@ -29,6 +29,7 @@ const image = abs(ogImage.path);
 {meta.path && <link rel="canonical" href={abs(meta.path)} />}
 {meta.markdown && <link rel="alternate" type="text/markdown" href={abs(meta.markdown)} />}
 {meta.feed && <link rel="alternate" type="application/rss+xml" href={abs('/changelog.xml')} />}
+{meta.blogFeed && <link rel="alternate" type="application/rss+xml" title="dotsafe blog" href={abs('/blog.xml')} />}
 <meta property="og:title" content={title} />
 <meta property="og:description" content={description} />
 {meta.path && <meta property="og:url" content={abs(meta.path)} />}

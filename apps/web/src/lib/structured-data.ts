@@ -82,6 +82,49 @@ export function docsData({
   };
 }
 
+/** A blog post, and where it sits under the blog. */
+export function blogPostData({
+  href,
+  title,
+  description,
+  published,
+  updated,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  /** `YYYY-MM-DD`. */
+  published: string;
+  updated?: string;
+}) {
+  const url = `${site.url}${href}`;
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BlogPosting',
+        headline: title,
+        description,
+        url,
+        datePublished: published,
+        dateModified: updated && updated > published ? updated : published,
+        image: `${site.url}/og.png`,
+        encoding: { '@type': 'MediaObject', encodingFormat: 'text/markdown', contentUrl: `${url}.md` },
+        about: { '@type': 'SoftwareApplication', name: site.name, url: site.url },
+        author: publisher,
+        publisher,
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Blog', item: `${site.url}/blog` },
+          { '@type': 'ListItem', position: 2, name: title, item: url },
+        ],
+      },
+    ],
+  };
+}
+
 /** An alternatives or use-case page, and where it sits under its hub. */
 export function contentPageData({
   href,

@@ -1,10 +1,11 @@
 import { site } from '@/lib/site';
+import { BLOG_PATHS } from '@/lib/blog';
 import { CONTENT_PATHS } from '@/lib/content-pages';
 import { DOCS_PATHS } from '@/lib/docs';
 import { pageUpdated } from '@/lib/updated';
 
 /** Every page on the site. Add new routes here; docs pages come from lib/docs.ts. */
-const PAGES = ['', '/pricing', '/download', '/changelog', '/privacy', '/terms', ...DOCS_PATHS, ...CONTENT_PATHS];
+const PAGES = ['', '/pricing', '/download', '/changelog', '/privacy', '/terms', ...DOCS_PATHS, ...CONTENT_PATHS, ...BLOG_PATHS];
 
 export function GET() {
   const urls = PAGES.map((path) => {

@@ -1,0 +1,19 @@
+---
+import Layout from '@/layouts/Layout.astro';
+import MarkdownPage from '@/components/MarkdownPage.astro';
+import { BLOG, POSTS } from '@/lib/blog';
+import { docsContent } from '@/lib/docs-content';
+
+/** One static page per post in lib/blog.ts; anything else is a 404. */
+export function getStaticPaths() {
+  return POSTS.map((post) => ({ params: { slug: post.slug }, props: { published: post.published } }));
+}
+
+const href = `${BLOG.href}/${Astro.params.slug}`;
+const { title, description } = docsContent(href);
+const { published } = Astro.props;
+---
+
+<Layout meta={{ title, description, path: href, markdown: `${href}.md`, blogFeed: true }}>
+  <MarkdownPage href={href} eyebrow="Blog" section={{ name: 'Blog', href: BLOG.href }} published={published} cta />
+</Layout>
