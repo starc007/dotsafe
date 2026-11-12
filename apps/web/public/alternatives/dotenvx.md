@@ -14,7 +14,7 @@ dotsafe solves the same problem from the other side: there is no `.env` file at 
 | The key that unlocks them | Your master password, Touch ID, or a device key in the Keychain | A private key in `.env.keys`, your OS keychain, a password manager, or the paid Armor service |
 | Source code | Open source, MIT | Open source, BSD 3-Clause (Armor is paid) |
 | Price | $49 once, up to 2 computers (Mac or Linux) | Free; Armor from $5 a month |
-| AI agents | Agents run approved commands and never get values; output is redacted | `dotenvx run` gives a process the real values; `redacted` rules mask them in output |
+| AI agents | Agents run approved commands and never get values; output is redacted | `dotenvx run` gives a process the real values; redacting them in output is announced for dotenvx 3.0 |
 | Approval | Touch ID per command, with an audit log | None locally; Armor adds approval and audit on decrypt |
 | Rotation | Built in, through OpenAI, Cloudflare and AWS | Edit and re-encrypt the file |
 | Platforms | macOS and Linux app and CLI | macOS, Linux and Windows CLI, with SDKs |
@@ -49,5 +49,5 @@ Checked on November 5, 2026.
 
 - [dotenv.org](https://dotenv.org) (dotenv-vault is legacy) and [dotenvx.com](https://dotenvx.com)
 - [dotenvx pricing](https://dotenvx.com/pricing) and [Armor](https://dotenvx.com/armor)
-- [Agents, meet Dotenvxfile](https://dotenvx.com/agents)
+- [Agents, meet Dotenvxfile](https://dotenvx.com/agents) and the [changelog](https://github.com/dotenvx/dotenvx/blob/main/CHANGELOG.md) (redaction is unreleased; AI agents row rechecked November 12, 2026)
 - [dotenvx on GitHub](https://github.com/dotenvx/dotenvx)
