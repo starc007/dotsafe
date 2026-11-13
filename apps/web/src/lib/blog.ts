@@ -15,6 +15,9 @@ export const BLOG = {
 };
 
 /** Newest first. */
-export const POSTS: Post[] = [{ slug: 'ai-agents-and-env-files', published: '2026-11-12' }];
+export const POSTS: Post[] = [
+  { slug: 'best-secret-managers-for-ai-coding-agents-2027', published: '2026-11-12' },
+  { slug: 'ai-agents-and-env-files', published: '2026-11-12' },
+];
 
 export const BLOG_PATHS = [BLOG.href, ...POSTS.map((p) => `${BLOG.href}/${p.slug}`)];
