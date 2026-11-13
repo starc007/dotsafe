@@ -16,6 +16,7 @@ export const BLOG = {
 
 /** Newest first. */
 export const POSTS: Post[] = [
+  { slug: 'best-env-file-alternatives-2027', published: '2026-11-13' },
   { slug: 'best-secret-managers-for-ai-coding-agents-2027', published: '2026-11-12' },
   { slug: 'ai-agents-and-env-files', published: '2026-11-12' },
 ];
