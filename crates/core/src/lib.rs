@@ -16,6 +16,7 @@ pub mod license;
 pub mod model;
 pub mod resolve;
 pub mod secret;
+pub mod share;
 pub mod store;
 pub mod vault;
 
@@ -27,6 +28,7 @@ pub use integration::{Binding, Connection, ProviderLink, ProxyProfile, Pushed, T
 pub use license::{License, LicenseStatus};
 pub use model::{Entry, Environment, Project, Record, Secrets, Stamp, is_valid_var_name};
 pub use secret::{Charset, Due, Generator, Policy, Secret, Version, VersionState};
+pub use share::{Share, ShareBucket, ShareEnv, ShareMode, ShareToken};
 pub use cache::CachedStore;
 pub use store::{Cond, FolderStore, ObjectMeta, Put, Store};
 pub use resolve::Resolver;

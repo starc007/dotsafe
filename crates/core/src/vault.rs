@@ -32,21 +32,22 @@ const RECORDS_DIR: &str = "records";
 const RECORD_FORMAT: &str = "dotsafe-record";
 /// Records are written with the oldest version that can hold them
 /// ([`Record::min_version`]): v3 for shared secrets and linked variables, v4
-/// for integrations, v5 for environments with a parent or references, v2 for
-/// the rest. Clients that predate a version refuse
+/// for integrations, v5 for environments with a parent or references, v6 for
+/// shares, v2 for the rest. Clients that predate a version refuse
 /// those records instead of rewriting them without what they don't know.
-const RECORD_VERSION_MAX: u32 = 5;
+const RECORD_VERSION_MAX: u32 = 6;
 const RECORD_AAD_V1: &[u8] = b"dotsafe/v1/record";
 const RECORD_AAD: &[u8] = b"dotsafe/v2/record";
 const RECORD_AAD_V3: &[u8] = b"dotsafe/v3/record";
 const RECORD_AAD_V4: &[u8] = b"dotsafe/v4/record";
 const RECORD_AAD_V5: &[u8] = b"dotsafe/v5/record";
+const RECORD_AAD_V6: &[u8] = b"dotsafe/v6/record";
 // A domain label, unchanged from v1 so the records key stays the same.
 const RECORDS_KEY_INFO: &[u8] = b"dotsafe/v1/records";
 /// Subkey for `dotsafe approve` answers. Never stored; only tags messages.
 const APPROVAL_KEY_INFO: &[u8] = b"dotsafe/v1/approve";
 
-fn decode_hex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_hex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) || !s.is_ascii() {
         return None;
     }
@@ -751,6 +752,7 @@ impl Vault {
             3 => RECORD_AAD_V3,
             4 => RECORD_AAD_V4,
             5 => RECORD_AAD_V5,
+            6 => RECORD_AAD_V6,
             _ => RECORD_AAD,
         };
         [label, self.header.vault_id.as_bytes(), &epoch.to_be_bytes(), id.as_bytes()].concat()
@@ -813,7 +815,7 @@ fn read_header(store: &dyn Store) -> Result<VaultHeader> {
 
 /// Pads JSON with trailing spaces (still valid JSON) so ciphertext sizes only
 /// reveal a size bucket: 1 KiB steps up to 16 KiB, then powers of two.
-fn padded(mut json: Vec<u8>) -> Zeroizing<Vec<u8>> {
+pub(crate) fn padded(mut json: Vec<u8>) -> Zeroizing<Vec<u8>> {
     let len = json.len();
     let target = if len <= 16 * 1024 { len.div_ceil(1024).max(1) * 1024 } else { len.next_power_of_two() };
     json.resize(target, b' ');

@@ -116,6 +116,7 @@ On a synced folder the conditional write can't be atomic, so two devices changin
   - `binding`: `{ id, secret, provider?: { connection, settings }, updated, keys: { <version uuid>: key_id }, targets: { <uuid>: { connection, name, settings, pushed?: { sha256, at }, deleted, changed } } }`. Where one secret's values come from and where they're pushed. id = UUIDv5(secret id, "binding").
   - `proxy_profile`: `{ id, name, key_var, base_url_var, upstream, base_path?, header, bearer, deleted, updated }`. A custom secret-proxy profile; record v4.
   - `audit`: `{ id, device, day, deleted, updated, events: { <uuid>: { at, actor, action, outcome, summary, environment, variables, detail? } } }`. One per device per day, id = UUIDv5(device, "audit:<day>"), where `day` counts days since the Unix epoch. Events merge by id. A deleted (pruned after 90 days) record has no events and wins over copies that have them.
+  - `share`: `{ id, name, deleted, updated, mode, environments: [ { id, only? } ], expires, lease_days, key, path, pushed?: { sha256, at }, created_by, revoked? }`. A machine's access to some environments; record v6 (below).
 
 ### Record version 3 (shared secrets and newer kinds)
 
@@ -141,6 +142,33 @@ An `environment` that has a `parent`, a `hidden` variable, or a value containing
 **Merging bindings:** `provider` merges on `updated`. Targets merge by id on their own `changed` stamp. `keys` is the union of both sides; each version's key id is set once, when the provider issues it.
 
 **Retention:** a retired value is wiped 30 days after retirement, and values beyond the 10 newest versions are wiped unless still pending, current or previous. Wiping happens on the next change to the secret.
+
+### Record version 6 (shares)
+
+`share` records, and `audit` days that log creating one (action `share`), are written with `"version": 6` and AAD `"dotsafe/v6/record" ‖ vault_id ‖ epoch ‖ id`. Older clients refuse them instead of failing to parse an unknown record type, and relabelling one as an older version fails authentication. The design is in [architecture/access.md](architecture/access.md).
+
+- **Fields:** `mode` is `standing` or `approve` (approve mode isn't built yet). `expires` is Unix ms. `lease_days` (default 14) is how long a snapshot stays valid without a refresh. `key` is the 32-byte share key (base64), sealed in the record like everything else, so any of the user's devices can push. `path` is 128 random bits in lowercase hex, the snapshot's name in the share bucket. `created_by` is a device id. `revoked` is Unix ms.
+- **`pushed`:** the last thing written to the share bucket. `sha256` is SHA-256 (hex) of the canonical JSON `{ expires, environments }` of the snapshot's contents, so a device can tell whether the bucket is behind the vault without reading it back. An empty `sha256` means the share's objects were deleted at `at` (after a revoke or expiry).
+- **Merging:** `name`, `deleted`, `mode`, `environments`, `expires` and `lease_days` merge on `updated`. `pushed` merges on its own `at` (a push never bumps `updated`, so it can't undo an edit it hadn't seen). `revoked`, once set on either side, stays set (the earlier time wins).
+
+### Share snapshots
+
+Shares live outside the vault, in a **share bucket**: an S3-compatible bucket the user names for this, public-read with listing off. A standing share's snapshot is the object `s/<path>`, written with `Cache-Control: no-store`. Each device adds a lifecycle rule (ID `dotsafe-share-<share id>`, prefix `s/<path>`) that deletes it at the first midnight UTC after `expires`.
+
+```
+share key ──HKDF "dotsafe/v6/share-snapshot" ─▶ snapshot key
+```
+
+```json
+{ "format": "dotsafe-share-snapshot", "version": 1, "sealed": { "nonce": "b64", "ct": "b64" } }
+```
+
+- **AAD:** `"dotsafe/v6/share-snapshot" ‖ vault_id ‖ share_id`, so a snapshot can't be served for another vault or share.
+- **Plaintext:** `{ stamp, expires, lease_until, environments: { <label>: { KEY: value } } }`, padded like records. Values are final: inheritance, linked secrets and references are resolved on the user's device, and `only` is applied. A label is the environment's name, or `project/environment` when two environments in the share have the same name.
+- **`stamp`** is the writer's hybrid logical clock stamp. The machine keeps the newest stamp it has read in its config directory (`shares/<share id>.json`) and refuses an older snapshot. A machine that has seen nothing trusts the first.
+- **`lease_until`** is the push time plus `lease_days`, never later than `expires`. Devices push again once a snapshot is a day old, which renews it. Machines refuse a snapshot past `expires` or `lease_until`.
+
+**The token** given to the machine is `dss_` followed by the Crockford base32 (no dashes) of `version (1 byte, 1) ‖ vault_id ‖ share_id ‖ share key ‖ path (16 bytes) ‖ the bucket's public URL (UTF-8, https://)`. The snapshot URL is the public URL, `/s/`, then the path in hex. dotsafe never writes the token to disk.
 
 ## `head.json`
 

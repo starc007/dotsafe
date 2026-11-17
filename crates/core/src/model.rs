@@ -14,6 +14,7 @@ use crate::audit::AuditDay;
 use crate::error::{Error, Result};
 use crate::integration::{Binding, Connection, ProxyProfile};
 use crate::secret::Secret;
+use crate::share::Share;
 
 /// When and where a change was made: a hybrid logical clock reading. Ordered
 /// by time, then counter, then device id as a deterministic tiebreak, so every
@@ -86,6 +87,7 @@ pub enum Record {
     Connection(Connection),
     Binding(Binding),
     ProxyProfile(ProxyProfile),
+    Share(Share),
 }
 
 impl Record {
@@ -98,20 +100,24 @@ impl Record {
             Record::Connection(c) => c.id,
             Record::Binding(b) => b.id,
             Record::ProxyProfile(p) => p.id,
+            Record::Share(s) => s.id,
         }
     }
 
     /// The oldest record format that can hold this record: 3 for shared
     /// secrets, linked variables and audit days, 4 for integrations (and
     /// audit days that log them), 5 for environments with a parent, hidden
-    /// variables or references, 2 for the rest. Older clients refuse newer versions instead of rewriting
-    /// them without what they don't understand.
+    /// variables or references, 6 for shares (and audit days that log
+    /// creating one), 2 for the rest. Older clients refuse newer versions
+    /// instead of rewriting them without what they don't understand.
     pub(crate) fn min_version(&self) -> u32 {
         match self {
             Record::Project(_) => 2,
             Record::Environment(e) if e.needs_v5() => 5,
             Record::Environment(e) if e.vars.values().any(|v| v.secret.is_some()) => 3,
             Record::Environment(_) => 2,
+            Record::Share(_) => 6,
+            Record::Audit(a) if a.needs_v6() => 6,
             Record::Audit(a) if a.needs_v4() => 4,
             Record::Secret(_) | Record::Audit(_) => 3,
             Record::Connection(_) | Record::Binding(_) | Record::ProxyProfile(_) => 4,
@@ -129,6 +135,7 @@ impl Record {
             Record::Connection(c) => c.updated,
             Record::Binding(b) => b.max_stamp(),
             Record::ProxyProfile(p) => p.updated,
+            Record::Share(s) => s.updated,
         }
     }
 
@@ -146,6 +153,7 @@ impl Record {
             (Record::Connection(a), Record::Connection(b)) if a.id == b.id => Ok(Record::Connection(a.merge(b))),
             (Record::Binding(a), Record::Binding(b)) if a.id == b.id => Ok(Record::Binding(a.merge(b))),
             (Record::ProxyProfile(a), Record::ProxyProfile(b)) if a.id == b.id => Ok(Record::ProxyProfile(a.merge(b))),
+            (Record::Share(a), Record::Share(b)) if a.id == b.id => Ok(Record::Share(a.merge(b))),
             (a, _) => Err(Error::Format(format!("cannot merge different records into {}", a.id()))),
         }
     }

@@ -63,8 +63,11 @@ pub enum AuditAction {
     Rotate,
     /// A value was pushed to a deploy target. Record format v4.
     Push,
-    /// An old key was revoked at its provider. Record format v4.
+    /// An old key was revoked at its provider, or a share revoked. Record
+    /// format v4.
     Revoke,
+    /// A share was created. Record format v6.
+    Share,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +111,12 @@ impl AuditDay {
     /// record format v4 can't read.
     pub(crate) fn needs_v4(&self) -> bool {
         self.events.values().any(|e| matches!(e.action, AuditAction::Rotate | AuditAction::Push | AuditAction::Revoke))
+    }
+
+    /// Logs creating a share, which clients from before record format v6
+    /// can't read.
+    pub(crate) fn needs_v6(&self) -> bool {
+        self.events.values().any(|e| e.action == AuditAction::Share)
     }
 
     /// Past the retention period.
