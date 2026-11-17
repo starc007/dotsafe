@@ -321,18 +321,8 @@ fn remember(share: Uuid, stamp: Stamp) -> Result<()> {
 /// variables to run with. Opens no vault and needs no license: it's
 /// licensed through the device that created the share.
 pub fn machine_vars(env: Option<&str>, only: Option<&[String]>) -> Result<Vec<(String, String)>> {
-    let token = Zeroizing::new(std::env::var(TOKEN_VAR).map_err(|_| {
-        anyhow!("set {TOKEN_VAR} to the share's token (`dotsafe share create` prints it on your Mac)")
-    })?);
-    let token = ShareToken::parse(&token).with_context(|| format!("reading {TOKEN_VAR}"))?;
-    let bytes = Fetcher::new()
-        .get(&token.snapshot_url())?
-        .ok_or_else(|| anyhow!("this share has no snapshot: it was revoked or has expired"))?;
-    let snapshot = token.open(&bytes, seen(token.share_id), now_ms())?;
-    // Ephemeral machines (CI) can't remember; they trust the first snapshot.
-    if let Err(e) = remember(token.share_id, snapshot.stamp) {
-        eprintln!("dotsafe: couldn't remember this snapshot, so a rolled-back one wouldn't be noticed: {e}");
-    }
+    let token = token_from_env()?;
+    let snapshot = fetch(&token)?.ok_or_else(|| anyhow!("this share has no snapshot: it was revoked or has expired"))?;
     let (name, vars) = snapshot.environment(env)?;
     let mut vars: Vec<(String, String)> = vars.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     if let Some(only) = only {
@@ -343,6 +333,27 @@ pub fn machine_vars(env: Option<&str>, only: Option<&[String]>) -> Result<Vec<(S
         vars.retain(|(k, _)| only.contains(k));
     }
     Ok(vars)
+}
+
+/// The share token in `DOTSAFE_SHARE`.
+pub fn token_from_env() -> Result<ShareToken> {
+    let token = Zeroizing::new(std::env::var(TOKEN_VAR).map_err(|_| {
+        anyhow!("set {TOKEN_VAR} to the share's token (`dotsafe share create` prints it on your Mac)")
+    })?);
+    ShareToken::parse(&token).with_context(|| format!("reading {TOKEN_VAR}"))
+}
+
+/// Fetches the share's snapshot and checks it: sealed with the token's key,
+/// not older than one this machine has read, and within its expiry and
+/// lease. `None` when there's no snapshot (revoked or expired).
+pub fn fetch(token: &ShareToken) -> Result<Option<share::Snapshot>> {
+    let Some(bytes) = Fetcher::new().get(&token.snapshot_url())? else { return Ok(None) };
+    let snapshot = token.open(&bytes, seen(token.share_id), now_ms())?;
+    // Ephemeral machines (CI) can't remember; they trust the first snapshot.
+    if let Err(e) = remember(token.share_id, snapshot.stamp) {
+        eprintln!("dotsafe: couldn't remember this snapshot, so a rolled-back one wouldn't be noticed: {e}");
+    }
+    Ok(Some(snapshot))
 }
 
 /// What a revoked share could read, for `dotsafe secret queue`.

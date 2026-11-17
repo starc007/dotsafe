@@ -40,6 +40,8 @@ const SNAPSHOT_FORMAT: &str = "dotsafe-share-snapshot";
 const SNAPSHOT_VERSION: u32 = 1;
 /// HKDF info for the snapshot key, and the snapshot's AAD prefix.
 const SNAPSHOT_LABEL: &[u8] = b"dotsafe/v6/share-snapshot";
+/// HKDF info for the key `dotsafe approve --share` signs answers with.
+const APPROVAL_LABEL: &[u8] = b"dotsafe/v6/share-approve";
 
 const TOKEN_PREFIX: &str = "dss_";
 const TOKEN_VERSION: u8 = 1;
@@ -555,6 +557,19 @@ impl ShareToken {
         let path: [u8; PATH_LEN] = bytes[33 + KEY_LEN..TOKEN_FIXED].try_into().expect("16 bytes");
         let url = std::str::from_utf8(&bytes[TOKEN_FIXED..]).map_err(|_| not_a_token())?;
         Ok(ShareToken { vault_id: uuid(1), share_id: uuid(17), key, path, public_url: public_base(url)? })
+    }
+
+    /// A tag for an answer to `dotsafe daemon --share`, made with a subkey of
+    /// the share key. Whoever holds the token can read the share's values
+    /// anyway, and the commands the daemon runs never get the token.
+    pub fn approval_tag(&self, message: &[u8]) -> String {
+        hex(&crypto::mac(&crypto::hkdf(None, &self.key[..], APPROVAL_LABEL), message))
+    }
+
+    /// Whether `tag` is [`ShareToken::approval_tag`] of `message`, in constant time.
+    pub fn check_approval_tag(&self, message: &[u8], tag: &str) -> bool {
+        let Some(bytes) = crate::vault::decode_hex(tag) else { return false };
+        crypto::verify_mac(&crypto::hkdf(None, &self.key[..], APPROVAL_LABEL), message, &bytes)
     }
 
     /// Where the snapshot is: the bucket's public URL, then `/s/<path>`.

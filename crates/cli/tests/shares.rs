@@ -302,6 +302,37 @@ fn run_share_needs_no_vault_or_license_on_the_machine() {
     assert!(stderr(&out).contains("cannot be used with"), "{}", stderr(&out));
 }
 
+#[cfg(unix)]
+#[test]
+fn daemon_and_approve_share_need_only_the_token() {
+    let (root, m, project, _bucket) = setup();
+    let token = stdout(&m.ok(&project, &["share", "create", "agent", "-e", "production"])).trim().to_string();
+    let vm = Machine::bare();
+    let with_token = |args: &[&str]| vm.cmd(root.path(), args).env("DOTSAFE_SHARE", &token).output().unwrap();
+
+    let out = vm.run(root.path(), &["daemon", "--share"]);
+    assert!(stderr(&out).contains("set DOTSAFE_SHARE"), "{}", stderr(&out));
+    let out = vm.run(root.path(), &["daemon", "--unattended"]);
+    assert!(stderr(&out).contains("--share"), "--unattended needs --share: {}", stderr(&out));
+    let out = vm.cmd(root.path(), &["daemon", "--share", "--detach"]).env("DOTSAFE_SHARE", "sk_live_nope").output().unwrap();
+    assert!(stderr(&out).contains("isn't a dotsafe share token"), "checked before detaching: {}", stderr(&out));
+
+    // Past the license check and without a vault, it fetches the snapshot
+    // before serving anything, and stops when it can't.
+    let out = with_token(&["daemon", "--share", "--unattended"]);
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("couldn't reach 127.0.0.1"), "{err}");
+    assert!(!err.contains("license") && !err.contains("dotsafe init"), "{err}");
+    assert!(!vm.config.path().join("agent.sock").exists(), "nothing served");
+
+    // `approve --share` answers with the token, so it needs no license either.
+    let out = with_token(&["approve", "--share", "--list"]);
+    assert!(stderr(&out).contains("couldn't reach dotsafe daemon"), "{}", stderr(&out));
+    let out = vm.run(root.path(), &["approve", "--list"]);
+    assert!(stderr(&out).contains("dotsafe license activate"), "{}", stderr(&out));
+}
+
 #[test]
 fn shares_need_a_bucket_and_https() {
     let root = tempfile::tempdir().unwrap();

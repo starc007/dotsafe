@@ -2,18 +2,21 @@
 //! person before any command gets secrets, then runs it and returns scrubbed
 //! output. Shared by the desktop app and `dotsafe daemon`, which differ only
 //! in how they ask (a dialog with Touch ID, or a terminal prompt); see
-//! [`Host`].
+//! [`Host`]. `dotsafe daemon --share` serves it from a share's snapshot
+//! instead of a vault: the same names, approvals and proxy, read-only.
 //!
 //! Nothing here holds a lock while waiting for the person or the command.
 
 #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
 use dotsafe_core::resolve::Raw;
+use dotsafe_core::share::Snapshot;
 use dotsafe_core::{Charset, Environment, Generator, Project, Record, Vault, is_valid_var_name};
 use serde::Serialize;
 use uuid::Uuid;
@@ -97,6 +100,25 @@ pub struct ApprovalFile {
 pub trait Host: Send + Sync + 'static {
     /// The unlocked vault and this device's id, or `None` while locked.
     fn vault(&self) -> Option<(Arc<Vault>, Uuid)>;
+    /// `dotsafe daemon --share`: the share's snapshot, its only source of
+    /// names and values, or why it can't be read. `fresh` fetches it again
+    /// instead of using a recent copy, so a run gets rotated values. `None`
+    /// where values come from [`Host::vault`].
+    fn share(&self, _fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+        None
+    }
+    /// Whether `proof` on an answer from `dotsafe approve` was made with the
+    /// vault key (or, serving a share, its token).
+    fn check_answer(&self, message: &[u8], proof: &str) -> bool {
+        self.vault().is_some_and(|(vault, _)| vault.check_approval_tag(message, proof))
+    }
+    /// Records an agent request: in the vault's audit log, or wherever the
+    /// host keeps one. Names only.
+    fn record(&self, event: AuditEvent) {
+        if let Some((vault, device)) = self.vault() {
+            let _ = audit::record(&vault, device, event);
+        }
+    }
     /// Whether an earlier approval covers `scope`.
     fn allows(&self, scope: &Scope, now: Instant) -> bool;
     /// Remembers an approval for `lifetime`.
@@ -143,11 +165,25 @@ impl<H: Host> Broker<H> {
         self.proxy.get_or_init(|| ProxyServer::start().ok()).as_ref()
     }
 
+    /// The vault's records, or the share's snapshot.
+    fn data(&self, fresh: bool) -> Result<Data, Response> {
+        if let Some(share) = self.host.share(fresh) {
+            return share.map(Data::Share).map_err(|e| Response::error(ErrorCode::Unavailable, e));
+        }
+        let Some((vault, _)) = self.host.vault() else { return Err(locked()) };
+        vault.list().map(Data::Vault).map_err(|e| Response::error(ErrorCode::Internal, e.to_string()))
+    }
+
     fn list_projects(&self) -> Response {
-        let Some((vault, _)) = self.host.vault() else { return locked() };
-        let records = match vault.list() {
-            Ok(records) => records,
-            Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+        let records = match self.data(false) {
+            Ok(Data::Vault(records)) => records,
+            Ok(Data::Share(snapshot)) => {
+                return Response::Projects(vec![ProjectInfo {
+                    name: SHARE_PROJECT.into(),
+                    environments: snapshot.environments.keys().cloned().collect(),
+                }]);
+            }
+            Err(response) => return response,
         };
         let mut projects: Vec<ProjectInfo> = records
             .iter()
@@ -164,10 +200,21 @@ impl<H: Host> Broker<H> {
     }
 
     fn list_variables(&self, target: &Target) -> Response {
-        let Some((vault, _)) = self.host.vault() else { return locked() };
-        let records = match vault.list() {
-            Ok(records) => records,
-            Err(e) => return Response::error(ErrorCode::Internal, e.to_string()),
+        let records = match self.data(false) {
+            Ok(Data::Vault(records)) => records,
+            Ok(Data::Share(snapshot)) => {
+                return match share_env(&snapshot, target) {
+                    Ok((label, vars)) => Response::Variables(VariablesInfo {
+                        project: SHARE_PROJECT.into(),
+                        environment: label.to_string(),
+                        // A snapshot has final values only: which were linked
+                        // secrets stays on the user's devices.
+                        variables: vars.keys().map(|name| VariableInfo { name: name.clone(), shared: None }).collect(),
+                    }),
+                    Err(response) => response,
+                };
+            }
+            Err(response) => return response,
         };
         let (project, env) = match resolve(&records, target) {
             Ok(found) => found,
@@ -212,21 +259,32 @@ impl<H: Host> Broker<H> {
         // Read before taking the vault, so a big file never holds it up.
         let run_files = files::files_run(&program, &ask.command[1..], &cwd);
 
-        let Some((vault, _)) = self.host.vault() else { return Err(locked()) };
-        let records = vault.list().map_err(|e| Response::error(ErrorCode::Internal, e.to_string()))?;
         let target = Target { cwd: ask.target.cwd.clone().or(Some(cwd.clone())), ..ask.target.clone() };
-        let (project, env) = resolve(&records, &target)?;
-        // Own and inherited variables.
-        let mut variables: Vec<String> = match dotsafe_core::Resolver::from_records(&records).entries(env.id) {
-            Ok(entries) => entries.into_iter().map(|e| e.key).collect(),
-            Err(e) => return Err(Response::error(ErrorCode::Internal, e.to_string())),
+        let (project, environment, env_key, mut variables, profiles) = match self.data(false)? {
+            Data::Vault(records) => {
+                let (project, env) = resolve(&records, &target)?;
+                // Own and inherited variables.
+                let variables: Vec<String> = match dotsafe_core::Resolver::from_records(&records).entries(env.id) {
+                    Ok(entries) => entries.into_iter().map(|e| e.key).collect(),
+                    Err(e) => return Err(Response::error(ErrorCode::Internal, e.to_string())),
+                };
+                // Built-in and custom profiles; custom ones come from the
+                // vault, which agents can't edit.
+                (project.name, env.name, env.id.to_string(), variables, proxy::profiles(&records))
+            }
+            Data::Share(snapshot) => {
+                let (label, vars) = share_env(&snapshot, &target)?;
+                // Built-in profiles only: custom ones live in the vault.
+                let profiles = proxy::profiles(&[]);
+                (SHARE_PROJECT.to_string(), label.to_string(), label.to_string(), vars.keys().cloned().collect(), profiles)
+            }
         };
         if let Some(wanted) = ask.variables {
             let missing: Vec<&str> = wanted.iter().filter(|w| !variables.contains(w)).map(String::as_str).collect();
             if !missing.is_empty() {
                 return Err(Response::error(
                     ErrorCode::NotFound,
-                    format!("{}/{} has no {}.", project.name, env.name, missing.join(", ")),
+                    format!("{project}/{environment} has no {}.", missing.join(", ")),
                 ));
             }
             variables.retain(|v| wanted.contains(v));
@@ -236,14 +294,11 @@ impl<H: Host> Broker<H> {
             program: program.clone(),
             args: ask.command[1..].to_vec(),
             cwd: cwd.clone(),
-            environment: env.id.to_string(),
+            environment: env_key,
             variables,
             files: run_files.iter().map(|f| (f.path.clone(), f.fingerprint.clone())).collect(),
             direct: ask.direct,
         };
-        // Built-in and custom profiles; custom ones come from the vault,
-        // which agents can't edit.
-        let profiles = proxy::profiles(&records);
         let proxied = if ask.proxy && self.proxy().is_some() {
             proxy::proxied_names(scope.variables.iter().map(String::as_str), &profiles)
         } else {
@@ -251,9 +306,9 @@ impl<H: Host> Broker<H> {
         };
         Ok(Prepared {
             label,
-            env_label: format!("{}/{}", project.name, env.name),
-            project: project.name,
-            environment: env.name,
+            env_label: format!("{project}/{environment}"),
+            project,
+            environment,
             files: run_files
                 .iter()
                 .map(|f| ApprovalFile { path: f.path.display().to_string(), modified_ms: f.modified_ms })
@@ -300,10 +355,18 @@ impl<H: Host> Broker<H> {
     }
 
     /// The approved variables' values, fetched only now, and only if the
-    /// vault is still unlocked.
+    /// vault is still unlocked (or the share still readable).
     fn values(&self, scope: &Scope) -> Result<Vec<(String, String)>, Response> {
-        let Some((vault, _)) = self.host.vault() else { return Err(locked()) };
-        let records = vault.list().map_err(|e| Response::error(ErrorCode::Internal, e.to_string()))?;
+        let records = match self.data(true)? {
+            Data::Vault(records) => records,
+            Data::Share(snapshot) => {
+                let Some(vars) = snapshot.environments.get(&scope.environment) else {
+                    return Err(Response::error(ErrorCode::NotFound, "That environment is no longer in the share."));
+                };
+                let wanted = vars.iter().filter(|(k, _)| scope.variables.contains(k));
+                return Ok(wanted.map(|(k, v)| (k.clone(), v.clone())).collect());
+            }
+        };
         let Some(env) = records.iter().find_map(|r| match r {
             Record::Environment(e) if e.id.to_string() == scope.environment && !e.deleted => Some(e.clone()),
             _ => None,
@@ -473,10 +536,14 @@ impl<H: Host> Broker<H> {
     /// An answer from `dotsafe approve`. Any process can reach the socket, so
     /// the answer has to carry a tag only the vault key can make.
     fn answer(&self, request: AnswerRequest) -> Response {
-        let Some((vault, _)) = self.host.vault() else { return locked() };
+        let serves_share = self.host.share(false).is_some();
+        if !serves_share && self.host.vault().is_none() {
+            return locked();
+        }
         let message = answer_message(request.id, request.lifetime.as_deref());
-        if !vault.check_approval_tag(&message, &request.proof) {
-            return Response::error(ErrorCode::Denied, "That answer isn't signed with this vault's key.");
+        if !self.host.check_answer(&message, &request.proof) {
+            let key = if serves_share { "the share's token" } else { "this vault's key" };
+            return Response::error(ErrorCode::Denied, format!("That answer isn't signed with {key}."));
         }
         let lifetime = match request.lifetime.as_deref() {
             None => None,
@@ -503,6 +570,12 @@ impl<H: Host> Broker<H> {
             Ok(found) => found,
             Err(message) => return Response::error(ErrorCode::Invalid, message),
         };
+        if self.host.share(false).is_some() {
+            return Response::error(
+                ErrorCode::Refused,
+                "This machine reads a dotsafe share, which can't be changed here. Ask the user to add the secret on one of their own devices.",
+            );
+        }
         let (project, environment, env_id) = {
             let Some((vault, _)) = self.host.vault() else { return locked() };
             let records = match vault.list() {
@@ -579,8 +652,9 @@ impl<H: Host> Broker<H> {
         self.host.ask(prompt)
     }
 
-    /// Records an event in the vault's audit log (encrypted, synced). A
-    /// locked vault means nothing to record it in; that's not an error.
+    /// Records an event through the host: the vault's audit log (encrypted,
+    /// synced), or the daemon's own log for a share. A locked vault means
+    /// nothing to record it in; that's not an error.
     #[allow(clippy::too_many_arguments)]
     fn audit(
         &self,
@@ -603,11 +677,45 @@ impl<H: Host> Broker<H> {
             variables: variables.to_vec(),
             detail,
         };
-        if let Some((vault, device)) = self.host.vault() {
-            let _ = audit::record(&vault, device, event);
-        }
+        self.host.record(event);
         self.host.activity();
     }
+}
+
+/// Where a request's names and values come from.
+enum Data {
+    Vault(Vec<Record>),
+    Share(Arc<Snapshot>),
+}
+
+/// The project a share's environments are listed under. A snapshot holds
+/// environment labels (`production`, or `api/production` when two projects
+/// share a name), not the vault's projects.
+const SHARE_PROJECT: &str = "share";
+
+/// The snapshot environment a request is about: by label, by the name the
+/// directory's `.dotsafe.json` link uses, or the only one.
+fn share_env<'a>(snapshot: &'a Snapshot, target: &Target) -> Result<(&'a str, &'a BTreeMap<String, String>), Response> {
+    let labels = || snapshot.environments.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
+    let wanted = match (&target.project, &target.environment) {
+        (Some(project), Some(env)) if snapshot.environments.contains_key(&format!("{project}/{env}")) => {
+            Some(format!("{project}/{env}"))
+        }
+        (_, Some(env)) => Some(env.clone()),
+        (_, None) => target
+            .cwd
+            .as_deref()
+            .and_then(find_link)
+            .map(|(_, env)| env)
+            .filter(|env| snapshot.environment(Some(env)).is_ok()),
+    };
+    if wanted.is_none() && snapshot.environments.len() > 1 {
+        return Err(Response::error(ErrorCode::Invalid, format!("Say which environment to use. This share has {}.", labels())));
+    }
+    snapshot.environment(wanted.as_deref()).map_err(|_| {
+        let name = wanted.unwrap_or_default();
+        Response::error(ErrorCode::NotFound, format!("This share has no environment {name}. It has {}.", labels()))
+    })
 }
 
 #[cfg(unix)]
@@ -789,3 +897,142 @@ fn find_link(dir: &Path) -> Option<(Uuid, String)> {
     })
 }
 
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use dotsafe_core::Stamp;
+
+    use super::*;
+    use crate::ipc::Handler;
+    use crate::protocol::ErrorInfo;
+
+    /// `dotsafe daemon --share` without the CLI: a fixed snapshot, every
+    /// request allowed, and the audit events kept.
+    struct ShareHost {
+        snapshot: Arc<Snapshot>,
+        fresh: AtomicUsize,
+        events: Mutex<Vec<AuditEvent>>,
+    }
+
+    impl Host for ShareHost {
+        fn vault(&self) -> Option<(Arc<Vault>, Uuid)> {
+            None
+        }
+        fn share(&self, fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+            if fresh {
+                self.fresh.fetch_add(1, Ordering::SeqCst);
+            }
+            Some(Ok(self.snapshot.clone()))
+        }
+        fn check_answer(&self, _message: &[u8], proof: &str) -> bool {
+            proof == "good"
+        }
+        fn record(&self, event: AuditEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+        fn allows(&self, _scope: &Scope, _now: Instant) -> bool {
+            true
+        }
+        fn grant(&self, _scope: Scope, _lifetime: Lifetime, _now: Instant) {}
+        fn ask(&self, _prompt: ApprovalRequest) -> Option<Lifetime> {
+            panic!("everything is allowed")
+        }
+    }
+
+    fn broker(environments: &[(&str, &[(&str, &str)])]) -> Broker<ShareHost> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+        let environments = environments
+            .iter()
+            .map(|(label, vars)| (label.to_string(), vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()))
+            .collect();
+        let snapshot = Snapshot {
+            stamp: Stamp { at_ms: now, counter: 0, device: Uuid::new_v4() },
+            expires: now + 86_400_000,
+            lease_until: now + 86_400_000,
+            environments,
+        };
+        Broker::new(ShareHost { snapshot: Arc::new(snapshot), fresh: AtomicUsize::new(0), events: Mutex::default() })
+    }
+
+    fn error(response: Response) -> ErrorInfo {
+        match response {
+            Response::Error(e) => e,
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_share_lists_its_environments_and_names_only() {
+        let b = broker(&[("production", &[("API_KEY", "sk_share_secret")]), ("staging", &[("PORT", "3000")])]);
+        let Response::Projects(projects) = b.handle(Request::ListProjects) else { panic!() };
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].environments, ["production", "staging"]);
+
+        let target = |env: Option<&str>| Target { environment: env.map(str::to_string), ..Target::default() };
+        let Response::Variables(info) = b.handle(Request::ListVariables(target(Some("production")))) else { panic!() };
+        assert_eq!(info.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["API_KEY"]);
+        assert!(!format!("{info:?}").contains("sk_share_secret"));
+
+        let e = error(b.handle(Request::ListVariables(target(None))));
+        assert!(e.message.contains("production, staging"), "{}", e.message);
+        let e = error(b.handle(Request::ListVariables(target(Some("development")))));
+        assert_eq!(e.code, ErrorCode::NotFound);
+
+        // With one environment, it's the default.
+        let one = broker(&[("production", &[("PORT", "1")])]);
+        assert!(matches!(one.handle(Request::ListVariables(target(None))), Response::Variables(_)));
+    }
+
+    #[test]
+    fn a_share_runs_commands_with_fresh_values_scrubbed_and_proxied() {
+        let b = broker(&[("production", &[("API_KEY", "sk_share_secret_1"), ("OPENAI_API_KEY", "sk-openai-share-2")])]);
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("show.sh");
+        std::fs::write(&script, "#!/bin/sh\necho \"$API_KEY $OPENAI_API_KEY ${DOTSAFE_SHARE:-none}\"\n").unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let run = RunRequest {
+            client: "test".into(),
+            command: vec!["./show.sh".into()],
+            cwd: dir.path().to_path_buf(),
+            target: Target::default(),
+            variables: None,
+            timeout_secs: None,
+            path: None,
+            proxy: true,
+        };
+        let Response::Ran(out) = b.handle(Request::Run(run)) else { panic!() };
+        assert_eq!(out.exit_code, Some(0), "{}", out.stderr);
+        assert!(out.stdout.contains("[dotsafe:API_KEY]"), "{}", out.stdout);
+        assert!(!out.stdout.contains("sk_share_secret_1") && !out.stdout.contains("sk-openai-share-2"), "{}", out.stdout);
+        assert!(out.stdout.trim_end().ends_with("none"), "the share token never reaches the command");
+        assert_eq!(out.proxied, ["OPENAI_API_KEY"], "built-in profiles still apply");
+        assert_eq!(b.host().fresh.load(Ordering::SeqCst), 1, "values come from a fresh fetch");
+        let events = b.host().events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].variables, ["API_KEY", "OPENAI_API_KEY"]);
+        assert_eq!(events[0].environment, "share/production");
+    }
+
+    #[test]
+    fn a_share_is_read_only_and_answers_need_its_proof() {
+        let b = broker(&[("production", &[("PORT", "1")])]);
+        let generate = GenerateRequest {
+            client: "test".into(),
+            name: "JWT_SECRET".into(),
+            target: Target::default(),
+            kind: None,
+            length: None,
+        };
+        assert_eq!(error(b.handle(Request::Generate(generate))).code, ErrorCode::Refused);
+
+        let answer = |proof: &str| AnswerRequest { id: Uuid::new_v4(), lifetime: Some("once".into()), proof: proof.into() };
+        let e = error(b.handle(Request::Answer(answer("bad"))));
+        assert_eq!(e.code, ErrorCode::Denied);
+        assert!(e.message.contains("share's token"), "{}", e.message);
+        // A good proof gets as far as the host, which has nothing waiting.
+        assert_eq!(error(b.handle(Request::Answer(answer("good")))).code, ErrorCode::NotFound);
+    }
+}

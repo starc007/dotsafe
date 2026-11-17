@@ -243,11 +243,17 @@ enum Cmd {
         /// Unlock, then keep running in the background after this terminal closes
         #[arg(long)]
         detach: bool,
-        /// Internal: the vault key from a detaching `dotsafe daemon`
+        /// On a machine with a share: serve the share in DOTSAFE_SHARE instead of a vault (no license needed here)
+        #[arg(long)]
+        share: bool,
+        /// With --share: don't ask before running commands, for agents working while nobody's there. The share's variables are the limit
+        #[arg(long, requires = "share")]
+        unattended: bool,
+        /// Internal: the vault key or share token from a detaching `dotsafe daemon`
         #[arg(long, hide = true, conflicts_with = "detach")]
         key_from_stdin: bool,
     },
-    /// Answer commands waiting for approval in `dotsafe daemon` (asks for the master password)
+    /// Answer commands waiting for approval in `dotsafe daemon` (asks for the master password, or reads DOTSAFE_SHARE with --share)
     Approve {
         /// The request to answer (the start of its id); default: each one in turn
         id: Option<String>,
@@ -260,6 +266,9 @@ enum Cmd {
         /// Only list what's waiting
         #[arg(long, conflicts_with_all = ["lifetime", "deny"])]
         list: bool,
+        /// Answer `dotsafe daemon --share` with the token in DOTSAFE_SHARE instead of the master password
+        #[arg(long)]
+        share: bool,
     },
     /// Serve the MCP tools AI agents use to run commands with secrets they never see
     Mcp {
@@ -429,15 +438,18 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode> {
     // dotsafe is paid: everything but `license` needs one on this machine.
     // `mcp` only relays to the app or `dotsafe daemon`, which need one already.
-    // `run --share` opens no vault: it reads a snapshot sealed by a licensed
-    // device, which counted the share against its license.
+    // Share mode (`run --share`, `daemon --share`, `approve --share`) opens
+    // no vault and takes nothing but a share token: it reads a snapshot
+    // sealed by the licensed device that created the share.
     let command = match cli.command {
         Cmd::License(cmd) => {
             license::run(cmd)?;
             return Ok(ExitCode::SUCCESS);
         }
         command @ Cmd::Mcp { .. } => command,
-        command @ Cmd::Run { share: true, .. } => command,
+        command @ (Cmd::Run { share: true, .. } | Cmd::Daemon { share: true, .. } | Cmd::Approve { share: true, .. }) => {
+            command
+        }
         command => {
             license::require()?;
             command
@@ -789,18 +801,18 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Secret(cmd) => secrets::run(cmd)?,
         Cmd::Share(cmd) => share::run(cmd)?,
         #[cfg(unix)]
-        Cmd::Daemon { stop_after, detach, key_from_stdin } => {
+        Cmd::Daemon { stop_after, detach, share, unattended, key_from_stdin } => {
             let start = match (detach, key_from_stdin) {
                 (true, _) => daemon::Start::Detach,
                 (_, true) => daemon::Start::KeyFromStdin,
                 _ => daemon::Start::Here,
             };
-            daemon::run(stop_after, start)?
+            daemon::run(daemon::Options { stop_after, start, share, unattended })?
         }
         #[cfg(not(unix))]
         Cmd::Daemon { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         #[cfg(unix)]
-        Cmd::Approve { id, lifetime, deny, list } => approve::run(id, lifetime, deny, list)?,
+        Cmd::Approve { id, lifetime, deny, list, share } => approve::run(id, lifetime, deny, list, share)?,
         #[cfg(not(unix))]
         Cmd::Approve { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         Cmd::Mcp { action: None } => mcp::serve()?,

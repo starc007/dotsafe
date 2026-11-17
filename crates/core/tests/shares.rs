@@ -309,6 +309,20 @@ fn tokens_are_checked() {
 }
 
 #[test]
+fn approval_tags_need_the_same_share_key() {
+    let s = setup();
+    let parse = |share: &Share| ShareToken::parse(&share.token(s.vault.id(), URL).unwrap()).unwrap();
+    let token = parse(&standing(&s, vec![whole(&s.production)], now() + DAY));
+    let other = parse(&standing(&s, vec![whole(&s.production)], now() + DAY));
+    let tag = token.approval_tag(b"answer");
+    assert!(token.check_approval_tag(b"answer", &tag));
+    assert!(!token.check_approval_tag(b"answer2", &tag), "bound to the message");
+    assert!(!other.check_approval_tag(b"answer", &tag), "another share's token can't answer");
+    assert!(!token.check_approval_tag(b"answer", &s.vault.approval_tag(b"answer")), "nor the vault key");
+    assert!(!token.check_approval_tag(b"answer", "zz"), "not hex");
+}
+
+#[test]
 fn environments_with_the_same_name_are_labelled_by_project() {
     let s = setup();
     let web = Project::new("web", s.vault.stamp(s.device));
