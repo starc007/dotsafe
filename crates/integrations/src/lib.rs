@@ -12,6 +12,7 @@
 mod client;
 pub mod licensing;
 pub mod rotate;
+pub mod shares;
 mod sigv4;
 
 pub use client::{Client, NewKey};
@@ -25,6 +26,9 @@ pub enum Error {
     Refused { service: &'static str, status: u16, message: String },
     #[error("{0}")]
     Invalid(String),
+    /// Retiring would break a share whose snapshot is behind the vault.
+    #[error("{0}")]
+    SharesBehind(String),
     #[error(transparent)]
     Vault(#[from] dotsafe_core::Error),
 }

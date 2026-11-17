@@ -8,11 +8,12 @@
 //! then).
 
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
-use dotsafe_core::{Binding, Connection, Pushed, Record, Secret, VersionState, Vault, crypto};
+use dotsafe_core::{Binding, Connection, Pushed, Record, Secret, ShareBucket, VersionState, Vault, crypto};
 use uuid::Uuid;
 
 use zeroize::Zeroizing;
 
+use crate::shares::{self, ShareResult};
 use crate::{Client, Error, NewKey, Result, service};
 
 /// How a provider rotation went.
@@ -27,6 +28,8 @@ pub struct Rotated {
     /// Cloudflare that ends it on rotation).
     pub revoked_old: bool,
     pub pushes: Vec<PushResult>,
+    /// Shares pushed in the same flow, before the old key was revoked.
+    pub shares: Vec<ShareResult>,
 }
 
 /// One target's push.
@@ -94,11 +97,11 @@ pub fn adopt_current_key(vault: &Vault, client: &Client, device: Uuid, secret_id
 }
 
 /// Rotates `secret_id` through its provider: a new key, saved, verified,
-/// promoted and pushed to every target. Guided providers (Anthropic,
-/// Stripe) take the key you made in their console as `pasted`. With
-/// `leaked`, or for a provider with no overlap, the old key is revoked
-/// straight away; otherwise it stays valid as the previous version until
-/// [`retire`].
+/// promoted and pushed to every target and, given the share bucket, every
+/// share. Guided providers (Anthropic, Stripe) take the key you made in
+/// their console as `pasted`. With `leaked`, or for a provider with no
+/// overlap, the old key is revoked straight away, after the pushes;
+/// otherwise it stays valid as the previous version until [`retire`].
 pub fn rotate(
     vault: &Vault,
     client: &Client,
@@ -106,6 +109,7 @@ pub fn rotate(
     secret_id: Uuid,
     pasted: Option<&str>,
     leaked: bool,
+    shares: Option<&dyn ShareBucket>,
 ) -> Result<Rotated> {
     let ctx = load(vault, secret_id)?;
     let link = ctx.binding.provider.clone().ok_or_else(|| Error::Invalid(format!("{} has no provider", ctx.secret.name)))?;
@@ -160,7 +164,13 @@ pub fn rotate(
     {
         let why = format!("the new key failed its check and is staged: {e}");
         log(vault, device, AuditAction::Rotate, &secret_name, format!("new key from {}", connection.name), Some(why));
-        return Ok(Rotated { promoted: false, staged: Some(e.to_string()), revoked_old: false, pushes: Vec::new() });
+        return Ok(Rotated {
+            promoted: false,
+            staged: Some(e.to_string()),
+            revoked_old: false,
+            pushes: Vec::new(),
+            shares: Vec::new(),
+        });
     }
     secret = fresh_secret(vault, secret_id)?;
     secret.promote(vault.stamp(device))?;
@@ -178,24 +188,33 @@ pub fn rotate(
         vault.put(Record::Secret(id_secret))?;
         pushes.extend(push(vault, client, device, companion)?);
     }
+    let shares = match shares {
+        Some(bucket) => shares::sync(vault, bucket, device)?,
+        None => Vec::new(),
+    };
     // Stripe's old key can only be revoked in its dashboard, so a leak there
-    // leaves that step to you.
+    // leaves that step to you. Shares were just pushed in this flow, so a
+    // leaked key doesn't wait for them.
     let revoked_old = if (leaked || !overlap) && !svc.manual_revoke {
-        retire(vault, client, device, secret_id, false)?;
+        retire(vault, client, device, secret_id, false, true)?;
         true
     } else {
         false
     };
-    Ok(Rotated { promoted: true, staged: check.err().map(|e| e.to_string()), revoked_old, pushes })
+    Ok(Rotated { promoted: true, staged: check.err().map(|e| e.to_string()), revoked_old, pushes, shares })
 }
 
 /// Revokes the previous versions' keys at the provider, then retires them.
 /// With `by_hand` (you revoked it in the provider's console, or it can only
 /// be revoked there, like Stripe's), or without a provider, it just retires
 /// them. Stops at the first revoke that fails, so nothing is marked retired
-/// that still works.
-pub fn retire(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid, by_hand: bool) -> Result<usize> {
+/// that still works. Refuses while a share holding the secret is out of
+/// date, unless `force`.
+pub fn retire(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid, by_hand: bool, force: bool) -> Result<usize> {
     let ctx = load(vault, secret_id)?;
+    if !force {
+        check_shares(vault, &ctx.secret)?;
+    }
     if let Some(link) = &ctx.binding.provider
         && !by_hand
     {
@@ -239,6 +258,24 @@ pub fn retire(vault: &Vault, client: &Client, device: Uuid, secret_id: Uuid, by_
         vault.put(Record::Secret(id_secret))?;
     }
     Ok(retired)
+}
+
+/// Refuses to retire `secret`'s old value while a share that holds it is out
+/// of date: the machine would be left with a key that no longer works.
+pub fn check_shares(vault: &Vault, secret: &Secret) -> Result<()> {
+    let behind = shares::holding_old_value(&vault.list()?, secret.id);
+    match behind.as_slice() {
+        [] => Ok(()),
+        [one] => Err(Error::SharesBehind(format!(
+            "share {one} holds {} and its snapshot is out of date, so it may still have the old value",
+            secret.name
+        ))),
+        many => Err(Error::SharesBehind(format!(
+            "shares {} hold {} and their snapshots are out of date, so they may still have the old value",
+            many.join(", "),
+            secret.name
+        ))),
+    }
 }
 
 /// The shared secret that holds an AWS key's access key ID, if set.

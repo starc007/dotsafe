@@ -514,7 +514,7 @@ pub async fn rotate_with_provider(
     let pasted = pasted.map(Zeroizing::new);
     let (vault, device) = shared(&state).await?;
     let out = off_lock(move || {
-        rotate::rotate(&vault, &Client::new(), device, secret_id, pasted.as_deref().map(String::as_str), leaked)
+        rotate::rotate(&vault, &Client::new(), device, secret_id, pasted.as_deref().map(String::as_str), leaked, None)
     })
     .await?;
     Ok(RotationView {
@@ -537,7 +537,7 @@ pub async fn push_secret(state: State<'_, AppState>, secret_id: Uuid) -> CmdResu
 #[tauri::command]
 pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid, by_hand: bool) -> CmdResult<usize> {
     let (vault, device) = shared(&state).await?;
-    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id, by_hand)).await
+    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id, by_hand, false)).await
 }
 
 /// Opens a provider's console in the browser, where guided keys are made and
@@ -661,7 +661,7 @@ pub async fn rotate_queued_with_providers(state: State<'_, AppState>) -> CmdResu
         let client = Client::new();
         Ok(queued
             .into_iter()
-            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, None, false) {
+            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, None, false, None) {
                 Ok(out) if out.promoted => QueuedRotation { name, error: None, pushes: pushes(out.pushes) },
                 Ok(out) => QueuedRotation {
                     name,

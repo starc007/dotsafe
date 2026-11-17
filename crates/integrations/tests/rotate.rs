@@ -3,10 +3,12 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use dotsafe_core::share::Status;
 use dotsafe_core::{
-    Binding, Connection, FolderStore, KdfParams, ProviderLink, Record, Secret, Target, VersionState, Vault,
+    Binding, Connection, Environment, FolderStore, KdfParams, Project, ProviderLink, Record, Secret, Share, ShareBucket,
+    ShareEnv, ShareToken, Target, VersionState, Vault,
 };
-use dotsafe_integrations::{Client, check_settings, rotate, service};
+use dotsafe_integrations::{Client, check_settings, rotate, service, shares};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -176,7 +178,7 @@ fn openai_rotation_issues_verifies_promotes_and_pushes() {
     let fake = openai_fake(200);
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).unwrap();
     assert!(out.promoted && out.staged.is_none() && !out.revoked_old);
     assert_eq!(out.pushes.len(), 1);
     assert!(out.pushes[0].error.is_none(), "{:?}", out.pushes[0].error);
@@ -209,7 +211,7 @@ fn openai_rotation_issues_verifies_promotes_and_pushes() {
     assert_eq!(file["version"], 4);
 
     // Retiring revokes the old service account, then marks it retired.
-    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap(), 1);
+    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, false, false).unwrap(), 1);
     let revoke = fake.seen().into_iter().find(|r| r.method == "DELETE").unwrap();
     assert_eq!(revoke.path, "/organization/projects/proj_1/service_accounts/old-key-id");
     assert_eq!(states(&secret(&s.vault, s.secret))[1].1, VersionState::Retired);
@@ -223,7 +225,7 @@ fn a_key_that_fails_its_check_is_saved_but_left_staged() {
     let fake = openai_fake(401);
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).unwrap();
     assert!(!out.promoted);
     assert!(out.staged.as_deref().unwrap().contains("Incorrect API key"), "{:?}", out.staged);
     let stored = secret(&s.vault, s.secret);
@@ -234,7 +236,7 @@ fn a_key_that_fails_its_check_is_saved_but_left_staged() {
     assert!(fake.seen().iter().all(|r| !r.path.starts_with("/v10/")), "nothing was pushed");
 
     // A second rotation waits until the staged value is dealt with.
-    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).is_err());
+    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).is_err());
 }
 
 #[test]
@@ -242,7 +244,7 @@ fn leaked_keys_are_revoked_straight_away() {
     let s = setup("openai", &[("project_id", "proj_1")], &[]);
     let fake = openai_fake(200);
     let client = Client::with_base_for_tests(&fake.url);
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, true).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, true, None).unwrap();
     assert!(out.revoked_old);
     assert!(fake.seen().iter().any(|r| r.method == "DELETE" && r.path.ends_with("/old-key-id")));
     assert_eq!(states(&secret(&s.vault, s.secret))[1].1, VersionState::Retired);
@@ -260,7 +262,7 @@ fn cloudflare_rolls_go_live_at_once_because_the_old_token_is_dead() {
     });
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).unwrap();
     assert!(out.staged.as_deref().unwrap().contains("disabled"));
     assert!(out.promoted && out.revoked_old);
     let stored = secret(&s.vault, s.secret);
@@ -345,8 +347,8 @@ fn anthropic_keys_are_pasted_checked_and_switched_off_by_hint() {
     let client = Client::with_base_for_tests(&fake.url);
 
     // Without a pasted key there's nothing to rotate with.
-    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).is_err());
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some(" sk-ant-api03-NEW-pasted-WXYZ "), false).unwrap();
+    assert!(rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).is_err());
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some(" sk-ant-api03-NEW-pasted-WXYZ "), false, None).unwrap();
     assert!(out.promoted && !out.revoked_old);
     let stored = secret(&s.vault, s.secret);
     assert_eq!(stored.current_value(), Some("sk-ant-api03-NEW-pasted-WXYZ"), "trimmed");
@@ -355,7 +357,7 @@ fn anthropic_keys_are_pasted_checked_and_switched_off_by_hint() {
     assert_eq!(check.api_key, "sk-ant-api03-NEW-pasted-WXYZ", "checked with the new key");
 
     // The old key's id is known (from setup), so revoking switches it off.
-    rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap();
+    rotate::retire(&s.vault, &client, s.device, s.secret, false, false).unwrap();
     let off = fake.seen().into_iter().find(|r| r.method == "POST" && r.path.starts_with("/organizations/")).unwrap();
     assert_eq!(off.path, "/organizations/api_keys/old-key-id");
     assert_eq!((off.api_key.as_str(), off.body.clone()), ("admin-token", json!({ "status": "inactive" })));
@@ -372,7 +374,7 @@ fn stripe_keys_are_checked_with_themselves_and_revoked_by_hand() {
     });
     let client = Client::with_base_for_tests(&fake.url);
 
-    let bad = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_typo"), false).unwrap();
+    let bad = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_typo"), false, None).unwrap();
     assert!(!bad.promoted && bad.staged.unwrap().contains("Invalid API Key"));
     let cancelled = {
         let mut stored = secret(&s.vault, s.secret);
@@ -382,11 +384,11 @@ fn stripe_keys_are_checked_with_themselves_and_revoked_by_hand() {
     s.vault.put(Record::Secret(cancelled)).unwrap();
 
     // Even a leak can't be revoked through Stripe's API: that's left to you.
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_new"), true).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, Some("sk_live_new"), true, None).unwrap();
     assert!(out.promoted && !out.revoked_old);
-    let refused = rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap_err();
+    let refused = rotate::retire(&s.vault, &client, s.device, s.secret, false, false).unwrap_err();
     assert!(refused.to_string().contains("only be revoked in its dashboard"), "{refused}");
-    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, true).unwrap(), 1);
+    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, true, false).unwrap(), 1);
     assert!(fake.seen().iter().all(|r| r.method != "DELETE"));
 
     // A Stripe connection needs no token at all.
@@ -438,13 +440,13 @@ fn aws_keys_are_created_signed_verified_and_deleted() {
     });
     let client = Client::with_base_for_tests(&fake.url);
 
-    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false).unwrap();
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, false, None).unwrap();
     assert!(out.promoted && out.staged.is_none(), "{:?}", out.staged);
     assert_eq!(*sts_calls.lock().unwrap(), 2, "retried while the key propagated");
     assert_eq!(secret(&s.vault, s.secret).current_value(), Some("new/secret+key"));
     assert_eq!(secret(&s.vault, id_secret.id).current_value(), Some("AKIANEW"), "the key ID moved too");
 
-    rotate::retire(&s.vault, &client, s.device, s.secret, false).unwrap();
+    rotate::retire(&s.vault, &client, s.device, s.secret, false, false).unwrap();
     assert!(fake.seen().iter().any(|r| r.body.as_str().is_some_and(|b| b.contains("Action=DeleteAccessKey"))));
     let ids = secret(&s.vault, id_secret.id);
     assert!(ids.versions().iter().all(|(_, v)| v.state != VersionState::Previous), "the old ID is retired with it");
@@ -555,4 +557,248 @@ fn aws_parameter_store_puts_signed_secure_strings() {
         assert!(push_to(&fake, "aws_ssm", "s", &conn, &[("path", path)]).is_err(), "{path}");
     }
     assert_eq!(fake.seen().len(), 3, "bad settings never reach the network");
+}
+
+/// A share bucket in memory that can be made to fail, like an unreachable one.
+#[derive(Default)]
+struct MemoryBucket {
+    objects: Mutex<BTreeMap<String, Vec<u8>>>,
+    rules: Mutex<Vec<dotsafe_core::share::ExpiryRule>>,
+    down: std::sync::atomic::AtomicBool,
+}
+
+impl MemoryBucket {
+    fn check(&self) -> dotsafe_core::Result<()> {
+        if self.down.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(dotsafe_core::Error::Unreachable("s3://shares".into()));
+        }
+        Ok(())
+    }
+
+    fn set_down(&self, down: bool) {
+        self.down.store(down, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn object(&self, share: &Share) -> Option<Vec<u8>> {
+        self.objects.lock().unwrap().get(&share.object_key().unwrap()).cloned()
+    }
+}
+
+impl ShareBucket for MemoryBucket {
+    fn location(&self) -> String {
+        "s3://shares".into()
+    }
+    fn public_url(&self) -> String {
+        "https://shares.example.com".into()
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> dotsafe_core::Result<()> {
+        self.check()?;
+        self.objects.lock().unwrap().insert(key.into(), bytes.to_vec());
+        Ok(())
+    }
+    fn delete(&self, key: &str) -> dotsafe_core::Result<()> {
+        self.check()?;
+        self.objects.lock().unwrap().remove(key);
+        Ok(())
+    }
+    fn set_expiry_rules(&self, rules: &[dotsafe_core::share::ExpiryRule]) -> dotsafe_core::Result<()> {
+        self.check()?;
+        *self.rules.lock().unwrap() = rules.to_vec();
+        Ok(())
+    }
+}
+
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+/// A production environment in `s`'s vault that links the secret.
+fn production(s: &Setup) -> Environment {
+    let project = Project::new("api", s.vault.stamp(s.device));
+    s.vault.put(Record::Project(project.clone())).unwrap();
+    let mut env = Environment::new(project.id, "production", s.vault.stamp(s.device));
+    env.link("API_KEY", s.secret, s.vault.stamp(s.device));
+    env.set("PORT", "8080", s.vault.stamp(s.device));
+    s.vault.put(Record::Environment(env.clone())).unwrap();
+    env
+}
+
+fn share_record(vault: &Vault, id: Uuid) -> Share {
+    match vault.get(id).unwrap() {
+        Some(Record::Share(s)) => s,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// What a machine with `token` reads from the bucket now.
+fn machine_reads(bucket: &MemoryBucket, share: &Share, token: &str) -> BTreeMap<String, String> {
+    let token = ShareToken::parse(token).unwrap();
+    let bytes = bucket.object(share).expect("a snapshot in the bucket");
+    let snapshot = token.open(&bytes, None, now_ms()).unwrap();
+    snapshot.environment(None).unwrap().1.clone()
+}
+
+#[test]
+fn creating_a_share_writes_its_first_snapshot_and_expiry_rule() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: None }];
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+
+    assert_eq!(machine_reads(&bucket, &share, &token), BTreeMap::from([("API_KEY".into(), "old-key".into()), ("PORT".into(), "8080".into())]));
+    let rules = bucket.rules.lock().unwrap().clone();
+    assert_eq!((rules.len(), rules[0].share, rules[0].expires), (1, share.id, share.expires));
+    let stored = share_record(&s.vault, share.id);
+    assert_eq!(stored.status(&s.vault.list().unwrap(), now_ms()).unwrap(), Status::Current);
+    let logged = &dotsafe_core::audit::recent(&s.vault, 1).unwrap()[0];
+    assert_eq!(logged.summary, "share ci: created for production");
+
+    // A typo in --only is caught, not saved as an empty share.
+    let narrow = vec![ShareEnv { id: env.id, only: Some(vec!["PROT".into()]) }];
+    let err = shares::create(&s.vault, &bucket, s.device, "typo", narrow, now_ms() + DAY_MS, 14).unwrap_err();
+    assert!(err.to_string().contains("production has no PROT"), "{err}");
+    let dup = vec![ShareEnv { id: env.id, only: None }];
+    assert!(shares::create(&s.vault, &bucket, s.device, "ci", dup, now_ms() + DAY_MS, 14).is_err(), "names are unique");
+}
+
+#[test]
+fn live_shares_are_capped_by_the_license() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let create = |name: &str| {
+        shares::create(&s.vault, &bucket, s.device, name, vec![ShareEnv { id: env.id, only: None }], now_ms() + DAY_MS, 14)
+    };
+    let mut first = None;
+    for n in 0..dotsafe_core::share::LIVE_SHARE_LIMIT {
+        let (share, _) = create(&format!("share-{n}")).unwrap();
+        first.get_or_insert(share.id);
+    }
+    let err = create("one-more").unwrap_err();
+    assert!(err.to_string().contains("allows 5 live shares"), "{err}");
+
+    // A revoked share frees its place.
+    shares::revoke(&s.vault, Some(&bucket), s.device, first.unwrap()).unwrap();
+    create("one-more").unwrap();
+}
+
+#[test]
+fn writes_push_shares_that_changed_and_retries_follow_failures() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: None }];
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    assert!(shares::sync(&s.vault, &bucket, s.device).unwrap().is_empty(), "nothing changed");
+
+    // The bucket is down when the value changes: the share is out of date.
+    let mut stored = secret(&s.vault, s.secret);
+    stored.rotate("new-key", None, s.vault.stamp(s.device)).unwrap();
+    s.vault.put(Record::Secret(stored)).unwrap();
+    bucket.set_down(true);
+    let results = shares::sync(&s.vault, &bucket, s.device).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].error.as_deref().unwrap().contains("couldn't reach"), "{:?}", results[0].error);
+    assert_eq!(share_record(&s.vault, share.id).status(&s.vault.list().unwrap(), now_ms()).unwrap(), Status::OutOfDate);
+    assert_eq!(machine_reads(&bucket, &share, &token)["API_KEY"], "old-key");
+
+    // Retiring the old value waits for the share, unless forced.
+    let client = Client::with_base_for_tests("http://127.0.0.1:9");
+    let err = rotate::retire(&s.vault, &client, s.device, s.secret, true, false).unwrap_err();
+    assert!(matches!(err, dotsafe_integrations::Error::SharesBehind(_)), "{err}");
+    assert!(err.to_string().contains("share ci holds API_KEY"), "{err}");
+
+    // The next sync catches up, and then retiring is fine.
+    bucket.set_down(false);
+    let results = shares::sync(&s.vault, &bucket, s.device).unwrap();
+    assert_eq!((results.len(), results[0].action, results[0].error.is_none()), (1, shares::Action::Pushed, true));
+    assert_eq!(machine_reads(&bucket, &share, &token)["API_KEY"], "new-key");
+    assert_eq!(rotate::retire(&s.vault, &client, s.device, s.secret, true, false).unwrap(), 1);
+}
+
+#[test]
+fn a_day_old_snapshot_is_pushed_again_to_renew_its_lease() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: None }];
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let first = ShareToken::parse(&token).unwrap().open(&bucket.object(&share).unwrap(), None, now_ms()).unwrap();
+
+    // A push merges on its time, so a day-old push needs a copy of the vault
+    // whose only record of the share is that old.
+    let mut old = share_record(&s.vault, share.id);
+    old.pushed.as_mut().unwrap().at -= DAY_MS + 1;
+    let dir = tempfile::tempdir().unwrap();
+    dotsafe_core::backup::copy_to_empty(s.vault.store(), &FolderStore::new(dir.path())).unwrap();
+    let path = dir.path().join("records").join(format!("{}.json", share.id));
+    std::fs::remove_file(&path).unwrap();
+    let copy = Vault::unlock(FolderStore::new(dir.path()), "pw").unwrap();
+    copy.put(Record::Share(old)).unwrap();
+    let results = shares::sync(&copy, &bucket, s.device).unwrap();
+    assert_eq!(results[0].action, shares::Action::Renewed);
+    let renewed = ShareToken::parse(&token).unwrap().open(&bucket.object(&share).unwrap(), Some(first.stamp), now_ms()).unwrap();
+    assert!(renewed.stamp > first.stamp && renewed.lease_until >= first.lease_until);
+}
+
+#[test]
+fn rotation_pushes_shares_before_revoking_a_leaked_key() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: None }];
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let fake = openai_fake(200);
+    let client = Client::with_base_for_tests(&fake.url);
+
+    let out = rotate::rotate(&s.vault, &client, s.device, s.secret, None, true, Some(&bucket)).unwrap();
+    assert!(out.revoked_old);
+    assert_eq!(out.shares.len(), 1);
+    assert!(out.shares[0].error.is_none());
+    assert_eq!(machine_reads(&bucket, &share, &token)["API_KEY"], "sk-new");
+}
+
+#[test]
+fn revoking_deletes_the_snapshot_now_or_on_the_next_sync() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = || vec![ShareEnv { id: env.id, only: None }];
+    let (a, _) = shares::create(&s.vault, &bucket, s.device, "a", envs(), now_ms() + DAY_MS, 14).unwrap();
+    let (b, _) = shares::create(&s.vault, &bucket, s.device, "b", envs(), now_ms() + DAY_MS, 14).unwrap();
+
+    assert_eq!(shares::revoke(&s.vault, Some(&bucket), s.device, a.id).unwrap(), None);
+    assert!(bucket.object(&a).is_none());
+    let revoked = share_record(&s.vault, a.id);
+    assert!(revoked.revoked.is_some() && !revoked.in_bucket());
+    assert_eq!(bucket.rules.lock().unwrap().iter().map(|r| r.share).collect::<Vec<_>>(), [b.id]);
+    let logged = &dotsafe_core::audit::recent(&s.vault, 1).unwrap()[0];
+    assert_eq!(logged.summary, "share a: revoked");
+
+    // Unreachable: revoked in the vault at once, deleted by the next sync.
+    bucket.set_down(true);
+    let error = shares::revoke(&s.vault, Some(&bucket), s.device, b.id).unwrap();
+    assert!(error.unwrap().contains("couldn't reach"));
+    assert!(bucket.object(&b).is_some());
+    bucket.set_down(false);
+    let results = shares::sync(&s.vault, &bucket, s.device).unwrap();
+    assert_eq!((results.len(), results[0].action), (1, shares::Action::Deleted));
+    assert!(bucket.object(&b).is_none() && bucket.rules.lock().unwrap().is_empty());
+    assert!(shares::sync(&s.vault, &bucket, s.device).unwrap().is_empty(), "done once");
+}
+
+#[test]
+fn expired_shares_are_deleted_on_the_next_sync() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: None }];
+    let (share, _) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 200, 14).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let results = shares::sync(&s.vault, &bucket, s.device).unwrap();
+    assert_eq!(results[0].action, shares::Action::Deleted);
+    assert!(bucket.object(&share).is_none());
 }
