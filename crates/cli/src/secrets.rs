@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use clap::Subcommand;
-use dotsafe_core::{Due, Entry, Environment, Policy, ProviderLink, Record, Secret, Secrets, Target, VersionState};
+use dotsafe_core::{Due, Entry, Environment, Policy, ProviderLink, Record, Secret, Secrets, ShareBucket, Target, VersionState};
 use dotsafe_integrations::rotate::{self as provider, PushResult};
 use dotsafe_integrations::{Client, Kind, check_settings, service};
 use uuid::Uuid;
@@ -72,6 +72,9 @@ pub enum SecretCmd {
         /// You revoked the old key in the provider's console; just mark it retired
         #[arg(long)]
         by_hand: bool,
+        /// Retire it even though a share that holds it is out of date
+        #[arg(long)]
+        force: bool,
     },
     /// Set the provider that issues this secret's values, so `rotate` gets new keys from it
     Provider {
@@ -109,7 +112,7 @@ pub enum SecretCmd {
     },
     /// List secrets that are due for rotation
     Due,
-    /// What to rotate after removing a device: every value it could have read
+    /// What to rotate after removing a device or revoking a share: every value it could have read
     Queue {
         /// Rotate every queued secret that has a provider
         #[arg(long, conflicts_with = "dismiss")]
@@ -143,6 +146,35 @@ pub enum TargetCmd {
 
 pub fn run(cmd: SecretCmd) -> Result<()> {
     let ctx = Ctx::open()?;
+    // Commands that change what environments resolve to; shares follow.
+    let writes = matches!(
+        cmd,
+        SecretCmd::Share { .. }
+            | SecretCmd::Link { .. }
+            | SecretCmd::Unlink { .. }
+            | SecretCmd::Rotate { .. }
+            | SecretCmd::Rollback { .. }
+            | SecretCmd::Restore { .. }
+            | SecretCmd::Queue { rotate: true, .. }
+    );
+    run_on(&ctx, cmd)?;
+    if writes {
+        crate::share::after_write(&ctx);
+    }
+    Ok(())
+}
+
+/// Says how to get past a retire held back by a share.
+fn retire_error(e: dotsafe_integrations::Error) -> anyhow::Error {
+    match e {
+        dotsafe_integrations::Error::SharesBehind(why) => {
+            anyhow::anyhow!("{why}. Push shares with `dotsafe share push` first, or retire anyway with --force")
+        }
+        e => e.into(),
+    }
+}
+
+fn run_on(ctx: &Ctx, cmd: SecretCmd) -> Result<()> {
     match cmd {
         SecretCmd::List => {
             let records = ctx.vault.list()?;
@@ -241,9 +273,9 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Rotate { secret, generate, manual, leaked, stdin, note } => {
             let mut secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            let binding = connect::binding(&ctx, secret.id)?;
+            let binding = connect::binding(ctx, secret.id)?;
             if let Some(link) = binding.provider.as_ref().filter(|_| !generate && !manual) {
-                let svc = service(&connect::by_id(&ctx, link.connection)?.service)?;
+                let svc = service(&connect::by_id(ctx, link.connection)?.service)?;
                 let pasted = if svc.guided {
                     eprintln!(
                         "{} keys are made in its console: {}. Make a new one there, then paste it here.",
@@ -254,6 +286,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 } else {
                     None
                 };
+                let shares = crate::share::bucket();
                 let out = provider::rotate(
                     &ctx.vault,
                     &Client::new(),
@@ -261,6 +294,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                     secret.id,
                     pasted.as_deref().map(String::as_str),
                     leaked,
+                    shares.as_ref().map(|b| b as &dyn ShareBucket),
                 )?;
                 if let (false, Some(why)) = (out.promoted, &out.staged) {
                     eprintln!("Got a new key for {}, but it didn't pass the check: {why}", secret.name);
@@ -274,6 +308,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                     eprintln!("The provider's check failed ({why}), but the old key was already ended, so the new one is live.");
                 }
                 report_pushes(&out.pushes);
+                crate::share::report(&out.shares);
                 if out.revoked_old {
                     eprintln!("The old key is revoked.");
                 } else if svc.manual_revoke {
@@ -314,16 +349,20 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 );
             }
         }
-        SecretCmd::Retire { secret, by_hand } => {
+        SecretCmd::Retire { secret, by_hand, force } => {
             let mut secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            if connect::binding(&ctx, secret.id)?.provider.is_some() {
-                let retired = provider::retire(&ctx.vault, &Client::new(), ctx.device_id, secret.id, by_hand)?;
+            if connect::binding(ctx, secret.id)?.provider.is_some() {
+                let retired = provider::retire(&ctx.vault, &Client::new(), ctx.device_id, secret.id, by_hand, force)
+                    .map_err(retire_error)?;
                 match (retired, by_hand) {
                     (0, _) => eprintln!("{} has no previous value to retire.", secret.name),
                     (_, true) => eprintln!("Marked the previous key of {} retired.", secret.name),
                     (_, false) => eprintln!("Revoked the previous key of {} at its provider and retired it.", secret.name),
                 }
                 return Ok(());
+            }
+            if !force && secret.versions().iter().any(|(_, v)| v.state == VersionState::Previous) {
+                provider::check_shares(&ctx.vault, &secret).map_err(retire_error)?;
             }
             let retired = secret.retire_previous(ctx.stamp());
             if retired == 0 {
@@ -360,7 +399,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Provider { secret, connection, set, key_id, none } => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            let mut binding = connect::binding(&ctx, secret.id)?;
+            let mut binding = connect::binding(ctx, secret.id)?;
             if none {
                 binding.provider = None;
                 binding.updated = ctx.stamp();
@@ -368,7 +407,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 eprintln!("{} has no provider now; rotations take a typed or generated value.", secret.name);
                 return Ok(());
             }
-            let connection = connect::find(&ctx, connection.as_deref().unwrap_or_default())?;
+            let connection = connect::find(ctx, connection.as_deref().unwrap_or_default())?;
             let svc = service(&connection.service)?;
             if svc.kind != Kind::Provider {
                 bail!("{} is a deploy target, not a provider; use `dotsafe secret target add`", connection.name);
@@ -400,7 +439,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Target(TargetCmd::Add { secret, connection, name, set }) => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            let connection = connect::find(&ctx, &connection)?;
+            let connection = connect::find(ctx, &connection)?;
             let svc = service(&connection.service)?;
             if svc.kind != Kind::Target {
                 bail!("{} is a provider, not a deploy target; use `dotsafe secret provider`", connection.name);
@@ -411,7 +450,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             if !dotsafe_core::is_valid_var_name(&name) {
                 bail!("invalid variable name {name:?}; pass --as");
             }
-            let mut binding = connect::binding(&ctx, secret.id)?;
+            let mut binding = connect::binding(ctx, secret.id)?;
             let target = Target { connection: connection.id, name: name.clone(), settings, pushed: None, deleted: false, changed: ctx.stamp() };
             binding.targets.insert(Uuid::new_v4(), target);
             ctx.vault.put(Record::Binding(binding))?;
@@ -419,8 +458,8 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Target(TargetCmd::List { secret }) => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            let binding = connect::binding(&ctx, secret.id)?;
-            let names = connection_names(&ctx)?;
+            let binding = connect::binding(ctx, secret.id)?;
+            let names = connection_names(ctx)?;
             let targets: Vec<_> = binding.targets().collect();
             if targets.is_empty() {
                 eprintln!("{} isn't pushed anywhere. Add a target with `dotsafe secret target add`.", secret.name);
@@ -439,7 +478,7 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Target(TargetCmd::Remove { secret, number }) => {
             let secret = find(&ctx.vault.secrets()?, &secret)?.clone();
-            let mut binding = connect::binding(&ctx, secret.id)?;
+            let mut binding = connect::binding(ctx, secret.id)?;
             let ids: Vec<Uuid> = binding.targets().map(|(id, _)| id).collect();
             let Some(id) = number.checked_sub(1).and_then(|i| ids.get(i)) else {
                 bail!("{} has no target {number}; see `dotsafe secret target list {}`", secret.name, secret.name);
@@ -465,18 +504,42 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
         }
         SecretCmd::Queue { rotate, dismiss } => {
             let mut config = crate::load_config()?;
-            let Some(queue) = config.rotation_queue.clone() else {
-                eprintln!("Nothing to rotate. The queue fills when you remove a device with `dotsafe device remove`.");
+            if config.rotation_queue.is_none() && config.share_queue.is_empty() {
+                eprintln!(
+                    "Nothing to rotate. The queue fills when you remove a device with `dotsafe device remove` or revoke a share."
+                );
                 return Ok(());
-            };
+            }
             if dismiss {
                 config.rotation_queue = None;
+                config.share_queue.clear();
                 config.save()?;
                 eprintln!("Cleared the rotation queue.");
                 return Ok(());
             }
             let records = ctx.vault.list()?;
-            let exposed = dotsafe_core::integration::exposed_since(&records, queue.since);
+            // Everything each removed device or revoked share could read.
+            let mut sources: Vec<(String, dotsafe_core::integration::Exposed)> = Vec::new();
+            if let Some(queue) = &config.rotation_queue {
+                sources.push((format!("removing {}", queue.device), dotsafe_core::integration::exposed_since(&records, queue.since)));
+            }
+            for (name, exposed) in crate::share::queued(&records, &config.share_queue) {
+                sources.push((format!("revoking share {name}"), exposed));
+            }
+            let mut exposed = dotsafe_core::integration::Exposed::default();
+            for (_, found) in &sources {
+                for id in &found.secrets {
+                    if !exposed.secrets.contains(id) {
+                        exposed.secrets.push(*id);
+                    }
+                }
+                for variable in &found.variables {
+                    if !exposed.variables.contains(variable) {
+                        exposed.variables.push(variable.clone());
+                    }
+                }
+            }
+            let since = sources.iter().map(|(what, _)| what.as_str()).collect::<Vec<_>>().join(" and ");
             let secrets = Secrets::from_records(&records);
             let with_provider = |id: &Uuid| {
                 records.iter().any(|r| matches!(r, Record::Binding(b) if b.secret == *id && b.provider.is_some()))
@@ -487,11 +550,14 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
                 if queued.is_empty() {
                     eprintln!("No queued secret has a provider; rotate them with `dotsafe secret rotate`.");
                 }
+                let shares = crate::share::bucket();
                 for secret in queued {
-                    match provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, None, false) {
+                    let bucket = shares.as_ref().map(|b| b as &dyn ShareBucket);
+                    match provider::rotate(&ctx.vault, &Client::new(), ctx.device_id, secret.id, None, false, bucket) {
                         Ok(out) if out.promoted => {
                             eprintln!("Rotated {}.", secret.name);
                             report_pushes(&out.pushes);
+                            crate::share::report(&out.shares);
                         }
                         Ok(out) => eprintln!("{}: the new key failed its check and is staged ({}).", secret.name, out.staged.unwrap_or_default()),
                         Err(e) => eprintln!("Couldn't rotate {}: {e}", secret.name),
@@ -501,10 +567,10 @@ pub fn run(cmd: SecretCmd) -> Result<()> {
             }
             let total = exposed.secrets.len() + exposed.variables.len();
             if total == 0 {
-                eprintln!("Everything {} could read has been rotated. Clear the queue with `dotsafe secret queue --dismiss`.", queue.device);
+                eprintln!("Everything that could be read before {since} has been rotated. Clear the queue with `dotsafe secret queue --dismiss`.");
                 return Ok(());
             }
-            eprintln!("{} to rotate since removing {}:", plural(total, "value"), queue.device);
+            eprintln!("{} to rotate since {since}:", plural(total, "value"));
             for id in &exposed.secrets {
                 if let Some(secret) = secrets.get(*id) {
                     let how = if with_provider(id) { "has a provider" } else { "rotate by hand" };

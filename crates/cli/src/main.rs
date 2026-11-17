@@ -11,6 +11,7 @@ mod mcp;
 mod scan;
 mod secrets;
 mod session;
+mod share;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -231,6 +232,9 @@ enum Cmd {
     /// Secrets: link one value into many environments and rotate it in one place
     #[command(subcommand, visible_alias = "secrets")]
     Secret(secrets::SecretCmd),
+    /// Shares: give a machine (CI, a server, a cloud agent) some environments with one token, never the vault key
+    #[command(subcommand, visible_alias = "shares")]
+    Share(share::ShareCmd),
     /// Keep the vault unlocked in memory for agents and `dotsafe run` (cron jobs, scripts), without the desktop app
     Daemon {
         /// Stop after this long, e.g. 8h (default: until stopped)
@@ -275,6 +279,9 @@ enum Cmd {
         /// Run through `dotsafe daemon` even if the vault could be opened here
         #[arg(long)]
         daemon: bool,
+        /// On a machine with a share: use the token in DOTSAFE_SHARE instead of a vault (no license needed here)
+        #[arg(long, conflicts_with = "daemon")]
+        share: bool,
         /// Through the daemon: how long to wait for approval, e.g. 30s or 10m
         #[arg(long, value_parser = session::parse_duration, default_value = "5m")]
         wait: Duration,
@@ -422,12 +429,15 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> Result<ExitCode> {
     // dotsafe is paid: everything but `license` needs one on this machine.
     // `mcp` only relays to the app or `dotsafe daemon`, which need one already.
+    // `run --share` opens no vault: it reads a snapshot sealed by a licensed
+    // device, which counted the share against its license.
     let command = match cli.command {
         Cmd::License(cmd) => {
             license::run(cmd)?;
             return Ok(ExitCode::SUCCESS);
         }
         command @ Cmd::Mcp { .. } => command,
+        command @ Cmd::Run { share: true, .. } => command,
         command => {
             license::require()?;
             command
@@ -455,6 +465,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 Err(Error::Unreachable(location)) => bail!("couldn't reach {location}; changes stay on this machine for now"),
                 Err(e) => return Err(e.into()),
             }
+            share::after_write(&Ctx { vault, device_id: config.device_id, cwd: std::env::current_dir()? });
         }
         Cmd::Backup { to } => {
             let mut config = load_config()?;
@@ -529,6 +540,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 eprintln!("Set {key} in {}.", target.label());
             }
             ctx.vault.put(Record::Environment(target.env))?;
+            share::after_write(&ctx);
         }
         Cmd::Get { key, env } => {
             let ctx = Ctx::open()?;
@@ -568,6 +580,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 }
             }
             ctx.vault.put(Record::Environment(target.env))?;
+            share::after_write(&ctx);
         }
         Cmd::List { env } => {
             let ctx = Ctx::open()?;
@@ -600,6 +613,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             let label = target.label();
             let parent_name = target.env.parent.and_then(|id| ctx.environments().ok()?.into_iter().find(|e| e.id == id).map(|e| e.name));
             ctx.vault.put(Record::Environment(target.env))?;
+            share::after_write(&ctx);
             match parent_name {
                 Some(name) => eprintln!("{label} inherits from {name} now; its own variables override those."),
                 None => eprintln!("{label} doesn't inherit from anything now."),
@@ -632,6 +646,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             let label = target.label();
             ctx.vault.put(Record::Environment(target.env))?;
+            share::after_write(&ctx);
             eprintln!("Imported {imported} {} from {source} into {label}.", if imported == 1 { "variable" } else { "variables" });
             if from.is_none() {
                 eprintln!("You can delete {source} and use `dotsafe run -- <command>` instead.");
@@ -772,6 +787,7 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Disconnect { name } => connect::disconnect(&name)?,
         Cmd::Reconnect { name, token_stdin } => connect::reconnect(&name, token_stdin)?,
         Cmd::Secret(cmd) => secrets::run(cmd)?,
+        Cmd::Share(cmd) => share::run(cmd)?,
         #[cfg(unix)]
         Cmd::Daemon { stop_after, detach, key_from_stdin } => {
             let start = match (detach, key_from_stdin) {
@@ -789,7 +805,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Approve { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
-        Cmd::Run { env, proxy, only, daemon: through_daemon, wait, command } => {
+        Cmd::Run { env, proxy, only, share: true, command, .. } => {
+            let vars = share::machine_vars(env.env.as_deref(), only.as_deref())?;
+            // Only the built-in proxy profiles: custom ones live in the vault.
+            let profiles = if proxy { dotsafe_agent::proxy::profiles(&[]) } else { Vec::new() };
+            return launch(vars, proxy.then_some(profiles), &command, &[share::TOKEN_VAR]);
+        }
+        Cmd::Run { env, proxy, only, daemon: through_daemon, wait, command, .. } => {
             #[cfg(unix)]
             if let Some(code) =
                 daemon::exec_through(env.env.as_deref(), proxy, only.as_deref(), through_daemon, wait, &command)?
@@ -814,28 +836,9 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 }
                 vars.retain(|(k, _)| only.contains(k));
             }
-            let profiles = if proxy { dotsafe_agent::proxy::profiles(&ctx.vault.list()?) } else { Vec::new() };
+            let profiles = if proxy { Some(dotsafe_agent::proxy::profiles(&ctx.vault.list()?)) } else { None };
             drop(ctx);
-            let mut cmd = Command::new(&command[0]);
-            cmd.args(&command[1..]);
-            if !proxy {
-                cmd.envs(vars);
-                return exec(cmd, &command[0]);
-            }
-            // The proxy lives in this process, so wait for the command instead
-            // of replacing ourselves with it.
-            let server = dotsafe_agent::proxy::ProxyServer::start().context("couldn't start the secret proxy")?;
-            let proxied = dotsafe_agent::proxy::apply(&server, vars, &profiles);
-            if proxied.names.is_empty() {
-                eprintln!("dotsafe: no API key with a proxy profile here; running normally.");
-            } else {
-                let (verb, keys) = if proxied.names.len() == 1 { ("goes", "the key") } else { ("go", "the keys") };
-                eprintln!("dotsafe: {} {verb} through a local proxy; the process never has {keys}.", proxied.names.join(", "));
-            }
-            cmd.envs(proxied.env.iter().cloned());
-            let status = cmd.status().with_context(|| format!("couldn't run {}", command[0]))?;
-            drop(proxied);
-            return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8));
+            return launch(vars, profiles, &command, &[]);
         }
         Cmd::Device(DeviceCmd::List) => {
             let ctx = Ctx::open()?;
@@ -1154,6 +1157,40 @@ fn show_recovery_key(recovery: &dotsafe_core::RecoveryKey) {
     println!("{}", recovery.to_display_string());
     eprintln!();
     eprintln!("Store it somewhere safe, offline. It won't be shown again.");
+}
+
+/// Runs `command` with `vars` in its environment, without the variables in
+/// `scrub` (a share token stays out of the command). With proxy profiles,
+/// keys they cover go through a local proxy instead.
+fn launch(
+    vars: Vec<(String, String)>,
+    profiles: Option<Vec<dotsafe_agent::proxy::Profile>>,
+    command: &[String],
+    scrub: &[&str],
+) -> Result<ExitCode> {
+    let mut cmd = Command::new(&command[0]);
+    cmd.args(&command[1..]);
+    for name in scrub {
+        cmd.env_remove(name);
+    }
+    let Some(profiles) = profiles else {
+        cmd.envs(vars);
+        return exec(cmd, &command[0]);
+    };
+    // The proxy lives in this process, so wait for the command instead
+    // of replacing ourselves with it.
+    let server = dotsafe_agent::proxy::ProxyServer::start().context("couldn't start the secret proxy")?;
+    let proxied = dotsafe_agent::proxy::apply(&server, vars, &profiles);
+    if proxied.names.is_empty() {
+        eprintln!("dotsafe: no API key with a proxy profile here; running normally.");
+    } else {
+        let (verb, keys) = if proxied.names.len() == 1 { ("goes", "the key") } else { ("go", "the keys") };
+        eprintln!("dotsafe: {} {verb} through a local proxy; the process never has {keys}.", proxied.names.join(", "));
+    }
+    cmd.envs(proxied.env.iter().cloned());
+    let status = cmd.status().with_context(|| format!("couldn't run {}", command[0]))?;
+    drop(proxied);
+    Ok(ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8))
 }
 
 /// Replaces this process with the command on Unix, so signals and the exit
