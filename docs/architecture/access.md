@@ -1,6 +1,11 @@
 # Access beyond this device
 
-**Status:** proposed, November 2026. Not built. Planned for after launch.
+**Status:** step 1 of the [build order](#build-order) (standing shares, CLI) is built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
+
+- The token carries the path's 16 bytes and the bucket's public URL rather than the whole snapshot URL (shorter, same information).
+- `pushed: { sha256: "" }` records that a share's objects were deleted, so a device that couldn't reach the bucket at revoke or expiry knows to try again.
+- The CLI adds `dotsafe share setup` (name the bucket, check it's public, unlisted and accepts lifecycle rules) and `dotsafe share push` (retry now).
+- The live-share allowance is `share::LIVE_SHARE_LIMIT`, 5 for now, until pricing decides it.
 
 dotsafe decides which secrets a person or agent can use on the user's own devices. This document extends that to machines dotsafe doesn't run on as a full client: CI, servers, cloud VMs and cloud agents. The question is the same everywhere: which secrets, for how long, approved how, logged where, and what happens when access ends.
 
