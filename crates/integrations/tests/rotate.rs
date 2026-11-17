@@ -6,8 +6,9 @@ use std::sync::{Arc, Mutex};
 use dotsafe_core::share::Status;
 use dotsafe_core::{
     Binding, Connection, Environment, FolderStore, KdfParams, Project, ProviderLink, Record, Secret, Share, ShareBucket,
-    ShareEnv, ShareToken, Target, VersionState, Vault,
+    ShareEnv, ShareMode, ShareToken, Target, VersionState, Vault,
 };
+use dotsafe_integrations::approvals::{self, Decision};
 use dotsafe_integrations::{Client, check_settings, rotate, service, shares};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -606,6 +607,20 @@ impl ShareBucket for MemoryBucket {
         *self.rules.lock().unwrap() = rules.to_vec();
         Ok(())
     }
+    fn presign_put(&self, key: &str, _valid_secs: u64) -> dotsafe_core::Result<String> {
+        Ok(format!("https://put.example/{key}"))
+    }
+    fn presign_delete(&self, key: &str, _valid_secs: u64) -> dotsafe_core::Result<String> {
+        Ok(format!("https://delete.example/{key}"))
+    }
+    fn get(&self, key: &str) -> dotsafe_core::Result<Option<Vec<u8>>> {
+        self.check()?;
+        Ok(self.objects.lock().unwrap().get(key).cloned())
+    }
+    fn etag(&self, key: &str) -> dotsafe_core::Result<Option<String>> {
+        self.check()?;
+        Ok(self.objects.lock().unwrap().get(key).map(|b| dotsafe_core::crypto::sha256_hex(b)))
+    }
 }
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -646,7 +661,7 @@ fn creating_a_share_writes_its_first_snapshot_and_expiry_rule() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = vec![ShareEnv { id: env.id, only: None }];
-    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, envs, now_ms() + 30 * DAY_MS, 14).unwrap();
 
     assert_eq!(machine_reads(&bucket, &share, &token), BTreeMap::from([("API_KEY".into(), "old-key".into()), ("PORT".into(), "8080".into())]));
     let rules = bucket.rules.lock().unwrap().clone();
@@ -658,10 +673,10 @@ fn creating_a_share_writes_its_first_snapshot_and_expiry_rule() {
 
     // A typo in --only is caught, not saved as an empty share.
     let narrow = vec![ShareEnv { id: env.id, only: Some(vec!["PROT".into()]) }];
-    let err = shares::create(&s.vault, &bucket, s.device, "typo", narrow, now_ms() + DAY_MS, 14).unwrap_err();
+    let err = shares::create(&s.vault, &bucket, s.device, "typo", ShareMode::Standing, narrow, now_ms() + DAY_MS, 14).unwrap_err();
     assert!(err.to_string().contains("production has no PROT"), "{err}");
     let dup = vec![ShareEnv { id: env.id, only: None }];
-    assert!(shares::create(&s.vault, &bucket, s.device, "ci", dup, now_ms() + DAY_MS, 14).is_err(), "names are unique");
+    assert!(shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, dup, now_ms() + DAY_MS, 14).is_err(), "names are unique");
 }
 
 #[test]
@@ -670,7 +685,7 @@ fn writes_push_shares_that_changed_and_retries_follow_failures() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = vec![ShareEnv { id: env.id, only: None }];
-    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, envs, now_ms() + 30 * DAY_MS, 14).unwrap();
     assert!(shares::sync(&s.vault, &bucket, s.device).unwrap().is_empty(), "nothing changed");
 
     // The bucket is down when the value changes: the share is out of date.
@@ -704,7 +719,7 @@ fn a_day_old_snapshot_is_pushed_again_to_renew_its_lease() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = vec![ShareEnv { id: env.id, only: None }];
-    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, envs, now_ms() + 30 * DAY_MS, 14).unwrap();
     let first = ShareToken::parse(&token).unwrap().open(&bucket.object(&share).unwrap(), None, now_ms()).unwrap();
 
     // A push merges on its time, so a day-old push needs a copy of the vault
@@ -729,7 +744,7 @@ fn rotation_pushes_shares_before_revoking_a_leaked_key() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = vec![ShareEnv { id: env.id, only: None }];
-    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 30 * DAY_MS, 14).unwrap();
+    let (share, token) = shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, envs, now_ms() + 30 * DAY_MS, 14).unwrap();
     let fake = openai_fake(200);
     let client = Client::with_base_for_tests(&fake.url);
 
@@ -746,8 +761,8 @@ fn revoking_deletes_the_snapshot_now_or_on_the_next_sync() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = || vec![ShareEnv { id: env.id, only: None }];
-    let (a, _) = shares::create(&s.vault, &bucket, s.device, "a", envs(), now_ms() + DAY_MS, 14).unwrap();
-    let (b, _) = shares::create(&s.vault, &bucket, s.device, "b", envs(), now_ms() + DAY_MS, 14).unwrap();
+    let (a, _) = shares::create(&s.vault, &bucket, s.device, "a", ShareMode::Standing, envs(), now_ms() + DAY_MS, 14).unwrap();
+    let (b, _) = shares::create(&s.vault, &bucket, s.device, "b", ShareMode::Standing, envs(), now_ms() + DAY_MS, 14).unwrap();
 
     assert_eq!(shares::revoke(&s.vault, Some(&bucket), s.device, a.id).unwrap(), None);
     assert!(bucket.object(&a).is_none());
@@ -775,9 +790,83 @@ fn expired_shares_are_deleted_on_the_next_sync() {
     let env = production(&s);
     let bucket = MemoryBucket::default();
     let envs = vec![ShareEnv { id: env.id, only: None }];
-    let (share, _) = shares::create(&s.vault, &bucket, s.device, "ci", envs, now_ms() + 200, 14).unwrap();
+    let (share, _) = shares::create(&s.vault, &bucket, s.device, "ci", ShareMode::Standing, envs, now_ms() + 200, 14).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(250));
     let results = shares::sync(&s.vault, &bucket, s.device).unwrap();
     assert_eq!(results[0].action, shares::Action::Deleted);
     assert!(bucket.object(&share).is_none());
+}
+
+/// A machine's request, as `dotsafe daemon --share` writes it.
+fn ask(variables: &[&str], expires: u64) -> dotsafe_core::share::Request {
+    dotsafe_core::share::Request {
+        id: Uuid::new_v4(),
+        at: now_ms(),
+        expires,
+        host: "vm-1".into(),
+        client: "agent".into(),
+        kind: "run".into(),
+        command: vec!["./deploy.sh".into()],
+        program_path: "/srv/deploy.sh".into(),
+        cwd: "/srv".into(),
+        environment: "production".into(),
+        variables: variables.iter().map(|v| v.to_string()).collect(),
+        proxied: Vec::new(),
+        files: Vec::new(),
+    }
+}
+
+#[test]
+fn approve_shares_answer_requests_with_values_resolved_now() {
+    let s = setup("openai", &[("project_id", "proj_1")], &[]);
+    let env = production(&s);
+    let bucket = MemoryBucket::default();
+    let envs = vec![ShareEnv { id: env.id, only: Some(vec!["API_KEY".into()]) }];
+    let (share, token) =
+        shares::create(&s.vault, &bucket, s.device, "agent", ShareMode::Approve, envs, now_ms() + DAY_MS, 14).unwrap();
+    let token = ShareToken::parse(&token).unwrap();
+
+    // The mailbox has names and upload URLs, never values, and no snapshot exists.
+    let mailbox = token.open_mailbox(&bucket.object(&share).unwrap(), None, now_ms()).unwrap();
+    assert_eq!(mailbox.environments["production"], ["API_KEY"]);
+    assert!(mailbox.doorbell.ends_with(&share.doorbell_key().unwrap()));
+    assert!(!String::from_utf8_lossy(&bucket.object(&share).unwrap()).contains("old-key"));
+    assert!(bucket.objects.lock().unwrap().keys().all(|k| k.starts_with("m/")));
+
+    // The machine asks in slot 1 (PORT isn't in the share), and a stale request sits in slot 3.
+    let asked = ask(&["API_KEY", "PORT"], now_ms() + 60_000);
+    bucket.put(&share.request_key(1).unwrap(), &token.seal_request(1, &asked).unwrap()).unwrap();
+    let stale = ask(&["API_KEY"], now_ms() - 1);
+    bucket.put(&share.request_key(3).unwrap(), &token.seal_request(3, &stale).unwrap()).unwrap();
+
+    let shares = approvals::approve_shares(&s.vault.list().unwrap(), now_ms());
+    let waiting = approvals::waiting(&s.vault, &bucket, &shares, now_ms()).unwrap();
+    assert_eq!(waiting.len(), 1);
+    assert_eq!((waiting[0].slot, waiting[0].request.id), (1, asked.id));
+    assert!(bucket.get(&share.request_key(3).unwrap()).unwrap().is_none(), "the stale slot is cleared");
+
+    let given = approvals::answer(&s.vault, &bucket, s.device, &waiting[0], Decision::For(3_600_000)).unwrap();
+    assert_eq!(given, ["API_KEY"]);
+    let answer = token.open_answer(1, asked.id, &bucket.get(&share.answer_key(1).unwrap()).unwrap().unwrap()).unwrap();
+    assert!(answer.allowed);
+    assert_eq!(answer.reuse_ms, 3_600_000);
+    assert_eq!(answer.values, BTreeMap::from([("API_KEY".into(), "old-key".into())]));
+    assert!(bucket.get(&share.request_key(1).unwrap()).unwrap().is_none(), "the slot is free again");
+    let logged = &dotsafe_core::audit::recent(&s.vault, 1).unwrap()[0];
+    assert_eq!((logged.actor.as_str(), logged.variables.clone()), ("share:agent", vec!["API_KEY".to_string()]));
+
+    // A denial carries no values.
+    let again = ask(&["API_KEY"], now_ms() + 60_000);
+    bucket.put(&share.request_key(0).unwrap(), &token.seal_request(0, &again).unwrap()).unwrap();
+    let waiting = approvals::waiting(&s.vault, &bucket, &shares, now_ms()).unwrap();
+    approvals::answer(&s.vault, &bucket, s.device, &waiting[0], Decision::Deny).unwrap();
+    let denied = token.open_answer(0, again.id, &bucket.get(&share.answer_key(0).unwrap()).unwrap().unwrap()).unwrap();
+    assert!(!denied.allowed && denied.values.is_empty());
+
+    // Revoking deletes the mailbox, doorbell, requests and answers.
+    bucket.put(&share.doorbell_key().unwrap(), b"ring").unwrap();
+    assert!(approvals::doorbell(&bucket, &share).unwrap().is_some());
+    shares::revoke(&s.vault, Some(&bucket), s.device, share.id).unwrap();
+    assert!(bucket.objects.lock().unwrap().is_empty(), "{:?}", bucket.objects.lock().unwrap().keys());
+    assert!(approvals::answer(&s.vault, &bucket, s.device, &waiting[0], Decision::Once).is_err(), "revoked");
 }

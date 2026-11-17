@@ -150,6 +150,40 @@ impl ShareBucket for S3ShareBucket {
         }
     }
 
+    fn presign_put(&self, key: &str, valid_secs: u64) -> Result<String> {
+        Ok(self.bucket.put_object(Some(&self.credentials), key).sign(Duration::from_secs(valid_secs)).to_string())
+    }
+
+    fn presign_delete(&self, key: &str, valid_secs: u64) -> Result<String> {
+        Ok(self.bucket.delete_object(Some(&self.credentials), key).sign(Duration::from_secs(valid_secs)).to_string())
+    }
+
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        let url = self.bucket.get_object(Some(&self.credentials), key).sign(SIGNATURE_TTL);
+        let mut res = self.agent.get(url.as_str()).call().map_err(|_| self.unreachable())?;
+        match res.status().as_u16() {
+            200 => {
+                let limit = dotsafe_core::share::MAX_MESSAGE_BYTES.max(MAX_SNAPSHOT_BYTES) as u64;
+                Ok(Some(res.body_mut().with_config().limit(limit).read_to_vec().map_err(|_| self.unreachable())?))
+            }
+            404 => Ok(None),
+            status => {
+                let body = res.body_mut().read_to_string().unwrap_or_default();
+                Err(self.failure(status, &body))
+            }
+        }
+    }
+
+    fn etag(&self, key: &str) -> Result<Option<String>> {
+        let url = self.bucket.head_object(Some(&self.credentials), key).sign(SIGNATURE_TTL);
+        let res = self.agent.head(url.as_str()).call().map_err(|_| self.unreachable())?;
+        match res.status().as_u16() {
+            200 => Ok(Some(res.headers().get("etag").and_then(|v| v.to_str().ok()).unwrap_or_default().to_string())),
+            404 => Ok(None),
+            status => Err(self.failure(status, "")),
+        }
+    }
+
     fn set_expiry_rules(&self, rules: &[ExpiryRule]) -> Result<()> {
         let today = now_ms();
         let mut elements: Vec<String> =
@@ -246,6 +280,48 @@ impl Fetcher {
             408 | 429 | 500.. => Err(Error::Unreachable(host)),
             status => Err(Error::Storage(format!("{host} answered {status}"))),
         }
+    }
+
+    /// Approve mode, on the machine: PUTs `bytes` to a presigned URL from
+    /// its mailbox. HTTPS only, no redirects.
+    pub fn put_signed(&self, url: &str, bytes: &[u8]) -> Result<()> {
+        let (parsed, host) = self.check(url)?;
+        let res = self
+            .agent
+            .put(parsed.as_str())
+            .header("content-type", "application/json")
+            .header("cache-control", "no-store")
+            .send(bytes)
+            .map_err(|_| Error::Unreachable(host.clone()))?;
+        signed_outcome(res.status().as_u16(), &host)
+    }
+
+    /// Approve mode, on the machine: DELETEs through a presigned URL.
+    pub fn delete_signed(&self, url: &str) -> Result<()> {
+        let (parsed, host) = self.check(url)?;
+        let res = self.agent.delete(parsed.as_str()).call().map_err(|_| Error::Unreachable(host.clone()))?;
+        signed_outcome(res.status().as_u16(), &host)
+    }
+
+    fn check(&self, url: &str) -> Result<(Url, String)> {
+        let parsed = Url::parse(url).map_err(|_| Error::Invalid("the share's mailbox has a malformed URL".into()))?;
+        if self.https_only && parsed.scheme() != "https" {
+            return Err(Error::Invalid("the share's mailbox URLs must be HTTPS".into()));
+        }
+        let host = parsed.host_str().unwrap_or_default().to_string();
+        Ok((parsed, host))
+    }
+}
+
+fn signed_outcome(status: u16, host: &str) -> Result<()> {
+    match status {
+        200 | 204 | 404 => Ok(()),
+        401 | 403 => Err(Error::Storage(format!(
+            "{host} refused the share's upload URL; it may have expired, so unlock dotsafe on one of your devices to renew it"
+        ))),
+        301..=308 => Err(Error::Storage(format!("{host} redirected the request; dotsafe doesn't follow redirects"))),
+        408 | 429 | 500.. => Err(Error::Unreachable(host.to_string())),
+        status => Err(Error::Storage(format!("{host} answered {status}"))),
     }
 }
 

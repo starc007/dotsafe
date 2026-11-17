@@ -121,7 +121,7 @@ fn create(name: &str, envs: &[String], only: Option<Vec<String>>, ttl: Duration,
         environments.push(ShareEnv { id, only: only.clone() });
     }
     let expires = now_ms().saturating_add(ttl.as_millis() as u64);
-    let (share, token) = flow::create(&ctx.vault, &bucket, ctx.device_id, name, environments, expires, lease_days)?;
+    let (share, token) = flow::create(&ctx.vault, &bucket, ctx.device_id, name, dotsafe_core::ShareMode::Standing, environments, expires, lease_days)?;
     let labels = share.labels(&ctx.vault.list()?)?.join(", ");
     eprintln!("Created share {} for {labels}, until {}.", share.name, local_time(share.expires));
     eprintln!("Give the machine this token as {TOKEN_VAR}. It's shown once and never saved:");

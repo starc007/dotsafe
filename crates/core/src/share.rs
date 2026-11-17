@@ -588,6 +588,17 @@ pub trait ShareBucket: Send + Sync {
     /// Makes `rules` the bucket's dotsafe expiry rules, replacing the ones
     /// set before and keeping any rules of the user's own.
     fn set_expiry_rules(&self, rules: &[ExpiryRule]) -> Result<()>;
+    /// A URL that lets whoever holds it PUT `key`, and nothing else, for
+    /// `valid_secs`. Approve mode's mailbox hands these to the machine,
+    /// which holds no storage key.
+    fn presign_put(&self, key: &str, valid_secs: u64) -> Result<String>;
+    /// The same for DELETE.
+    fn presign_delete(&self, key: &str, valid_secs: u64) -> Result<String>;
+    /// Reads an object through the API, or `None` if there isn't one.
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>>;
+    /// The object's ETag, or `None` if there isn't one. How a device sees a
+    /// doorbell ring without reading anything else.
+    fn etag(&self, key: &str) -> Result<Option<String>>;
 }
 
 /// The expiry rules for `records`' shares: one for each live share, and for

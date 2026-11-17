@@ -251,7 +251,7 @@ pub async fn create_share(state: State<'_, AppState>, share: NewShare) -> CmdRes
     let name = share.name;
     let (created, token) = off_thread(move || {
         let bucket = bucket_of(&config)?.ok_or_else(|| CmdError::other("Set up a share bucket first."))?;
-        Ok(flow::create(&vault, &bucket, device, &name, environments, expires, lease_days)?)
+        Ok(flow::create(&vault, &bucket, device, &name, dotsafe_core::ShareMode::Standing, environments, expires, lease_days)?)
     })
     .await?;
     let preview = preview(&token);
