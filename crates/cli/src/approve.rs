@@ -60,7 +60,7 @@ pub fn run(id: Option<String>, lifetime: Option<String>, deny: bool, list: bool,
         bail!("say what to do with --for once|1h|stop or --deny, or run it in a terminal");
     }
 
-    let signer = if share { Signer::Share(crate::share::token_from_env()?) } else { Signer::Vault(Box::new(open_with_password()?)) };
+    let signer = if share { Signer::Share(crate::share::token_from_env()?) } else { Signer::Vault(Box::new(crate::session::open_with_password()?)) };
     let mut stdin = std::io::stdin().lock();
     let mut failed = 0;
     for p in chosen {
@@ -121,14 +121,4 @@ fn parse(line: &str, p: &PendingInfo) -> Option<String> {
         "a" if repeatable => Some("stop".into()),
         _ => None,
     }
-}
-
-/// Opens the vault with the master password (`DOTSAFE_PASSWORD` or a prompt),
-/// to make answer tags. Never the `dotsafe unlock` cache: a cron job could
-/// use that as easily as this command.
-fn open_with_password() -> Result<Vault> {
-    let config = crate::load_config()?;
-    let password = crate::session::password("Master password: ")?;
-    let store = dotsafe_stores::open(&config).map_err(crate::session::friendly)?;
-    Vault::unlock(store, &password).map_err(crate::session::friendly)
 }

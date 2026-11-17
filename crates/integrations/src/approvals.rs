@@ -111,6 +111,11 @@ pub fn answer(vault: &Vault, bucket: &dyn ShareBucket, device: Uuid, waiting: &W
     Ok(given)
 }
 
+/// This machine's name, for the requests it sends.
+pub fn host_name() -> String {
+    whoami::devicename().unwrap_or_else(|_| "unknown host".into())
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }

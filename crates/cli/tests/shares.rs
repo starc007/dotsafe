@@ -63,6 +63,10 @@ fn serve(bucket: Arc<Bucket>) -> String {
                     bucket.objects.lock().unwrap().insert(key, (body, cache.unwrap_or_default()));
                     tiny_http::Response::from_string("")
                 }
+                ("GET", false) => match bucket.objects.lock().unwrap().get(&key) {
+                    Some((bytes, _)) => tiny_http::Response::from_data(bytes.clone()),
+                    None => tiny_http::Response::from_string("<Code>NoSuchKey</Code>").with_status_code(404),
+                },
                 ("DELETE", false) => {
                     bucket.objects.lock().unwrap().remove(&key);
                     tiny_http::Response::from_string("").with_status_code(204)
@@ -361,4 +365,56 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+#[test]
+fn approve_shares_are_answered_with_the_master_password() {
+    use dotsafe_core::share::Request;
+
+    let (root, m, project, bucket) = setup();
+    let token = stdout(&m.ok(&project, &["share", "create", "agent", "-e", "production", "--approve"])).trim().to_string();
+    let token = dotsafe_core::ShareToken::parse(&token).unwrap();
+    assert!(bucket.snapshots().iter().all(|k| k.starts_with("m/")), "a mailbox, no snapshot: {:?}", bucket.snapshots());
+    assert!(stdout(&m.ok(&project, &["share", "list"])).contains("(approve)"));
+
+    let out = m.ok(&project, &["share", "approve", "--list"]);
+    assert!(stderr(&out).contains("Nothing is waiting"), "{}", stderr(&out));
+
+    // A machine's request, as `dotsafe run --share` writes it into slot 0.
+    let key = |url: String| url.trim_start_matches(PUBLIC_URL).trim_start_matches('/').to_string();
+    let request = Request {
+        id: uuid::Uuid::new_v4(),
+        at: 1,
+        expires: u64::MAX,
+        host: "ci-runner".into(),
+        client: "dotsafe run".into(),
+        kind: "exec".into(),
+        command: vec!["./deploy.sh".into()],
+        program_path: "/srv/deploy.sh".into(),
+        cwd: "/srv".into(),
+        environment: "production".into(),
+        variables: vec!["STRIPE_KEY".into()],
+        proxied: Vec::new(),
+        files: Vec::new(),
+    };
+    bucket.objects.lock().unwrap().insert(key(token.request_url(0)), (token.seal_request(0, &request).unwrap(), String::new()));
+
+    let out = m.ok(&project, &["share", "approve", "--list"]);
+    assert!(stdout(&out).contains("agent\tci-runner\tdotsafe run wants to run ./deploy.sh with STRIPE_KEY"), "{}", stdout(&out));
+    // Without a terminal, it needs to be told what to do.
+    let out = m.run(&project, &["share", "approve"]);
+    assert!(stderr(&out).contains("--for once|1h or --deny"), "{}", stderr(&out));
+
+    let out = m.ok(&project, &["share", "approve", "--for", "once"]);
+    assert!(stderr(&out).contains("Allowed, with STRIPE_KEY"), "{}", stderr(&out));
+    let answer = bucket.objects.lock().unwrap().get(&key(token.answer_url(0))).cloned().unwrap().0;
+    let answer = token.open_answer(0, request.id, &answer).unwrap();
+    assert!(answer.allowed);
+    assert_eq!(answer.values["STRIPE_KEY"], "sk_live_1");
+    assert!(!bucket.objects.lock().unwrap().contains_key(&key(token.request_url(0))), "the slot is free again");
+
+    // The unlock cache never approves: the master password is asked each time.
+    let out = m.cmd(&project, &["share", "approve", "--list"]).env_remove("DOTSAFE_PASSWORD").output().unwrap();
+    assert!(!out.status.success());
+    let _ = root;
 }

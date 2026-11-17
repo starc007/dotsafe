@@ -629,20 +629,34 @@ impl Snapshot {
     /// The variables of the environment named `env` (its label, or the part
     /// after `project/` when that's unambiguous), or of the only one.
     pub fn environment(&self, env: Option<&str>) -> Result<(&str, &BTreeMap<String, String>)> {
-        let names = || self.environments.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
-        let found: Vec<_> = match env {
-            None if self.environments.len() == 1 => self.environments.iter().collect(),
-            None => return Err(Error::Invalid(format!("this share has several environments; pick one with -e: {}", names()))),
-            Some(env) => match self.environments.get_key_value(env) {
-                Some(exact) => vec![exact],
-                None => self.environments.iter().filter(|(k, _)| k.rsplit_once('/').is_some_and(|(_, n)| n == env)).collect(),
-            },
-        };
-        match found.as_slice() {
-            [(name, vars)] => Ok((name.as_str(), vars)),
-            [] => Err(Error::Invalid(format!("this share has no {} environment; it has {}", env.unwrap_or("such"), names()))),
-            _ => Err(Error::Invalid(format!("{} is ambiguous; use project/{0}", env.unwrap_or("")))),
-        }
+        pick_environment(&self.environments, env)
+    }
+}
+
+impl Mailbox {
+    /// The variable names of the environment named `env`, picked as
+    /// [`Snapshot::environment`] picks one.
+    pub fn environment(&self, env: Option<&str>) -> Result<(&str, &Vec<String>)> {
+        pick_environment(&self.environments, env)
+    }
+}
+
+/// The environment named `env` among a share's labels: an exact label, the
+/// part after `project/` when that's unambiguous, or the only one.
+pub fn pick_environment<'a, V>(environments: &'a BTreeMap<String, V>, env: Option<&str>) -> Result<(&'a str, &'a V)> {
+    let names = || environments.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
+    let found: Vec<_> = match env {
+        None if environments.len() == 1 => environments.iter().collect(),
+        None => return Err(Error::Invalid(format!("this share has several environments; pick one with -e: {}", names()))),
+        Some(env) => match environments.get_key_value(env) {
+            Some(exact) => vec![exact],
+            None => environments.iter().filter(|(k, _)| k.rsplit_once('/').is_some_and(|(_, n)| n == env)).collect(),
+        },
+    };
+    match found.as_slice() {
+        [(name, value)] => Ok((name.as_str(), value)),
+        [] => Err(Error::Invalid(format!("this share has no {} environment; it has {}", env.unwrap_or("such"), names()))),
+        _ => Err(Error::Invalid(format!("{} is ambiguous; use project/{0}", env.unwrap_or("")))),
     }
 }
 

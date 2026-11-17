@@ -81,6 +81,17 @@ fn entry(config: &Config) -> Result<keyring::Entry> {
 }
 
 /// Reads a password from `DOTSAFE_PASSWORD` (for CI and scripts) or the terminal.
+/// Opens the vault with the master password (`DOTSAFE_PASSWORD` or a
+/// prompt), for approving what runs elsewhere (`dotsafe approve`, `dotsafe
+/// share approve`). Never the `dotsafe unlock` cache: a cron job or agent on
+/// this machine could use that as easily as the person.
+pub fn open_with_password() -> Result<Vault> {
+    let config = crate::load_config()?;
+    let password = password("Master password: ")?;
+    let store = dotsafe_stores::open(&config).map_err(friendly)?;
+    Vault::unlock(store, &password).map_err(friendly)
+}
+
 pub fn password(prompt: &str) -> Result<Zeroizing<String>> {
     if let Ok(pw) = std::env::var("DOTSAFE_PASSWORD") {
         return Ok(Zeroizing::new(pw));
