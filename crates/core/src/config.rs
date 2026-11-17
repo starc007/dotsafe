@@ -47,6 +47,41 @@ pub struct Config {
     /// chooses. Unset means [`DEFAULT_AUTO_LOCK_MINUTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_lock_minutes: Option<u32>,
+    /// Where this machine writes share snapshots. Its write key is in the
+    /// OS keychain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_bucket: Option<ShareBucketLocation>,
+    /// Shares revoked from this machine whose values should be rotated, like
+    /// [`Config::rotation_queue`] for a removed device. See
+    /// [`crate::Share::exposed`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub share_queue: Vec<Uuid>,
+}
+
+/// The share bucket: an S3-compatible bucket, public-read with listing off,
+/// that holds share snapshots. Separate from the vault's storage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShareBucketLocation {
+    /// The S3 API endpoint devices write through, e.g.
+    /// `https://<account>.r2.cloudflarestorage.com`.
+    pub endpoint: String,
+    /// `auto` for R2.
+    pub region: String,
+    pub bucket: String,
+    /// Where machines read it, `https://` only: an R2 custom domain, or the
+    /// bucket's S3 website or virtual-host address.
+    pub public_url: String,
+}
+
+impl ShareBucketLocation {
+    pub fn describe(&self) -> String {
+        format!("s3://{} ({})", self.bucket, self.public_url)
+    }
+
+    /// A stable name for this bucket, for keychain entries.
+    pub fn id(&self) -> String {
+        format!("share|{}|{}", self.endpoint.trim_end_matches('/'), self.bucket)
+    }
 }
 
 /// How long the app waits, idle, before locking, unless changed in Settings.
@@ -83,7 +118,9 @@ impl Config {
     pub fn for_vault(vault_path: PathBuf) -> Config {
         match Config::load() {
             // A queue belongs to the vault it was made for.
-            Ok(Some(existing)) => Config { vault_path, s3: None, webdav: None, rotation_queue: None, ..existing },
+            Ok(Some(existing)) => {
+                Config { vault_path, s3: None, webdav: None, rotation_queue: None, share_queue: Vec::new(), ..existing }
+            }
             _ => Config {
                 vault_path,
                 s3: None,
@@ -96,6 +133,8 @@ impl Config {
                 backup_dir: None,
                 last_backup: None,
                 auto_lock_minutes: None,
+                share_bucket: None,
+                share_queue: Vec::new(),
             },
         }
     }

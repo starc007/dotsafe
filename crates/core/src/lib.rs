@@ -20,7 +20,7 @@ pub mod share;
 pub mod store;
 pub mod vault;
 
-pub use config::{Config, DEFAULT_AUTO_LOCK_MINUTES, RotationQueue, S3Location, WebDavLocation};
+pub use config::{Config, DEFAULT_AUTO_LOCK_MINUTES, RotationQueue, S3Location, ShareBucketLocation, WebDavLocation};
 pub use crypto::KdfParams;
 pub use error::{Error, Result};
 pub use header::{DeviceInfo, DeviceKey, EnrollmentCode, RecoveryKey};

@@ -3,13 +3,15 @@
 //! machine's [`Config`], so the app and the CLI do it the same way.
 
 mod s3;
+pub mod share;
 mod webdav;
 
-use dotsafe_core::{CachedStore, Config, Error, FolderStore, Result, S3Location, Store, WebDavLocation};
+use dotsafe_core::{CachedStore, Config, Error, FolderStore, Result, S3Location, ShareBucketLocation, Store, WebDavLocation};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 pub use s3::{S3Credentials, S3Store};
+pub use share::{Fetcher, S3ShareBucket};
 pub use webdav::WebDavStore;
 
 const KEYCHAIN_SERVICE: &str = "app.dotsafe.storage";
@@ -100,4 +102,44 @@ pub fn save_webdav_password(webdav: &WebDavLocation, password: &str) -> Result<(
     keychain(&webdav.id())?
         .set_password(password)
         .map_err(|e| Error::Storage(format!("couldn't save to the OS keychain: {e}")))
+}
+
+/// The write key for a share bucket: from `DOTSAFE_SHARE_BUCKET_ACCESS_KEY_ID`
+/// and `DOTSAFE_SHARE_BUCKET_SECRET_ACCESS_KEY` if set (scripts), otherwise
+/// from the OS keychain. Kept apart from the vault's own storage key.
+pub fn share_credentials(location: &ShareBucketLocation) -> Result<Option<S3Credentials>> {
+    if let (Ok(id), Ok(secret)) =
+        (std::env::var("DOTSAFE_SHARE_BUCKET_ACCESS_KEY_ID"), std::env::var("DOTSAFE_SHARE_BUCKET_SECRET_ACCESS_KEY"))
+    {
+        return Ok(Some(S3Credentials { access_key_id: id, secret_access_key: Zeroizing::new(secret) }));
+    }
+    let secret = match keychain(&location.id())?.get_secret() {
+        Ok(secret) => Zeroizing::new(secret),
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(e) => return Err(Error::Storage(format!("couldn't read the OS keychain: {e}"))),
+    };
+    let saved: Saved = serde_json::from_slice(&secret)?;
+    Ok(Some(S3Credentials { access_key_id: saved.access_key_id, secret_access_key: saved.secret_access_key }))
+}
+
+/// Saves a share bucket's write key in the OS keychain.
+pub fn save_share_credentials(location: &ShareBucketLocation, credentials: &S3Credentials) -> Result<()> {
+    let saved = Saved {
+        access_key_id: credentials.access_key_id.clone(),
+        secret_access_key: credentials.secret_access_key.clone(),
+    };
+    let blob = Zeroizing::new(serde_json::to_vec(&saved)?);
+    keychain(&location.id())?
+        .set_secret(&blob)
+        .map_err(|e| Error::Storage(format!("couldn't save to the OS keychain: {e}")))
+}
+
+/// The share bucket this machine writes to, if one is set up and its key is
+/// available.
+pub fn share_bucket(config: &Config) -> Result<Option<S3ShareBucket>> {
+    let Some(location) = &config.share_bucket else { return Ok(None) };
+    let credentials = share_credentials(location)?.ok_or_else(|| {
+        Error::Storage(format!("no access key saved for {}; run `dotsafe share setup` again", location.describe()))
+    })?;
+    Ok(Some(S3ShareBucket::new(location, &credentials)?))
 }
