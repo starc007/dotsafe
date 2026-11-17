@@ -65,6 +65,8 @@ Give a machine (CI, a server, a cloud agent) some environments with one token, n
 | `dotsafe share push` | Push shares that are out of date now (writes do it on their own) |
 | `dotsafe share revoke <name>` | Delete the snapshot and add what it could read to the rotation queue |
 | `dotsafe run --share [-e env] -- <command>` | On the machine: run with the share in `DOTSAFE_SHARE`. No vault or license needed there |
+| `dotsafe daemon --share [--unattended] [--detach]` | On the machine: serve agents from the share, read-only. `--unattended` runs their commands without asking |
+| `dotsafe approve --share` | Answer requests waiting in `dotsafe daemon --share`, with the token in `DOTSAFE_SHARE` |
 
 There's no limit on how many shares you create. Only the device that creates one needs a license.
 
@@ -106,7 +108,7 @@ There's no limit on how many shares you create. Only the device that creates one
 | `DOTSAFE_S3_ACCESS_KEY_ID`, `DOTSAFE_S3_SECRET_ACCESS_KEY` | Bucket credentials, instead of the keychain |
 | `DOTSAFE_WEBDAV_PASSWORD` | The WebDAV password, instead of asking |
 | `DOTSAFE_SHARE_BUCKET_ACCESS_KEY_ID`, `DOTSAFE_SHARE_BUCKET_SECRET_ACCESS_KEY` | The share bucket's write key, instead of the keychain |
-| `DOTSAFE_SHARE` | A share's token, for `dotsafe run --share` on a machine. It's kept out of the command's environment |
+| `DOTSAFE_SHARE` | A share's token, for `dotsafe run --share`, `daemon --share` and `approve --share` on a machine. It's kept out of the command's environment |
 | `DOTSAFE_CONFIG_DIR` | Use another config folder, for testing |
 
 > [!WARNING]

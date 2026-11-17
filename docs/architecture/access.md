@@ -1,12 +1,14 @@
 # Access beyond this device
 
-**Status:** steps 1 and 2 of the [build order](#build-order) (standing shares in the CLI and the app) are built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
+**Status:** steps 1 to 3 of the [build order](#build-order) (standing shares in the CLI and the app, and `dotsafe daemon --share` for unattended agents) are built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
 
 - The token carries the path's 16 bytes and the bucket's public URL rather than the whole snapshot URL (shorter, same information).
 - `pushed: { sha256: "" }` records that a share's objects were deleted, so a device that couldn't reach the bucket at revoke or expiry knows to try again.
 - The CLI adds `dotsafe share setup` (name the bucket, check it's public, unlisted and accepts lifecycle rules) and `dotsafe share push` (retry now).
 - There's no limit on the number of shares; [licensing](#licensing) is only that the creating device is licensed.
 - The app pushes shares a few seconds after the vault changes (an edit there, the CLI, or a sync from another device) and checks hourly to renew leases, instead of hooking each write. It never shows the token: the dialog shows its start and end and copies it in Rust.
+- `dotsafe daemon --share` is the shared broker with a share's snapshot as its source (`broker::Host::share`). It fetches the snapshot when it starts, again before each run, and for listing once it's 30 seconds old. If the bucket can't be reached it keeps using the last copy while that's within its expiry and lease; a missing snapshot (revoked or expired) ends it. It's read-only: `generate_secret` is refused. Only the built-in proxy profiles apply, as with `run --share`, since custom ones live in the vault.
+- Approvals there work as in the plain daemon (its terminal, 5 minute wait), plus `dotsafe approve --share`, which tags answers with a key derived from the share key (HKDF, `dotsafe/v6/share-approve`) instead of the vault key. Whoever holds the token can already read every value in the share, and the commands the daemon runs never get it. `--unattended` allows every request the refusal list lets through, for when nobody is there. Requests are logged, names only, in the daemon's output (`daemon.log` when detached), since there's no vault to write to. `--detach` hands the token to the background copy on a pipe, not in its environment.
 
 dotsafe decides which secrets a person or agent can use on the user's own devices. This document extends that to machines dotsafe doesn't run on as a full client: CI, servers, cloud VMs and cloud agents. The question is the same everywhere: which secrets, for how long, approved how, logged where, and what happens when access ends.
 

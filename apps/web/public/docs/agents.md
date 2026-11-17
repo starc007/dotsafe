@@ -75,10 +75,27 @@ dotsafe proxy remove Mistral
 
 Profiles are stored in the vault, never in a file in your repo, so an agent can't point a key at a server of its own.
 
+## Agents on a cloud machine
+
+An agent on a cloud VM, working while you're away, can use a share instead of your vault. Create one on your Mac with only what the agent needs, then start the daemon on the machine with its token:
+
+```bash
+dotsafe share create agent -e development --only OPENAI_API_KEY,DATABASE_URL --for 7d   # on your Mac
+DOTSAFE_SHARE=dss_… dotsafe daemon --share --unattended --detach                       # on the machine
+```
+
+The agent connects with `dotsafe mcp` as usual. It sees the share's variable names, OpenAI and Anthropic keys go through the proxy, and output is redacted. The machine needs no vault, password or license, and generating secrets is refused, because a share can't be changed there.
+
+- **`--unattended`** runs every command the agent asks for, without asking anyone. Commands that would just print values are still refused. Leave it off to approve in the daemon's terminal, or from another one with `dotsafe approve --share`, which reads the same token.
+- **Give the token to the daemon only,** never to the agent's own environment. The commands the daemon runs never get it.
+- **Each run fetches the snapshot again,** so a rotated key reaches the agent at once. Revoking the share on your Mac stops the daemon serving it.
+
 ## Limits
 
 > [!WARNING]
 > A command you approve holds its secrets in its environment, and can do what it likes with them. Redaction catches accidents, like a stack trace that prints a key, not a command written to get around it. Read what you approve, and keep grants short. Keys behind the proxy are the exception: the process never has them.
+
+With a share, the daemon holds every value in it, and so can anyone with root on that machine. With `--unattended`, the share's variables are the only limit, so keep the list short and the share brief. Its requests are logged in the daemon's output (`daemon.log` when detached), not in your vault's audit log.
 
 ## Audit log
 
