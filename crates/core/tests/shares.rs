@@ -6,7 +6,7 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use dotsafe_core::share::{self, Status};
+use dotsafe_core::share::{self, Answer, MailboxUrls, Request, SLOTS, SlotUrls, Status};
 use dotsafe_core::{
     Environment, Error, FolderStore, KdfParams, Project, Pushed, Record, Secret, Share, ShareEnv, ShareMode, ShareToken,
     Vault,
@@ -360,4 +360,103 @@ fn live_and_uncleaned_shares_get_expiry_rules() {
     let ids: Vec<Uuid> = rules.iter().map(|r| r.share).collect();
     assert!(ids.contains(&live.id) && ids.contains(&revoked_not_cleaned.id) && ids.len() == 2, "{ids:?}");
     assert!(rules.iter().all(|r| r.prefix.starts_with("s/") && r.prefix.len() == 34));
+}
+
+fn approve(s: &Setup, envs: Vec<ShareEnv>) -> Share {
+    Share::new("agent", ShareMode::Approve, envs, now() + DAY, 14, s.device, s.vault.stamp(s.device)).unwrap()
+}
+
+fn urls() -> MailboxUrls {
+    let slot = |i: u8| SlotUrls { request: format!("https://up.example/q/{i}"), answer_delete: format!("https://up.example/a/{i}") };
+    MailboxUrls { doorbell: "https://up.example/doorbell".into(), slots: (0..SLOTS).map(slot).collect() }
+}
+
+fn request(environment: &str, variables: &[&str]) -> Request {
+    Request {
+        id: Uuid::new_v4(),
+        at: now(),
+        expires: now() + 300_000,
+        host: "vm-1".into(),
+        client: "agent".into(),
+        kind: "run".into(),
+        command: vec!["./deploy.sh".into()],
+        program_path: "/srv/deploy.sh".into(),
+        cwd: "/srv".into(),
+        environment: environment.into(),
+        variables: variables.iter().map(|v| v.to_string()).collect(),
+        proxied: Vec::new(),
+        files: Vec::new(),
+    }
+}
+
+#[test]
+fn approve_shares_keep_a_mailbox_of_names_under_their_own_prefix() {
+    let s = setup();
+    let only = ShareEnv { id: s.production.id, only: Some(vec!["DB_URL".into()]) };
+    let share = approve(&s, vec![only]);
+    let records = s.vault.list().unwrap();
+    assert!(share.object_key().unwrap().starts_with("m/") && share.object_key().unwrap().ends_with("/mailbox"));
+    assert!(share.request_key(1).unwrap().starts_with(&share.prefix().unwrap()));
+    let rules = share::expiry_rules(&[records.clone(), vec![Record::Share(share.clone())]].concat(), now()).unwrap();
+    assert!(rules.iter().any(|r| r.share == share.id && r.prefix == share.prefix().unwrap()), "approve shares expire too");
+
+    let contents = share.contents(&records).unwrap();
+    let sealed = share.seal_mailbox(s.vault.id(), &contents, urls(), s.vault.stamp(s.device), now()).unwrap();
+    assert!(!String::from_utf8_lossy(&sealed).contains("hunter2"));
+    let token = ShareToken::parse(&share.token(s.vault.id(), URL).unwrap()).unwrap();
+    assert!(token.mailbox_url().ends_with("/mailbox") && token.mailbox_url().starts_with(URL));
+    let mailbox = token.open_mailbox(&sealed, None, now()).unwrap();
+    // `only` applies, and only names are listed.
+    assert_eq!(mailbox.environments["production"], ["DB_URL"]);
+    assert_eq!(mailbox.slots.len(), usize::from(SLOTS));
+    assert!(mailbox.lease_until <= now() + 6 * DAY, "always before the URLs expire");
+
+    // The digest counts names, so a changed value doesn't need a new mailbox.
+    let before = share.digest(&contents);
+    let mut production = s.production.clone();
+    production.set("DB_PASS", "rotated", s.vault.stamp(s.device));
+    s.vault.put(Record::Environment(production)).unwrap();
+    assert_eq!(share.digest(&share.contents(&s.vault.list().unwrap()).unwrap()), before);
+
+    // Snapshot-style checks: rolled back, expired or past the lease.
+    let later = s.vault.stamp(s.device);
+    assert!(token.open_mailbox(&sealed, Some(later), now()).is_err());
+    assert!(token.open_mailbox(&sealed, None, now() + 7 * DAY).is_err());
+    let standing_share = standing(&s, vec![whole(&s.production)], now() + DAY);
+    assert!(standing_share.seal_mailbox(s.vault.id(), &contents, urls(), later, now()).is_err());
+}
+
+#[test]
+fn requests_and_answers_are_bound_to_their_slot_and_request() {
+    let s = setup();
+    let share = approve(&s, vec![whole(&s.production)]);
+    let token = ShareToken::parse(&share.token(s.vault.id(), URL).unwrap()).unwrap();
+    let records = s.vault.list().unwrap();
+
+    let asked = request("production", &["DB_URL", "PORT", "NOT_IN_SHARE"]);
+    let sealed = token.seal_request(2, &asked).unwrap();
+    assert_eq!(share.open_request(s.vault.id(), 2, &sealed).unwrap(), asked);
+    assert!(matches!(share.open_request(s.vault.id(), 1, &sealed), Err(Error::MessageTampered)), "moved to another slot");
+    let other = approve(&s, vec![whole(&s.production)]);
+    assert!(other.open_request(s.vault.id(), 2, &sealed).is_err(), "another share's key");
+    let mut flipped: Value = serde_json::from_slice(&sealed).unwrap();
+    let mut bytes = STANDARD.decode(flipped["sealed"]["ct"].as_str().unwrap()).unwrap();
+    bytes[10] ^= 1;
+    flipped["sealed"]["ct"] = STANDARD.encode(&bytes).into();
+    let tampered = serde_json::to_vec(&flipped).unwrap();
+    assert!(matches!(share.open_request(s.vault.id(), 2, &tampered), Err(Error::MessageTampered)));
+
+    // Only what the share gives, resolved now.
+    let values = share.values_for(&records, &asked).unwrap();
+    assert_eq!(values.keys().collect::<Vec<_>>(), ["DB_URL", "PORT"]);
+    assert_eq!(values["DB_URL"], "postgres://app:hunter2@db.internal/app");
+    assert!(share.values_for(&records, &request("staging", &["PORT"])).is_err(), "not in this share");
+
+    let answer = Answer { id: asked.id, allowed: true, reuse_ms: 0, values: values.clone(), at: now() };
+    let sealed_answer = share.seal_answer(s.vault.id(), 2, &answer).unwrap();
+    assert_eq!(token.open_answer(2, asked.id, &sealed_answer).unwrap().values, values);
+    assert!(matches!(token.open_answer(2, Uuid::new_v4(), &sealed_answer), Err(Error::MessageTampered)), "another request");
+    assert!(matches!(token.open_answer(3, asked.id, &sealed_answer), Err(Error::MessageTampered)), "another slot");
+    // A request can't be passed off as an answer, nor a mailbox as a request.
+    assert!(token.open_answer(2, asked.id, &sealed).is_err());
 }

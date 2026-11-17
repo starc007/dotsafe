@@ -43,6 +43,27 @@ const SNAPSHOT_LABEL: &[u8] = b"dotsafe/v6/share-snapshot";
 /// HKDF info for the key `dotsafe approve --share` signs answers with.
 const APPROVAL_LABEL: &[u8] = b"dotsafe/v6/share-approve";
 
+/// Approve mode's objects: a mailbox the user's devices write, requests the
+/// machine writes into slots, and answers the devices write back. Each kind
+/// has its own subkey and AAD label, so one can't be passed off as another.
+const MAILBOX_FORMAT: &str = "dotsafe-share-mailbox";
+const REQUEST_FORMAT: &str = "dotsafe-share-request";
+const ANSWER_FORMAT: &str = "dotsafe-share-answer";
+const MAILBOX_LABEL: &[u8] = b"dotsafe/v6/share-mailbox";
+const REQUEST_LABEL: &[u8] = b"dotsafe/v6/share-request";
+const ANSWER_LABEL: &[u8] = b"dotsafe/v6/share-answer";
+const MESSAGE_VERSION: u32 = 1;
+/// Requests a machine can have waiting at once.
+pub const SLOTS: u8 = 4;
+/// How long the mailbox's upload URLs are signed for: the most S3 and R2
+/// allow.
+pub const MAILBOX_URL_SECS: u64 = 7 * 24 * 60 * 60;
+/// A mailbox stops being valid a day before its URLs do, so a machine
+/// never tries an expired one.
+const MAILBOX_DAYS: u64 = 6;
+/// The largest request or answer either side reads.
+pub const MAX_MESSAGE_BYTES: usize = 256 * 1024;
+
 const TOKEN_PREFIX: &str = "dss_";
 const TOKEN_VERSION: u8 = 1;
 /// Random bits in a share's object path.
@@ -57,8 +78,9 @@ pub enum ShareMode {
     /// The snapshot is always in the bucket, until the share expires or is
     /// revoked. For CI, servers and agents working while the user is away.
     Standing,
-    /// No standing snapshot: each run is approved on the user's Mac. Not
-    /// built yet; the record kind already holds it.
+    /// No standing snapshot: the machine asks for each run through a
+    /// mailbox in the bucket, and one of the user's devices answers with
+    /// the values approved for it. See [`Mailbox`].
     Approve,
 }
 
@@ -185,14 +207,36 @@ impl Share {
         self.pushed.as_ref().is_some_and(|p| !p.sha256.is_empty())
     }
 
-    /// The snapshot's key in the share bucket.
+    /// The object that stays in the bucket while the share is live: the
+    /// snapshot, or in approve mode the mailbox.
     pub fn object_key(&self) -> Result<String> {
-        Ok(format!("s/{}", hex(&self.path_bytes()?)))
+        match self.mode {
+            ShareMode::Standing => Ok(format!("s/{}", hex(&self.path_bytes()?))),
+            ShareMode::Approve => Ok(format!("{}mailbox", self.prefix()?)),
+        }
     }
 
     /// Everything under this share in the bucket, for its expiry rule.
     pub fn prefix(&self) -> Result<String> {
-        self.object_key()
+        match self.mode {
+            ShareMode::Standing => self.object_key(),
+            ShareMode::Approve => Ok(format!("m/{}/", hex(&self.path_bytes()?))),
+        }
+    }
+
+    /// Approve mode: the object a machine overwrites after writing a request.
+    pub fn doorbell_key(&self) -> Result<String> {
+        Ok(format!("{}doorbell", self.prefix()?))
+    }
+
+    /// Approve mode: where a machine writes the request in `slot`.
+    pub fn request_key(&self, slot: u8) -> Result<String> {
+        Ok(format!("{}q/{slot}", self.prefix()?))
+    }
+
+    /// Approve mode: where a device writes the answer to the request in `slot`.
+    pub fn answer_key(&self, slot: u8) -> Result<String> {
+        Ok(format!("{}a/{slot}", self.prefix()?))
     }
 
     fn path_bytes(&self) -> Result<[u8; PATH_LEN]> {
@@ -273,18 +317,86 @@ impl Share {
         Ok(Contents(out))
     }
 
-    /// The hash recorded in `pushed` for a snapshot of `contents`.
+    /// The hash recorded in `pushed` for a snapshot of `contents`. A
+    /// mailbox holds names only, so in approve mode only names count.
     pub fn digest(&self, contents: &Contents) -> String {
         #[derive(Serialize)]
         struct Digested<'a> {
             expires: u64,
             environments: &'a BTreeMap<String, BTreeMap<String, String>>,
         }
-        let json = Zeroizing::new(
-            serde_json::to_vec(&Digested { expires: self.expires, environments: &contents.0 })
-                .expect("maps of strings serialize"),
-        );
-        crypto::sha256_hex(&json)
+        #[derive(Serialize)]
+        struct Named {
+            expires: u64,
+            names: BTreeMap<String, Vec<String>>,
+        }
+        let json = match self.mode {
+            ShareMode::Standing => serde_json::to_vec(&Digested { expires: self.expires, environments: &contents.0 }),
+            ShareMode::Approve => serde_json::to_vec(&Named { expires: self.expires, names: contents.names() }),
+        };
+        crypto::sha256_hex(&Zeroizing::new(json.expect("maps of strings serialize")))
+    }
+
+    /// When a mailbox written at `now` stops being valid: at the end of its
+    /// lease, and always before its upload URLs expire.
+    pub fn mailbox_lease_until(&self, now: u64) -> u64 {
+        self.lease_until(now).min(now.saturating_add(MAILBOX_DAYS * DAY_MS))
+    }
+
+    /// The sealed mailbox of a share in approve mode: the names in
+    /// `contents` (never values) and the upload URLs in `urls`.
+    pub fn seal_mailbox(
+        &self,
+        vault_id: Uuid,
+        contents: &Contents,
+        urls: MailboxUrls,
+        stamp: Stamp,
+        now: u64,
+    ) -> Result<Vec<u8>> {
+        if self.mode != ShareMode::Approve {
+            return Err(Error::Invalid(format!("share {} isn't in approve mode", self.name)));
+        }
+        if urls.slots.len() != usize::from(SLOTS) {
+            return Err(Error::Invalid(format!("a mailbox has {SLOTS} slots")));
+        }
+        let mailbox = Mailbox {
+            stamp,
+            expires: self.expires,
+            lease_until: self.mailbox_lease_until(now),
+            environments: contents.names(),
+            doorbell: urls.doorbell,
+            slots: urls.slots,
+        };
+        let plaintext = crate::vault::padded(serde_json::to_vec(&mailbox)?);
+        let aad = message_aad(MAILBOX_LABEL, vault_id, self.id, &[]);
+        seal_file(&self.key.0, MAILBOX_FORMAT, MAILBOX_LABEL, &plaintext, &aad)
+    }
+
+    /// Opens the request a machine wrote into `slot`. Refuses one that
+    /// fails authentication or was sealed for another slot or share.
+    pub fn open_request(&self, vault_id: Uuid, slot: u8, bytes: &[u8]) -> Result<Request> {
+        let aad = message_aad(REQUEST_LABEL, vault_id, self.id, &[slot]);
+        let plaintext = open_file(&self.key.0, REQUEST_FORMAT, REQUEST_LABEL, bytes, &aad)?;
+        Ok(serde_json::from_slice(&plaintext)?)
+    }
+
+    /// The sealed answer to the request in `slot`, bound to the request's
+    /// id so it can't answer another one.
+    pub fn seal_answer(&self, vault_id: Uuid, slot: u8, answer: &Answer) -> Result<Vec<u8>> {
+        let plaintext = crate::vault::padded(serde_json::to_vec(answer)?);
+        let aad = answer_aad(vault_id, self.id, slot, answer.id);
+        seal_file(&self.key.0, ANSWER_FORMAT, ANSWER_LABEL, &plaintext, &aad)
+    }
+
+    /// The values to answer `request` with: the variables it asks for that
+    /// this share gives in the environment it names, resolved now. Never
+    /// more than the share gives, whatever the request says.
+    pub fn values_for(&self, records: &[Record], request: &Request) -> Result<BTreeMap<String, String>> {
+        let contents = self.contents(records)?;
+        let vars = contents.0.get(&request.environment).ok_or_else(|| {
+            Error::Invalid(format!("share {} has no environment {}", self.name, request.environment))
+        })?;
+        Ok(vars.iter().filter(|(k, _)| request.variables.contains(k)).map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 
     /// Whether the bucket has what the vault holds now.
@@ -414,6 +526,13 @@ impl Share {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Contents(pub BTreeMap<String, BTreeMap<String, String>>);
 
+impl Contents {
+    /// Each environment's variable names, without values.
+    pub fn names(&self) -> BTreeMap<String, Vec<String>> {
+        self.0.iter().map(|(label, vars)| (label.clone(), vars.keys().cloned().collect())).collect()
+    }
+}
+
 /// Every share in `records` that isn't deleted, by name.
 pub fn shares(records: &[Record]) -> Vec<Share> {
     let mut shares: Vec<Share> = records
@@ -476,7 +595,7 @@ pub trait ShareBucket: Send + Sync {
 pub fn expiry_rules(records: &[Record], now: u64) -> Result<Vec<ExpiryRule>> {
     shares(records)
         .into_iter()
-        .filter(|s| s.mode == ShareMode::Standing && (s.is_live(now) || s.in_bucket()))
+        .filter(|s| s.is_live(now) || s.in_bucket())
         .map(|s| Ok(ExpiryRule { share: s.id, prefix: s.prefix()?, expires: s.expires }))
         .collect()
 }
@@ -521,6 +640,95 @@ struct SnapshotFile {
     format: String,
     version: u32,
     sealed: Sealed,
+}
+
+/// Approve mode: what a machine reads to ask for values. Written by the
+/// user's devices, renewed daily like a snapshot. Names only, never values.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mailbox {
+    /// A machine refuses one older than it has seen.
+    pub stamp: Stamp,
+    pub expires: u64,
+    /// When this mailbox stops being valid, before its URLs expire.
+    pub lease_until: u64,
+    /// Each environment's variable names, by label.
+    pub environments: BTreeMap<String, Vec<String>>,
+    /// A presigned PUT for the doorbell.
+    pub doorbell: String,
+    /// Presigned URLs for each slot.
+    pub slots: Vec<SlotUrls>,
+}
+
+/// The URLs a mailbox gives the machine, signed by the device that wrote
+/// it: the machine holds no storage key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MailboxUrls {
+    pub doorbell: String,
+    pub slots: Vec<SlotUrls>,
+}
+
+/// One slot's presigned URLs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotUrls {
+    /// PUT the request.
+    pub request: String,
+    /// DELETE the answer once read.
+    pub answer_delete: String,
+}
+
+/// Approve mode: a machine asking for values for one command. What the
+/// approval dialog shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Request {
+    pub id: Uuid,
+    /// Unix milliseconds: when it was asked, and when the machine stops
+    /// waiting.
+    pub at: u64,
+    pub expires: u64,
+    /// The machine's host name, as it says.
+    pub host: String,
+    /// Who asked on the machine, e.g. an agent's name or `dotsafe run`.
+    pub client: String,
+    /// `run` (an agent's, output scrubbed) or `exec` (output unscrubbed).
+    pub kind: String,
+    pub command: Vec<String>,
+    pub program_path: String,
+    pub cwd: String,
+    /// The environment's label in the mailbox.
+    pub environment: String,
+    pub variables: Vec<String>,
+    /// Variables that go through the secret proxy on the machine.
+    #[serde(default)]
+    pub proxied: Vec<String>,
+    /// Scripts the command runs, with when each changed.
+    #[serde(default)]
+    pub files: Vec<RequestFile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestFile {
+    pub path: String,
+    pub modified_ms: Option<u64>,
+}
+
+/// Approve mode: a device's answer to one request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answer {
+    /// The request's id.
+    pub id: Uuid,
+    pub allowed: bool,
+    /// How long the machine may run the same command again with these
+    /// values without asking: 0 for this run only.
+    pub reuse_ms: u64,
+    /// The approved values. Empty when denied.
+    pub values: BTreeMap<String, String>,
+    pub at: u64,
+}
+
+impl Answer {
+    pub fn denied(id: Uuid, at: u64) -> Answer {
+        Answer { id, allowed: false, reuse_ms: 0, values: BTreeMap::new(), at }
+    }
 }
 
 /// A share token, parsed on the machine.
@@ -577,6 +785,66 @@ impl ShareToken {
         format!("{}/s/{}", self.public_url, hex(&self.path))
     }
 
+    /// Approve mode: where the mailbox is.
+    pub fn mailbox_url(&self) -> String {
+        format!("{}/m/{}/mailbox", self.public_url, hex(&self.path))
+    }
+
+    /// Approve mode: where the request in `slot` is, to see if it's free.
+    pub fn request_url(&self, slot: u8) -> String {
+        format!("{}/m/{}/q/{slot}", self.public_url, hex(&self.path))
+    }
+
+    /// Approve mode: where the answer to the request in `slot` appears.
+    pub fn answer_url(&self, slot: u8) -> String {
+        format!("{}/m/{}/a/{slot}", self.public_url, hex(&self.path))
+    }
+
+    /// Opens a mailbox fetched from [`ShareToken::mailbox_url`], with the
+    /// same checks as a snapshot: authentic, not older than `seen`, and
+    /// within its expiry and lease at `now`.
+    pub fn open_mailbox(&self, bytes: &[u8], seen: Option<Stamp>, now: u64) -> Result<Mailbox> {
+        let aad = message_aad(MAILBOX_LABEL, self.vault_id, self.share_id, &[]);
+        let plaintext = open_file(&self.key, MAILBOX_FORMAT, MAILBOX_LABEL, bytes, &aad)?;
+        let mailbox: Mailbox = serde_json::from_slice(&plaintext)?;
+        if seen.is_some_and(|seen| mailbox.stamp < seen) {
+            return Err(Error::Invalid(
+                "the share's mailbox is older than one this machine already used; the bucket may have been rolled back".into(),
+            ));
+        }
+        if mailbox.expires <= now {
+            return Err(Error::Invalid("this share has expired; create a new one on your Mac".into()));
+        }
+        if mailbox.lease_until <= now {
+            return Err(Error::Invalid(
+                "this share's mailbox wasn't refreshed in time; unlock dotsafe on one of your devices so it writes a fresh one".into(),
+            ));
+        }
+        if mailbox.slots.len() != usize::from(SLOTS) {
+            return Err(Error::Invalid("this share's mailbox is malformed".into()));
+        }
+        Ok(mailbox)
+    }
+
+    /// The sealed request for `slot`.
+    pub fn seal_request(&self, slot: u8, request: &Request) -> Result<Vec<u8>> {
+        let plaintext = crate::vault::padded(serde_json::to_vec(request)?);
+        let aad = message_aad(REQUEST_LABEL, self.vault_id, self.share_id, &[slot]);
+        seal_file(&self.key, REQUEST_FORMAT, REQUEST_LABEL, &plaintext, &aad)
+    }
+
+    /// Opens the answer in `slot` to the request with `id`. An answer to an
+    /// earlier request in the same slot fails, as does a tampered one.
+    pub fn open_answer(&self, slot: u8, id: Uuid, bytes: &[u8]) -> Result<Answer> {
+        let aad = answer_aad(self.vault_id, self.share_id, slot, id);
+        let plaintext = open_file(&self.key, ANSWER_FORMAT, ANSWER_LABEL, bytes, &aad)?;
+        let answer: Answer = serde_json::from_slice(&plaintext)?;
+        if answer.id != id {
+            return Err(Error::MessageTampered);
+        }
+        Ok(answer)
+    }
+
     /// Opens a snapshot object fetched from [`ShareToken::snapshot_url`].
     /// Refuses one that fails authentication, is older than `seen` (the
     /// newest stamp this machine has read), or is past its expiry or lease
@@ -609,6 +877,38 @@ impl ShareToken {
         }
         Ok(snapshot)
     }
+}
+
+/// Seals an approve-mode message under the share key's subkey for `label`.
+fn seal_file(share_key: &[u8; KEY_LEN], format: &str, label: &[u8], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+    let key = crypto::hkdf(None, share_key, label);
+    let file = SnapshotFile { format: format.into(), version: MESSAGE_VERSION, sealed: crypto::seal(&key, plaintext, aad)? };
+    Ok(serde_json::to_vec(&file)?)
+}
+
+/// Opens an approve-mode message sealed by [`seal_file`].
+fn open_file(share_key: &[u8; KEY_LEN], format: &str, label: &[u8], bytes: &[u8], aad: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    if bytes.len() > MAX_MESSAGE_BYTES {
+        return Err(Error::Invalid(format!("that {format} is too large")));
+    }
+    let file: SnapshotFile = serde_json::from_slice(bytes).map_err(|_| Error::Invalid(format!("that isn't a {format}")))?;
+    if file.format != format {
+        return Err(Error::Invalid(format!("that isn't a {format}")));
+    }
+    if file.version != MESSAGE_VERSION {
+        return Err(Error::UnsupportedVersion { kind: "share message", version: file.version });
+    }
+    crypto::open(&crypto::hkdf(None, share_key, label), &file.sealed, aad).ok_or(Error::MessageTampered)
+}
+
+/// Binds a message to its vault, share and (for requests) slot.
+fn message_aad(label: &[u8], vault_id: Uuid, share_id: Uuid, extra: &[u8]) -> Vec<u8> {
+    [label, vault_id.as_bytes(), share_id.as_bytes(), extra].concat()
+}
+
+/// Binds an answer to its slot and the request it answers.
+fn answer_aad(vault_id: Uuid, share_id: Uuid, slot: u8, request: Uuid) -> Vec<u8> {
+    message_aad(ANSWER_LABEL, vault_id, share_id, &[&[slot][..], request.as_bytes()].concat())
 }
 
 fn snapshot_key(share_key: &[u8; KEY_LEN]) -> SecretKey {
