@@ -130,6 +130,8 @@ On the machine, set `DOTSAFE_SHARE` to the token and run `dotsafe run --share --
 
 For an agent on a cloud machine, `dotsafe daemon --share` serves the share to `dotsafe mcp` the way the app serves your vault: names only, keys through the proxy, output redacted, nothing writable. Add `--unattended` when nobody is there to approve; the share's variables are then the limit, so keep them few.
 
+For attended use, `dotsafe share create <name> -e <env> --approve` keeps no standing values in the bucket: each run on the machine waits for you to allow it, in the app with Touch ID or with `dotsafe share approve` on any of your devices, and gets only the values for that run.
+
 ### Leak checks
 
 ```bash

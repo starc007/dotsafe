@@ -90,6 +90,13 @@ The agent connects with `dotsafe mcp` as usual. It sees the share's variable nam
 - **Give the token to the daemon only,** never to the agent's own environment. The commands the daemon runs never get it.
 - **Each run fetches the snapshot again,** so a rotated key reaches the agent at once. Revoking the share on your Mac stops the daemon serving it.
 
+When you're around and would rather say yes to each run, create the share with `--approve`. No values wait in the bucket then: the agent's request shows up in the dotsafe app on your Mac, with the machine's name, and you allow it once or for a while with Touch ID. Without the app open, `dotsafe share approve` on any of your devices answers with your master password. The machine gets only the values for that run.
+
+```bash
+dotsafe share create agent -e development --approve --for 7d   # on your Mac
+DOTSAFE_SHARE=dss_… dotsafe daemon --share --detach              # on the machine
+```
+
 ## Limits
 
 > [!WARNING]

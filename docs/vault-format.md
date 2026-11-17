@@ -147,8 +147,8 @@ An `environment` that has a `parent`, a `hidden` variable, or a value containing
 
 `share` records, and `audit` days that log creating one (action `share`), are written with `"version": 6` and AAD `"dotsafe/v6/record" ‖ vault_id ‖ epoch ‖ id`. Older clients refuse them instead of failing to parse an unknown record type, and relabelling one as an older version fails authentication. The design is in [architecture/access.md](architecture/access.md).
 
-- **Fields:** `mode` is `standing` or `approve` (approve mode isn't built yet). `expires` is Unix ms. `lease_days` (default 14) is how long a snapshot stays valid without a refresh. `key` is the 32-byte share key (base64), sealed in the record like everything else, so any of the user's devices can push. `path` is 128 random bits in lowercase hex, the snapshot's name in the share bucket. `created_by` is a device id. `revoked` is Unix ms.
-- **`pushed`:** the last thing written to the share bucket. `sha256` is SHA-256 (hex) of the canonical JSON `{ expires, environments }` of the snapshot's contents, so a device can tell whether the bucket is behind the vault without reading it back. An empty `sha256` means the share's objects were deleted at `at` (after a revoke or expiry).
+- **Fields:** `mode` is `standing` or `approve` ([approve mode](#approve-mode-mailboxes)). `expires` is Unix ms. `lease_days` (default 14) is how long a snapshot stays valid without a refresh. `key` is the 32-byte share key (base64), sealed in the record like everything else, so any of the user's devices can push. `path` is 128 random bits in lowercase hex, the snapshot's name in the share bucket. `created_by` is a device id. `revoked` is Unix ms.
+- **`pushed`:** the last thing written to the share bucket. `sha256` is SHA-256 (hex) of the canonical JSON `{ expires, environments }` of the snapshot's contents (for an approve share, `{ expires, names: { <label>: [KEY] } }`, since its mailbox holds names only), so a device can tell whether the bucket is behind the vault without reading it back. An empty `sha256` means the share's objects were deleted at `at` (after a revoke or expiry).
 - **Merging:** `name`, `deleted`, `mode`, `environments`, `expires` and `lease_days` merge on `updated`. `pushed` merges on its own `at` (a push never bumps `updated`, so it can't undo an edit it hadn't seen). `revoked`, once set on either side, stays set (the earlier time wins).
 
 ### Share snapshots
@@ -169,6 +169,25 @@ share key ──HKDF "dotsafe/v6/share-snapshot" ─▶ snapshot key
 - **`lease_until`** is the push time plus `lease_days`, never later than `expires`. Devices push again once a snapshot is a day old, which renews it. Machines refuse a snapshot past `expires` or `lease_until`.
 
 **The token** given to the machine is `dss_` followed by the Crockford base32 (no dashes) of `version (1 byte, 1) ‖ vault_id ‖ share_id ‖ share key ‖ path (16 bytes) ‖ the bucket's public URL (UTF-8, https://)`. The snapshot URL is the public URL, `/s/`, then the path in hex. dotsafe never writes the token to disk.
+
+### Approve mode mailboxes
+
+An approve share has no snapshot. Its objects live under `m/<path>/`, with one lifecycle rule for that prefix, and each kind is sealed under its own subkey of the share key:
+
+```
+{ "format": "dotsafe-share-mailbox" | "dotsafe-share-request" | "dotsafe-share-answer", "version": 1, "sealed": { "nonce": "b64", "ct": "b64" } }
+```
+
+| Object | Written by | Subkey (HKDF info) | AAD | Plaintext |
+| --- | --- | --- | --- | --- |
+| `m/<path>/mailbox` | the user's devices | `dotsafe/v6/share-mailbox` | info ‖ vault_id ‖ share_id | `{ stamp, expires, lease_until, environments: { <label>: [KEY] }, doorbell, slots: [ { request, answer_delete } ] }` |
+| `m/<path>/q/<slot>` | the machine | `dotsafe/v6/share-request` | info ‖ vault_id ‖ share_id ‖ slot (1 byte) | `{ id, at, expires, host, client, kind, command, program_path, cwd, environment, variables, proxied, files }` |
+| `m/<path>/a/<slot>` | the user's devices | `dotsafe/v6/share-answer` | info ‖ vault_id ‖ share_id ‖ slot ‖ request id | `{ id, allowed, reuse_ms, values: { KEY: value }, at }` |
+
+- **The mailbox** has names, never values. It also holds presigned URLs, signed by the device that wrote it for 7 days (the most S3 and R2 allow): a PUT for `m/<path>/doorbell`, and for each of the 4 slots a PUT for its request and a DELETE for its answer. So the machine needs no storage key. `lease_until` is the push time plus `lease_days`, but never more than 6 days later, so a mailbox stops being valid before its URLs do. Devices rewrite it daily, like a snapshot, and machines check `stamp`, `expires` and `lease_until` as they do for a snapshot.
+- **A request:** the machine picks a slot whose request object is missing (a public GET returns 404), writes the sealed request there, then overwrites the doorbell with random bytes. Devices notice through the doorbell's ETag (a HEAD request), read the slots with their storage key, and clear requests past `expires`.
+- **An answer** gives only the variables the request names that the share gives in that environment, resolved when it's answered. `reuse_ms` is how long the machine may run the same command again with those values (0 for this run only). The device then deletes the request; a request that's no longer in its slot isn't answered again. The machine deletes the answer with its presigned DELETE once it has read it. An answer left from an earlier request in the same slot fails authentication for a new request id, so it's ignored.
+- **Revoking or expiry** deletes the mailbox, doorbell, requests and answers.
 
 ## `head.json`
 
