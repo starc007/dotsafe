@@ -128,6 +128,8 @@ dotsafe share revoke ci                                  # deletes the snapshot;
 
 On the machine, set `DOTSAFE_SHARE` to the token and run `dotsafe run --share -- ./deploy.sh`. Every write on your devices pushes the shares it affects, a rotation reaches them before the old key is revoked, and `dotsafe secret retire` waits while a share that holds the old value is out of date. Shares expire, and a snapshot that isn't refreshed for 14 days (`--lease-days`) stops working; any write, `dotsafe sync` or `dotsafe share push` refreshes snapshots older than a day. The share bucket is public-read with listing off: every object is sealed and has a random name. In the app, all of this is in Settings → Access, and the app pushes shares on its own while it's unlocked.
 
+For an agent on a cloud machine, `dotsafe daemon --share` serves the share to `dotsafe mcp` the way the app serves your vault: names only, keys through the proxy, output redacted, nothing writable. Add `--unattended` when nobody is there to approve; the share's variables are then the limit, so keep them few.
+
 ### Leak checks
 
 ```bash

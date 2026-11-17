@@ -7,6 +7,12 @@
 //! terminal, or from `dotsafe approve` in any other terminal (which asks for
 //! the master password). Grants last until the daemon stops, or for the time
 //! chosen, and live only in its memory.
+//!
+//! With `--share` it serves a share's snapshot instead of a vault, on a
+//! machine with no vault or license (a cloud VM running an agent): the same
+//! broker, read-only, with only the share's environments. `dotsafe approve
+//! --share` answers with the token, and `--unattended` approves everything
+//! the refusal list lets through, for when nobody is there to ask.
 
 use std::collections::HashMap;
 use std::io::{BufRead, IsTerminal, Read, Write};
@@ -14,11 +20,13 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use dotsafe_agent::broker::{ApprovalRequest, Broker, Host};
 use dotsafe_agent::grants::{Grants, Lifetime, Scope};
 use dotsafe_agent::protocol::PendingInfo;
-use dotsafe_core::Vault;
+use dotsafe_core::audit::AuditEvent;
+use dotsafe_core::share::Snapshot;
+use dotsafe_core::{ShareToken, Vault};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -26,6 +34,9 @@ use zeroize::Zeroizing;
 const DEFAULT_WAIT: Duration = Duration::from_secs(5 * 60);
 /// How long a run that stopped waiting can still be approved for next time.
 const KEEP_PENDING: Duration = Duration::from_secs(24 * 60 * 60);
+/// How long a share's snapshot is used for listing before it's fetched
+/// again. Runs always fetch it again.
+const SHARE_REFETCH: Duration = Duration::from_secs(30);
 
 struct Pending {
     request: ApprovalRequest,
@@ -41,13 +52,84 @@ struct Queue {
     asking: Option<Uuid>,
 }
 
+/// Where the daemon's names and values come from.
+enum Source {
+    Vault(Arc<Vault>, Uuid),
+    Share(ShareSource),
+}
+
+/// `--share`: the share's snapshot, as last fetched.
+struct ShareSource {
+    token: ShareToken,
+    latest: Mutex<Option<(Instant, Arc<Snapshot>)>>,
+}
+
+impl ShareSource {
+    /// Fetches the snapshot once, so a bad token or an unreachable bucket
+    /// stops the daemon from starting.
+    fn open(token: ShareToken) -> Result<ShareSource> {
+        let snapshot = crate::share::fetch(&token)?
+            .ok_or_else(|| anyhow!("this share has no snapshot: it was revoked or has expired"))?;
+        Ok(ShareSource { token, latest: Mutex::new(Some((Instant::now(), Arc::new(snapshot)))) })
+    }
+
+    /// The snapshot: the last one if it's recent and `fresh` isn't asked
+    /// for, else fetched again. If the bucket can't be reached, the last one
+    /// is used while it's within its expiry and lease. A missing snapshot
+    /// means the share was revoked or expired, and nothing is served after.
+    fn snapshot(&self, fresh: bool) -> Result<Arc<Snapshot>, String> {
+        let last = lock(&self.latest).clone();
+        if let Some((at, snapshot)) = &last
+            && !fresh
+            && at.elapsed() < SHARE_REFETCH
+        {
+            return Ok(snapshot.clone());
+        }
+        // Fetched without the lock, so a slow bucket holds up nothing else.
+        match crate::share::fetch(&self.token) {
+            Ok(Some(snapshot)) => {
+                let snapshot = Arc::new(snapshot);
+                *lock(&self.latest) = Some((Instant::now(), snapshot.clone()));
+                Ok(snapshot)
+            }
+            Ok(None) => {
+                *lock(&self.latest) = None;
+                Err("The share was revoked or has expired, so this machine can't use it anymore.".into())
+            }
+            Err(e) => {
+                let now = crate::share::now_ms();
+                match last {
+                    Some((at, snapshot)) if snapshot.expires > now && snapshot.lease_until > now => {
+                        let age = ago(at.elapsed().as_millis() as u64);
+                        eprintln!("dotsafe daemon: couldn't refresh the share ({e}); using the copy fetched {age}.");
+                        Ok(snapshot)
+                    }
+                    _ => Err(format!("Couldn't read the share: {e}.")),
+                }
+            }
+        }
+    }
+}
+
 struct DaemonHost {
-    vault: Arc<Vault>,
-    device: Uuid,
+    source: Source,
     grants: Mutex<Grants>,
     queue: Arc<Mutex<Queue>>,
     /// Ask in the terminal too; otherwise only `dotsafe approve` answers.
     interactive: bool,
+    /// `--unattended`: nobody is asked, and every request the refusal list
+    /// lets through is allowed. Only with a share.
+    unattended: bool,
+}
+
+impl DaemonHost {
+    /// The command that answers this daemon's requests from another terminal.
+    fn approve_command(&self) -> &'static str {
+        match self.source {
+            Source::Vault(..) => "dotsafe approve",
+            Source::Share(_) => "dotsafe approve --share",
+        }
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -56,11 +138,50 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl Host for DaemonHost {
     fn vault(&self) -> Option<(Arc<Vault>, Uuid)> {
-        Some((self.vault.clone(), self.device))
+        match &self.source {
+            Source::Vault(vault, device) => Some((vault.clone(), *device)),
+            Source::Share(_) => None,
+        }
+    }
+
+    fn share(&self, fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+        match &self.source {
+            Source::Share(share) => Some(share.snapshot(fresh)),
+            Source::Vault(..) => None,
+        }
+    }
+
+    fn check_answer(&self, message: &[u8], proof: &str) -> bool {
+        match &self.source {
+            Source::Vault(vault, _) => vault.check_approval_tag(message, proof),
+            Source::Share(share) => share.token.check_approval_tag(message, proof),
+        }
+    }
+
+    fn record(&self, event: AuditEvent) {
+        match &self.source {
+            Source::Vault(vault, device) => {
+                let _ = dotsafe_core::audit::record(vault, *device, event);
+            }
+            // No vault to write to: the daemon's own output (its log when
+            // detached), names only.
+            Source::Share(_) => {
+                let outcome = format!("{:?}", event.outcome).to_lowercase();
+                let detail = event.detail.map(|d| format!("\t{d}")).unwrap_or_default();
+                eprintln!(
+                    "{}\t{}\t{outcome}\t{}\t{}\t{}{detail}",
+                    crate::local_time(event.at),
+                    event.actor,
+                    event.summary,
+                    event.environment,
+                    event.variables.join(",")
+                );
+            }
+        }
     }
 
     fn allows(&self, scope: &Scope, now: Instant) -> bool {
-        lock(&self.grants).allows(scope, now)
+        self.unattended || lock(&self.grants).allows(scope, now)
     }
 
     fn grant(&self, scope: Scope, lifetime: Lifetime, now: Instant) {
@@ -79,7 +200,7 @@ impl Host for DaemonHost {
             if self.interactive {
                 prompt_next(&mut queue);
             } else {
-                let _ = writeln!(err, "Waiting up to {} for `dotsafe approve`.", minutes(wait));
+                let _ = writeln!(err, "Waiting up to {} for `{}`.", minutes(wait), self.approve_command());
             }
         }
         let answer = rx.recv_timeout(wait);
@@ -93,7 +214,7 @@ impl Host for DaemonHost {
                 if let Some(p) = queue.pending.get_mut(&id) {
                     p.waiter = None;
                 }
-                let _ = writeln!(err, "Stopped waiting. It can still be approved with `dotsafe approve` for next time.");
+                let _ = writeln!(err, "Stopped waiting. It can still be approved with `{}` for next time.", self.approve_command());
             } else {
                 queue.pending.remove(&id);
             }
@@ -269,31 +390,54 @@ fn minutes(d: Duration) -> String {
     }
 }
 
-/// How the daemon gets the vault.
+/// How the daemon gets the vault (or the share).
+#[derive(Clone, Copy)]
 pub enum Start {
-    /// Unlock here: session cache, `DOTSAFE_PASSWORD`, or a prompt.
+    /// Unlock here: session cache, `DOTSAFE_PASSWORD`, or a prompt. With
+    /// `--share`, the token in `DOTSAFE_SHARE`.
     Here,
-    /// `--detach`: unlock here, then hand the key to a copy of itself that
-    /// keeps running after the terminal closes.
+    /// `--detach`: unlock here, then hand the key (or the share token) to a
+    /// copy of itself that keeps running after the terminal closes.
     Detach,
-    /// The detached copy: the vault key comes in on stdin from `Detach`.
+    /// The detached copy: the vault key or share token comes in on stdin
+    /// from `Detach`.
     KeyFromStdin,
 }
 
-pub fn run(stop_after: Option<Duration>, start: Start) -> Result<()> {
-    let config = crate::load_config()?;
+pub struct Options {
+    pub stop_after: Option<Duration>,
+    pub start: Start,
+    /// Serve the share in `DOTSAFE_SHARE` instead of a vault.
+    pub share: bool,
+    /// With `share`: allow every request without asking.
+    pub unattended: bool,
+}
+
+pub fn run(options: Options) -> Result<()> {
+    let Options { stop_after, start, share, unattended } = options;
     let path = dotsafe_agent::socket_path().context("no config directory for the agent socket")?;
     if matches!(start, Start::Detach) {
-        return detach(&config, &path, stop_after);
+        return detach(&path, stop_after, share, unattended);
     }
-    let vault = match start {
-        Start::KeyFromStdin => {
+    let source = match (share, start) {
+        (true, Start::KeyFromStdin) => {
+            let mut token = Zeroizing::new(String::new());
+            std::io::stdin().read_to_string(&mut token).context("no share token on stdin")?;
+            Source::Share(ShareSource::open(ShareToken::parse(&token)?)?)
+        }
+        (true, _) => Source::Share(ShareSource::open(crate::share::token_from_env()?)?),
+        (false, Start::KeyFromStdin) => {
+            let config = crate::load_config()?;
             let mut key = Zeroizing::new([0u8; 32]);
             std::io::stdin().read_exact(key.as_mut()).context("no vault key on stdin")?;
             let store = dotsafe_stores::open(&config).map_err(crate::session::friendly)?;
-            Vault::unlock_with_session_key(store, &key).map_err(crate::session::friendly)?
+            let vault = Vault::unlock_with_session_key(store, &key).map_err(crate::session::friendly)?;
+            Source::Vault(Arc::new(vault), config.device_id)
         }
-        _ => crate::session::open(&config)?,
+        (false, _) => {
+            let config = crate::load_config()?;
+            Source::Vault(Arc::new(crate::session::open(&config)?), config.device_id)
+        }
     };
     let listener = match dotsafe_agent::ipc::bind(&path) {
         Ok(listener) => listener,
@@ -302,21 +446,23 @@ pub fn run(stop_after: Option<Duration>, start: Start) -> Result<()> {
         }
         Err(e) => return Err(e).context("couldn't open the agent socket"),
     };
-    let interactive = matches!(start, Start::Here) && std::io::stdin().is_terminal();
+    let interactive = matches!(start, Start::Here) && std::io::stdin().is_terminal() && !unattended;
     let queue = Arc::new(Mutex::new(Queue::default()));
-    let host = DaemonHost {
-        vault: Arc::new(vault),
-        device: config.device_id,
-        grants: Mutex::new(Grants::default()),
-        queue: queue.clone(),
-        interactive,
-    };
-    eprintln!("dotsafe daemon is serving {}.", host.vault.location());
-    if interactive {
-        eprintln!("Approve requests here, or with `dotsafe approve` in another terminal. Stop with Ctrl-C.");
+    let host = DaemonHost { source, grants: Mutex::new(Grants::default()), queue: queue.clone(), interactive, unattended };
+    match &host.source {
+        Source::Vault(vault, _) => eprintln!("dotsafe daemon is serving {}.", vault.location()),
+        Source::Share(share) => {
+            let labels = share.snapshot(false).map(|s| s.environments.keys().cloned().collect::<Vec<_>>().join(", "));
+            eprintln!("dotsafe daemon is serving a share with {}.", labels.unwrap_or_default());
+        }
+    }
+    if unattended {
+        eprintln!("Nobody is asked: every command agents ask for runs with the share's values, except what dotsafe always refuses.");
+    } else if interactive {
+        eprintln!("Approve requests here, or with `{}` in another terminal. Stop with Ctrl-C.", host.approve_command());
         std::thread::spawn(move || read_terminal(queue));
     } else {
-        eprintln!("Approve requests with `dotsafe approve`.");
+        eprintln!("Approve requests with `{}`.", host.approve_command());
     }
     if let Some(after) = stop_after {
         std::thread::spawn(move || {
@@ -331,8 +477,10 @@ pub fn run(stop_after: Option<Duration>, start: Start) -> Result<()> {
 
 /// Unlocks, starts a copy of the daemon in its own session (so it outlives
 /// this terminal and the SSH connection), and passes it the vault key over a
-/// pipe. Nothing is written to disk but the log, which has names only.
-fn detach(config: &dotsafe_core::Config, socket: &std::path::Path, stop_after: Option<Duration>) -> Result<()> {
+/// pipe. With `share`, it passes the share token instead, and the copy's
+/// environment doesn't carry it. Nothing is written to disk but the log,
+/// which has names only.
+fn detach(socket: &std::path::Path, stop_after: Option<Duration>, share: bool, unattended: bool) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
@@ -340,9 +488,14 @@ fn detach(config: &dotsafe_core::Config, socket: &std::path::Path, stop_after: O
     if std::os::unix::net::UnixStream::connect(socket).is_ok() {
         bail!("a dotsafe daemon (or the desktop app) is already running");
     }
-    let vault = crate::session::open(config)?;
-    let key = vault.session_key();
-    drop(vault);
+    let key: Zeroizing<Vec<u8>> = if share {
+        // Checked here, so a typo fails in this terminal, not in the log.
+        crate::share::token_from_env()?;
+        Zeroizing::new(std::env::var(crate::share::TOKEN_VAR).unwrap_or_default().into_bytes())
+    } else {
+        let vault = crate::session::open(&crate::load_config()?)?;
+        Zeroizing::new(vault.session_key().to_vec())
+    };
     let log_path = socket.with_file_name("daemon.log");
     let log = std::fs::OpenOptions::new()
         .create(true)
@@ -352,11 +505,19 @@ fn detach(config: &dotsafe_core::Config, socket: &std::path::Path, stop_after: O
         .with_context(|| format!("couldn't open {}", log_path.display()))?;
     let mut cmd = Command::new(std::env::current_exe().context("couldn't find the dotsafe binary")?);
     cmd.arg("daemon").arg("--key-from-stdin");
+    if share {
+        cmd.arg("--share");
+    }
+    if unattended {
+        cmd.arg("--unattended");
+    }
     if let Some(after) = stop_after {
         cmd.arg("--for").arg(format!("{}s", after.as_secs()));
     }
-    // The copy finds its vault from the same config, never from a password.
-    cmd.env_remove("DOTSAFE_PASSWORD").stdin(Stdio::piped()).stdout(Stdio::null()).stderr(log);
+    // The copy finds its vault from the same config, never from a password,
+    // and gets a share token only on stdin.
+    cmd.env_remove("DOTSAFE_PASSWORD").env_remove(crate::share::TOKEN_VAR);
+    cmd.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(log);
     // SAFETY: setsid is async-signal-safe and touches no memory.
     unsafe {
         cmd.pre_exec(|| {
@@ -369,7 +530,7 @@ fn detach(config: &dotsafe_core::Config, socket: &std::path::Path, stop_after: O
     let mut child = cmd.spawn().context("couldn't start the daemon")?;
     {
         let mut stdin = child.stdin.take().context("no pipe to the daemon")?;
-        stdin.write_all(key.as_ref()).context("couldn't hand the vault key to the daemon")?;
+        stdin.write_all(&key).context("couldn't hand the key to the daemon")?;
     }
     drop(key);
     let started = Instant::now();
@@ -383,8 +544,13 @@ fn detach(config: &dotsafe_core::Config, socket: &std::path::Path, stop_after: O
         std::thread::sleep(Duration::from_millis(100));
     }
     eprintln!("dotsafe daemon is running in the background (pid {}).", child.id());
-    eprintln!("Approve new commands with `dotsafe approve`. Log: {}", log_path.display());
-    eprintln!("Stop it with `kill {}`; it holds the vault key until then.", child.id());
+    match (share, unattended) {
+        (true, true) => eprintln!("Nobody is asked before commands run. Log: {}", log_path.display()),
+        (true, false) => eprintln!("Approve new commands with `dotsafe approve --share`. Log: {}", log_path.display()),
+        _ => eprintln!("Approve new commands with `dotsafe approve`. Log: {}", log_path.display()),
+    }
+    let held = if share { "the share's values" } else { "the vault key" };
+    eprintln!("Stop it with `kill {}`; it holds {held} until then.", child.id());
     Ok(())
 }
 
