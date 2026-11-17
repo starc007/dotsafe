@@ -20,6 +20,7 @@ Every design choice here serves one of these. Where they conflict, security wins
 | [devices-and-keys.md](devices-and-keys.md) | Per-device keys, Touch ID unlock, revoking a device, re-keying the vault |
 | [rotation.md](rotation.md) | Shared secrets, version history, the rotation flow, provider plugins, push targets |
 | [agents.md](agents.md) | MCP server, approval broker, redaction, the secret proxy, audit log |
+| [access.md](access.md) | Shares: giving CI, servers and cloud agents some environments, with expiry, approvals from the Mac and revoking (proposed) |
 
 ## System overview
 
@@ -103,6 +104,7 @@ M6 Agents: MCP (refs only) ──▶ broker + approvals ──▶ redaction ─�
 
 Designed, or partly designed, but not being built now.
 
+- **Shares.** Give a machine (CI, a server, a cloud agent) some environments with one token: a sealed snapshot of their final values in a public, unlistable share bucket, pushed like a deploy target, with expiry, a lease, optional approval of each run from the Mac, and revoking with a rotation queue. No vault key leaves the user's devices, and no dotsafe server is involved. See [access.md](access.md).
 - **Teams.** Shared team vaults next to each person's own, per-member X25519 keys so members join with an invite code and leave with a re-key, access decided by which vault someone is in, and seats on the license. Needs an explicit decision to add X25519. See [devices-and-keys.md](devices-and-keys.md#teams-future).
 - **Windows and Linux** device unlock (Windows Hello, Secret Service) and the desktop app on Windows.
 - **GitHub Actions secrets** as a push target (needs libsodium sealed boxes). See [rotation.md](rotation.md).
@@ -117,3 +119,6 @@ Designed, or partly designed, but not being built now.
 | 4 | Agents never receive plaintext from dotsafe | A process that holds plaintext can leak it; the only safe agent is one that never holds it |
 | 5 | The secret proxy covers HTTP API keys first | Most agent secret use is API keys; base-URL overrides avoid TLS interception |
 | 6 | Rotation plugins run on the device with the user's tokens | No dotsafe server gains power over the user's accounts |
+| 7 | Machines get sealed snapshots of final values, not keys to the vault (proposed) | Inheritance, links and references stay resolved in one place; no existing record changes; a machine can decrypt only what it was given |
+| 8 | Shares live in a separate, public-read share bucket under random names (proposed) | Works for vaults in iCloud Drive; a standing machine needs no storage key, so one token is all it gets; objects are ciphertext and can't be listed |
+| 9 | A share is a deploy target in the rotation flow (proposed) | Rotated keys reach machines through the same push step, and an old key isn't retired while a share still holds it |
