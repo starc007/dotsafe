@@ -42,16 +42,31 @@ Every command takes `--help`. Commands that work on variables take `-e <env>` fo
 | `dotsafe secret link KEY SECRET` | Link a variable to an existing secret |
 | `dotsafe secret unlink KEY` | Give a linked variable its own copy again |
 | `dotsafe secret rotate SECRET [--generate \| --leaked \| --stdin]` | New value everywhere it's linked, through its provider if it has one |
-| `dotsafe secret retire SECRET [--by-hand]` | Revoke the previous value |
+| `dotsafe secret retire SECRET [--by-hand] [--force]` | Revoke the previous value; waits while a share that holds it is out of date, unless forced |
 | `dotsafe secret rollback SECRET` | Go back to the previous value |
 | `dotsafe secret history SECRET` | Versions and notes, never values |
 | `dotsafe secret restore SECRET VERSION` | Make an earlier version current again |
 | `dotsafe secret policy SECRET --every <days>` | How often it should be rotated |
 | `dotsafe secret due` | Secrets due for rotation |
-| `dotsafe secret queue [--rotate \| --dismiss]` | What to rotate after removing a device |
+| `dotsafe secret queue [--rotate \| --dismiss]` | What to rotate after removing a device or revoking a share |
 | `dotsafe secret provider SECRET --connection <name>` | Where new values come from |
 | `dotsafe secret target add SECRET --connection <name>` | Where each new value is pushed |
 | `dotsafe secret push SECRET` | Push the current value to every target now |
+
+## Shares
+
+Give a machine (CI, a server, a cloud agent) some environments with one token, never the vault key.
+
+| Command | What it does |
+| --- | --- |
+| `dotsafe share setup --bucket --endpoint --public-url` | Set up the share bucket: S3-compatible, public-read with listing off. Checks it, unless `--no-check` |
+| `dotsafe share create <name> -e <env>… [--only A,B] [--for 30d] [--lease-days 14]` | Seal the environments for a machine and print its token, once |
+| `dotsafe share list` | Shares, and whether each one has the vault's current values |
+| `dotsafe share push` | Push shares that are out of date now (writes do it on their own) |
+| `dotsafe share revoke <name>` | Delete the snapshot and add what it could read to the rotation queue |
+| `dotsafe run --share [-e env] -- <command>` | On the machine: run with the share in `DOTSAFE_SHARE`. No vault or license needed there |
+
+There's no limit on how many shares you create. Only the device that creates one needs a license.
 
 ## Integrations
 
@@ -90,6 +105,8 @@ Every command takes `--help`. Commands that work on variables take `-e <env>` fo
 | `DOTSAFE_PASSWORD` | The master password, for CI |
 | `DOTSAFE_S3_ACCESS_KEY_ID`, `DOTSAFE_S3_SECRET_ACCESS_KEY` | Bucket credentials, instead of the keychain |
 | `DOTSAFE_WEBDAV_PASSWORD` | The WebDAV password, instead of asking |
+| `DOTSAFE_SHARE_BUCKET_ACCESS_KEY_ID`, `DOTSAFE_SHARE_BUCKET_SECRET_ACCESS_KEY` | The share bucket's write key, instead of the keychain |
+| `DOTSAFE_SHARE` | A share's token, for `dotsafe run --share` on a machine. It's kept out of the command's environment |
 | `DOTSAFE_CONFIG_DIR` | Use another config folder, for testing |
 
 > [!WARNING]

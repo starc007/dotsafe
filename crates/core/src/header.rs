@@ -490,6 +490,17 @@ impl std::fmt::Debug for EnrollmentCode {
 }
 
 fn crockford_encode(bytes: &[u8]) -> String {
+    let chars = crockford_chars(bytes);
+    chars.chunks(4).map(|c| std::str::from_utf8(c).expect("alphabet is ASCII")).collect::<Vec<_>>().join("-")
+}
+
+/// Crockford base32 with no grouping, for tokens that are pasted, not typed.
+pub(crate) fn crockford_raw(bytes: &[u8]) -> Zeroizing<String> {
+    let chars = Zeroizing::new(crockford_chars(bytes));
+    Zeroizing::new(std::str::from_utf8(&chars).expect("alphabet is ASCII").to_string())
+}
+
+fn crockford_chars(bytes: &[u8]) -> Vec<u8> {
     let mut chars = Vec::with_capacity(bytes.len() * 8 / 5 + 1);
     let mut acc: u32 = 0;
     let mut bits = 0;
@@ -504,13 +515,25 @@ fn crockford_encode(bytes: &[u8]) -> String {
     if bits > 0 {
         chars.push(CROCKFORD[((acc << (5 - bits)) & 31) as usize]);
     }
-    chars.chunks(4).map(|c| std::str::from_utf8(c).expect("alphabet is ASCII")).collect::<Vec<_>>().join("-")
+    chars
 }
 
 /// Exactly `N` bytes from Crockford base32 as people type it.
 fn crockford_decode<const N: usize>(input: &str) -> Option<Zeroizing<[u8; N]>> {
+    let bytes = crockford_decode_vec(input)?;
+    if bytes.len() != N {
+        return None;
+    }
     let mut out = Zeroizing::new([0u8; N]);
-    let (mut acc, mut bits, mut len) = (0u32, 0, 0usize);
+    out.copy_from_slice(&bytes);
+    Some(out)
+}
+
+/// Any number of bytes from Crockford base32: case-insensitive, dashes and
+/// spaces ignored, I/L read as 1 and O as 0.
+pub(crate) fn crockford_decode_vec(input: &str) -> Option<Zeroizing<Vec<u8>>> {
+    let mut out = Zeroizing::new(Vec::with_capacity(input.len() * 5 / 8));
+    let (mut acc, mut bits) = (0u32, 0);
     for c in input.chars().filter(|c| !matches!(c, '-' | ' ')) {
         let c = match c.to_ascii_uppercase() {
             'I' | 'L' => '1',
@@ -518,15 +541,14 @@ fn crockford_decode<const N: usize>(input: &str) -> Option<Zeroizing<[u8; N]>> {
             c => c,
         };
         let value = CROCKFORD.iter().position(|&a| a as char == c)?;
-        acc = (acc << 5) | value as u32;
+        acc = ((acc << 5) | value as u32) & 0xFFFF;
         bits += 5;
         if bits >= 8 {
             bits -= 8;
-            *out.get_mut(len)? = (acc >> bits) as u8;
-            len += 1;
+            out.push((acc >> bits) as u8);
         }
     }
-    (len == N).then_some(out)
+    Some(out)
 }
 
 impl std::fmt::Debug for RecoveryKey {

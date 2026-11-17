@@ -16,6 +16,10 @@ pub enum Error {
     /// longer has.
     #[error("record {0} is sealed with a key this vault no longer has")]
     UnknownEpoch(Uuid),
+    /// A share snapshot didn't open with the token's key: corrupted,
+    /// tampered with, or meant for another share.
+    #[error("the share's snapshot failed authentication; it may be corrupted or tampered with")]
+    SnapshotTampered,
     #[error("the vault's head failed authentication; it may be corrupted or tampered with")]
     HeadTampered,
     #[error("record {0} kept changing while it was being saved; try again")]

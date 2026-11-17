@@ -114,6 +114,20 @@ On a server, `dotsafe daemon --detach` keeps the vault key in memory only, and c
 
 The proxy protects your own dev servers too: `dotsafe run --proxy -- bun dev` gives the process a placeholder key and a local URL. Add more providers with `dotsafe proxy add` or in Settings → Agents. Profiles live in the vault, so an agent can't redirect a key.
 
+### CI and servers
+
+Give a machine some environments without the master password or the vault key. A share is a sealed snapshot of an environment's final values in a bucket you own, readable only with the share's token. The machine needs that one token and no license of its own.
+
+```bash
+dotsafe share setup --bucket shares --endpoint https://<account>.r2.cloudflarestorage.com --public-url https://shares.example.com
+dotsafe share create ci -e production --for 30d          # prints the token once
+dotsafe share create agent -e development --only OPENAI_API_KEY --for 24h
+dotsafe share list                                       # up to date, out of date, revoked
+dotsafe share revoke ci                                  # deletes the snapshot; `dotsafe secret queue` lists what to rotate
+```
+
+On the machine, set `DOTSAFE_SHARE` to the token and run `dotsafe run --share -- ./deploy.sh`. Every write on your devices pushes the shares it affects, a rotation reaches them before the old key is revoked, and `dotsafe secret retire` waits while a share that holds the old value is out of date. Shares expire, and a snapshot that isn't refreshed for 14 days (`--lease-days`) stops working; any write, `dotsafe sync` or `dotsafe share push` refreshes snapshots older than a day. The share bucket is public-read with listing off: every object is sealed and has a random name.
+
 ### Leak checks
 
 ```bash
