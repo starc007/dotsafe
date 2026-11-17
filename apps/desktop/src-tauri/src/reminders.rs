@@ -1,5 +1,6 @@
-//! A macOS notification when shared secrets are due for rotation, while the
-//! vault is unlocked. At most once a day, unless more become due.
+//! A macOS notification when shared secrets are due for rotation, or a
+//! share's lease is about to run out, while the vault is unlocked. At most
+//! once a day each, unless more become due.
 //!
 //! The notification says how many, not which: secret names would otherwise
 //! sit in Notification Center and on the lock screen.
@@ -36,6 +37,7 @@ pub fn spawn_reminders(state: AppState, app: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(FIRST_CHECK);
         let mut last: Option<(u64, usize)> = None;
+        let mut last_lease: Option<(u64, usize)> = None;
         loop {
             // The shared vault, used off the session lock.
             let vault = state.0.lock().ok().and_then(|s| s.vault.clone());
@@ -52,6 +54,18 @@ pub fn spawn_reminders(state: AppState, app: AppHandle) {
                     let shown = app.notification().builder().title("dotsafe").body(body).show();
                     if shown.is_ok() {
                         last = Some((now / DAY_MS, count));
+                    }
+                }
+                // No device has pushed these shares for a while, so their
+                // machines stop getting values soon.
+                let ending = crate::shares::lease_ending_count(&records, now);
+                if should_notify(ending, now / DAY_MS, last_lease) {
+                    let body = match ending {
+                        1 => "A share's snapshot runs out within 3 days. See Settings → Access.".to_string(),
+                        n => format!("{n} shares' snapshots run out within 3 days. See Settings → Access."),
+                    };
+                    if app.notification().builder().title("dotsafe").body(body).show().is_ok() {
+                        last_lease = Some((now / DAY_MS, ending));
                     }
                 }
             }

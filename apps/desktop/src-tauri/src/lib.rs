@@ -9,6 +9,7 @@ mod links;
 mod presence;
 mod reminders;
 mod secrets;
+mod shares;
 mod state;
 mod storage;
 mod sync;
@@ -39,6 +40,7 @@ pub fn run() {
             licensing::spawn_checker(app.handle().clone());
             sync::spawn_syncer(state.inner().clone(), app.handle().clone());
             sync::spawn_watcher(state.inner().clone(), app.handle().clone());
+            shares::spawn_pusher(state.inner().clone(), app.handle().clone());
             reminders::spawn_reminders(state.inner().clone(), app.handle().clone());
             storage::spawn_backups(state.inner().clone(), app.handle().clone());
             updates::spawn_checker(app.handle().clone());
@@ -143,6 +145,13 @@ pub fn run() {
             integrations::rotation_queue,
             integrations::rotate_queued_with_providers,
             integrations::dismiss_rotation_queue,
+            shares::list_shares,
+            shares::set_up_share_bucket,
+            shares::create_share,
+            shares::copy_share_token,
+            shares::forget_share_token,
+            shares::revoke_share,
+            shares::push_shares,
             devices::unlock_with_touch_id,
             devices::set_touch_id_unlock,
             devices::list_devices,
