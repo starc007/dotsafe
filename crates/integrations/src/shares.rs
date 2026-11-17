@@ -7,7 +7,7 @@
 //! these flows run the same in the CLI and, later, the app.
 
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
-use dotsafe_core::share::{self, RENEW_AFTER_MS, Status};
+use dotsafe_core::share::{self, Contents, MAILBOX_URL_SECS, MailboxUrls, RENEW_AFTER_MS, SLOTS, SlotUrls, Status};
 use dotsafe_core::{Pushed, Record, Resolver, Share, ShareBucket, ShareEnv, ShareMode, Vault};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -37,13 +37,16 @@ pub enum Action {
     Deleted,
 }
 
-/// Creates a standing share of `environments` and writes its first
-/// snapshot. Returns it and its token, which is shown once and never saved.
+/// Creates a share of `environments` and writes its first snapshot (or, in
+/// approve mode, its mailbox). Returns it and its token, which is shown
+/// once and never saved.
+#[allow(clippy::too_many_arguments)]
 pub fn create(
     vault: &Vault,
     bucket: &dyn ShareBucket,
     device: Uuid,
     name: &str,
+    mode: ShareMode,
     environments: Vec<ShareEnv>,
     expires: u64,
     lease_days: u32,
@@ -69,19 +72,45 @@ pub fn create(
     }
     check_only(&records, &environments)?;
 
-    let mut share = Share::new(name, ShareMode::Standing, environments, expires, lease_days, device, vault.stamp(device))?;
+    let mut share = Share::new(name, mode, environments, expires, lease_days, device, vault.stamp(device))?;
     let contents = share.contents(&records)?;
     records.push(Record::Share(share.clone()));
     // The bucket deletes it at expiry even if no device ever runs again.
     bucket.set_expiry_rules(&share::expiry_rules(&records, now)?)?;
-    let sealed = share.seal(vault.id(), &contents, vault.stamp(device), now)?;
-    bucket.put(&share.object_key()?, &sealed)?;
+    write(vault, bucket, device, &share, &contents, now)?;
     share.pushed = Some(Pushed { sha256: share.digest(&contents), at: now });
     vault.put(Record::Share(share.clone()))?;
     let token = share.token(vault.id(), &bucket.public_url())?;
     let labels = share.labels(&records)?.join(", ");
-    log(vault, device, AuditAction::Share, &share.name, format!("created for {labels}"), None);
+    let how = match mode {
+        ShareMode::Standing => "",
+        ShareMode::Approve => ", each run approved",
+    };
+    log(vault, device, AuditAction::Share, &share.name, format!("created for {labels}{how}"), None);
     Ok((share, token))
+}
+
+/// Writes a share's object: its snapshot, or its mailbox with upload URLs
+/// signed afresh, so a machine never holds a storage key.
+fn write(vault: &Vault, bucket: &dyn ShareBucket, device: Uuid, share: &Share, contents: &Contents, now: u64) -> Result<()> {
+    let sealed = match share.mode {
+        ShareMode::Standing => share.seal(vault.id(), contents, vault.stamp(device), now)?,
+        ShareMode::Approve => {
+            let slot = |slot: u8| -> Result<SlotUrls> {
+                Ok(SlotUrls {
+                    request: bucket.presign_put(&share.request_key(slot)?, MAILBOX_URL_SECS)?,
+                    answer_delete: bucket.presign_delete(&share.answer_key(slot)?, MAILBOX_URL_SECS)?,
+                })
+            };
+            let urls = MailboxUrls {
+                doorbell: bucket.presign_put(&share.doorbell_key()?, MAILBOX_URL_SECS)?,
+                slots: (0..SLOTS).map(slot).collect::<Result<_>>()?,
+            };
+            share.seal_mailbox(vault.id(), contents, urls, vault.stamp(device), now)?
+        }
+    };
+    bucket.put(&share.object_key()?, &sealed)?;
+    Ok(())
 }
 
 /// Every `only` name is set in its environment, so a typo isn't silently a
@@ -127,10 +156,18 @@ pub fn revoke(vault: &Vault, bucket: Option<&dyn ShareBucket>, device: Uuid, sha
     Ok(outcome)
 }
 
-/// Deletes a share's snapshot and records that it's gone, then updates the
+/// Deletes a share's objects (its snapshot, or its mailbox, doorbell,
+/// requests and answers) and records that they're gone, then updates the
 /// bucket's expiry rules.
 fn remove_objects(vault: &Vault, bucket: &dyn ShareBucket, mut share: Share) -> Result<()> {
     bucket.delete(&share.object_key()?)?;
+    if share.mode == ShareMode::Approve {
+        bucket.delete(&share.doorbell_key()?)?;
+        for slot in 0..SLOTS {
+            bucket.delete(&share.request_key(slot)?)?;
+            bucket.delete(&share.answer_key(slot)?)?;
+        }
+    }
     share.pushed = Some(Pushed { sha256: String::new(), at: now_ms() });
     vault.put(Record::Share(share))?;
     // Best effort: a stale rule only deletes objects that are already gone.
@@ -138,16 +175,17 @@ fn remove_objects(vault: &Vault, bucket: &dyn ShareBucket, mut share: Share) -> 
     Ok(())
 }
 
-/// Brings every share's snapshot in step with the vault: pushes live
-/// standing shares whose values changed or whose lease is due for renewal,
-/// and deletes snapshots of revoked or expired ones. Run after every write
+/// Brings every share's snapshot (or mailbox) in step with the vault:
+/// pushes live shares whose values (in approve mode, names) changed or
+/// whose lease is due for renewal, and deletes the objects of revoked or
+/// expired ones. Run after every write
 /// and sync. Failures are reported per share, never raised, so a write
 /// never fails because the bucket can't be reached.
 pub fn sync(vault: &Vault, bucket: &dyn ShareBucket, device: Uuid) -> Result<Vec<ShareResult>> {
     let records = vault.list()?;
     let now = now_ms();
     let mut results = Vec::new();
-    for share in share::shares(&records).into_iter().filter(|s| s.mode == ShareMode::Standing) {
+    for share in share::shares(&records) {
         let (id, name) = (share.id, share.name.clone());
         if !share.is_live(now) {
             if share.in_bucket() {
@@ -192,8 +230,7 @@ fn push_one(
         Some(p) if p.sha256 == digest => Action::Renewed,
         _ => Action::Pushed,
     };
-    let sealed = share.seal(vault.id(), &contents, vault.stamp(device), now)?;
-    bucket.put(&share.object_key()?, &sealed)?;
+    write(vault, bucket, device, &share, &contents, now)?;
     share.pushed = Some(Pushed { sha256: digest, at: now });
     vault.put(Record::Share(share))?;
     Ok(Some(action))

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
-import { ArrowLeftRight, Bot, Fingerprint, Sparkles } from "lucide-react";
+import { ArrowLeftRight, Bot, Fingerprint, Server, Sparkles } from "lucide-react";
 import { api, message, type ApprovalRequest, type GrantLifetime } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -44,6 +44,8 @@ export function AgentApproval() {
   useEffect(() => {
     const unlisteners = [
       listen<ApprovalRequest>("agent-request", (e) => setQueue((q) => [...q, e.payload])),
+      // A machine's answer couldn't be written back to the share bucket.
+      listen<string>("share-approval-failed", (e) => toast.error(e.payload)),
       // Timed out on the broker's side: drop it.
       listen<string>("agent-request-closed", (e) => setQueue((q) => q.filter((r) => r.id !== e.payload))),
     ];
@@ -79,24 +81,32 @@ export function AgentApproval() {
   );
 
   const request = current ?? shown;
+  const machine = request?.machine;
+  const count = request ? `${request.variables.length} ${request.variables.length === 1 ? "variable" : "variables"}` : "";
+  // A machine can't keep a grant until this Mac locks.
+  const lifetimes = machine ? LIFETIMES.filter((l) => l.value !== "lock") : LIFETIMES;
   return (
     <SurfaceDialog
       open={current !== null}
       onOpenChange={(open) => !open && answer(false)}
-      icon={request?.kind === "generate" ? <Sparkles aria-hidden /> : <Bot aria-hidden />}
+      icon={request?.kind === "generate" ? <Sparkles aria-hidden /> : machine ? <Server aria-hidden /> : <Bot aria-hidden />}
       title={
         !request
           ? "Allow this?"
           : request.kind === "generate"
             ? `Let ${request.client} add ${request.variables[0]}?`
-            : `Allow ${request.client} to run this?`
+            : machine
+              ? `Allow ${machine.host} to run this?`
+              : `Allow ${request.client} to run this?`
       }
       description={
         !request
           ? undefined
           : request.kind === "generate"
             ? `To ${request.project}/${request.environment}`
-            : `With ${request.variables.length} ${request.variables.length === 1 ? "variable" : "variables"} from ${request.project}/${request.environment}`
+            : machine
+              ? `${request.client}, through share ${machine.share}, with ${count} from ${request.environment}`
+              : `With ${count} from ${request.project}/${request.environment}`
       }
       className="sm:max-w-lg"
     >
@@ -159,7 +169,9 @@ export function AgentApproval() {
               {request.variables.length === 0 && <li className="text-muted-foreground">None</li>}
             </ul>
             <p className="text-xs text-muted-foreground">
-              The agent never sees the values, and they're scrubbed from what it reads back.
+              {machine
+                ? `The values go to ${machine.host} for this command${machine.scrubbed ? ", and are scrubbed from what its agent reads back" : ", and its output isn't scrubbed"}.`
+                : "The agent never sees the values, and they're scrubbed from what it reads back."}
               {request.proxied.length > 0 &&
                 ` ${request.proxied.join(" and ")} ${request.proxied.length === 1 ? "goes" : "go"} through dotsafe's proxy, so the command never holds ${request.proxied.length === 1 ? "that key" : "those keys"}.`}{" "}
               The command can use the rest however it's written, so only allow commands you'd run yourself.
@@ -170,7 +182,7 @@ export function AgentApproval() {
             <p className="text-xs font-medium text-muted-foreground">Allow this exact command</p>
             <Tabs value={lifetime} onValueChange={(v) => setLifetime(v as GrantLifetime)}>
               <TabsList aria-label="How long to allow it" className="w-full bg-muted p-0.5">
-                {LIFETIMES.map((l) => (
+                {lifetimes.map((l) => (
                   <TabsTrigger key={l.value} value={l.value} className="flex-1 py-1 text-[13px]">
                     {l.label}
                   </TabsTrigger>

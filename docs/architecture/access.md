@@ -1,6 +1,6 @@
 # Access beyond this device
 
-**Status:** steps 1 to 3 of the [build order](#build-order) (standing shares in the CLI and the app, and `dotsafe daemon --share` for unattended agents) are built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
+**Status:** steps 1 to 4 of the [build order](#build-order) (standing shares in the CLI and the app, `dotsafe daemon --share` for unattended agents, and approve mode) are built; per-run machine logs are proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
 
 - The token carries the path's 16 bytes and the bucket's public URL rather than the whole snapshot URL (shorter, same information).
 - `pushed: { sha256: "" }` records that a share's objects were deleted, so a device that couldn't reach the bucket at revoke or expiry knows to try again.
@@ -9,6 +9,9 @@
 - The app pushes shares a few seconds after the vault changes (an edit there, the CLI, or a sync from another device) and checks hourly to renew leases, instead of hooking each write. It never shows the token: the dialog shows its start and end and copies it in Rust.
 - `dotsafe daemon --share` is the shared broker with a share's snapshot as its source (`broker::Host::share`). It fetches the snapshot when it starts, again before each run, and for listing once it's 30 seconds old. If the bucket can't be reached it keeps using the last copy while that's within its expiry and lease; a missing snapshot (revoked or expired) ends it. It's read-only: `generate_secret` is refused. Only the built-in proxy profiles apply, as with `run --share`, since custom ones live in the vault.
 - Approvals there work as in the plain daemon (its terminal, 5 minute wait), plus `dotsafe approve --share`, which tags answers with a key derived from the share key (HKDF, `dotsafe/v6/share-approve`) instead of the vault key. Whoever holds the token can already read every value in the share, and the commands the daemon runs never get it. `--unattended` allows every request the refusal list lets through, for when nobody is there. Requests are logged, names only, in the daemon's output (`daemon.log` when detached), since there's no vault to write to. `--detach` hands the token to the background copy on a pipe, not in its environment.
+- **Approve mode needs only the token.** Instead of a storage key for the machine, the user's devices write a sealed mailbox (`m/<path>/mailbox`) with the share's variable names and presigned URLs, signed for 7 days and rewritten daily: a PUT for the doorbell, and for each of 4 request slots a PUT for the request and a DELETE for its answer. This was the first open question below. Format: [vault-format.md](../vault-format.md#approve-mode-mailboxes).
+- The app watches each approve share's doorbell through its ETag (a HEAD request every 2 seconds while unlocked) and shows requests in the agent approval dialog, with the machine's name, Touch ID checked in Rust. `dotsafe share approve` answers from any of the user's devices with the master password, never the unlock cache. The answer is "once" or "for a while" (15 minutes or an hour), which the machine keeps in memory for that exact command instead of a short-lived snapshot.
+- `dotsafe run --share` and `dotsafe daemon --share` both work in approve mode: they find the mailbox when there's no snapshot, and each run waits (5 minutes, or `--wait`) for an answer. `--unattended` refuses an approve share. Approvals are logged on the device that answers, as runs with actor `share:<name>`.
 
 dotsafe decides which secrets a person or agent can use on the user's own devices. This document extends that to machines dotsafe doesn't run on as a full client: CI, servers, cloud VMs and cloud agents. The question is the same everywhere: which secrets, for how long, approved how, logged where, and what happens when access ends.
 
@@ -277,7 +280,7 @@ Each step ships on its own. Step 1 is useful without the rest. Approving from a 
 
 ## Open questions
 
-- **Dropping approve mode's storage key.** A user's device could leave a pool of presigned upload URLs for requests and the doorbell (valid up to 7 days on S3 and R2) in a sealed object, renewed while unlocked. Then even approve mode would need only the token. More moving parts; worth it if approve mode gets used.
+- ~~**Dropping approve mode's storage key.**~~ Built this way: see the status above.
 - **Forward secrecy for approve mode.** Anyone holding the token and an old answer object can read it, which is why answers are deleted right away. A symmetric trick doesn't help: anyone with the share key can read a one-time key sent inside a request. If teams brings in X25519, a request could carry a one-time public key and the answer be sealed to it, so a token leaked later reads nothing.
 - **How fast approvals feel.** 2-second doorbell checks should feel close to instant for a dialog. Worth measuring with real use.
 - **Storage prices** in [approving from the Mac](#approving-from-the-mac-approve-mode) are from memory, not the S3 and R2 price pages. Recheck before putting any cost figure in user-facing docs.

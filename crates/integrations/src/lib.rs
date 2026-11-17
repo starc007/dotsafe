@@ -9,6 +9,7 @@
 //! a token only ever goes to the service it belongs to. [`rotate`] ties the
 //! calls to the vault: create, save, verify, promote, push, revoke.
 
+pub mod approvals;
 mod client;
 pub mod licensing;
 pub mod rotate;

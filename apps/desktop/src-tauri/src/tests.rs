@@ -928,6 +928,8 @@ fn shares_are_listed_hold_back_retiring_and_queue_what_they_read_when_revoked() 
     assert_eq!(desktop.ok("list_shares", json!({})), json!({ "bucket": null, "shares": [] }));
     let missing = desktop.err("create_share", json!({ "share": { "name": "ci", "environmentIds": [dev], "only": null, "days": 30, "leaseDays": null } }));
     assert_eq!(missing["message"], "Set up a share bucket first.");
+    let approve = json!({ "share": { "name": "vm", "environmentIds": [dev], "only": null, "days": 7, "leaseDays": null, "approve": true } });
+    assert_eq!(desktop.err("create_share", approve)["message"], "Set up a share bucket first.");
     assert_eq!(desktop.err("copy_share_token", json!({}))["kind"], "other");
 
     let share = desktop.add_share("ci", &[&dev], true);
@@ -937,6 +939,7 @@ fn shares_are_listed_hold_back_retiring_and_queue_what_they_read_when_revoked() 
     assert_eq!(listed["shares"][0]["status"], "current");
     assert_eq!(listed["shares"][0]["environments"][0], json!({ "project": "api", "environment": "development", "only": null }));
     assert_eq!(listed["shares"][0]["leaseDaysLeft"], 13);
+    assert_eq!(listed["shares"][0]["approve"], false);
 
     // A new value puts the share behind, so the old one can't be retired yet.
     desktop.ok("stage_secret", json!({ "id": secret, "value": "sk_new", "note": null, "live": true }));

@@ -46,6 +46,7 @@ pub fn run() {
             updates::spawn_checker(app.handle().clone());
             tray::setup(app)?;
             let approvals = app.state::<broker::Approvals>().inner().clone();
+            broker::spawn_share_watcher(state.inner().clone(), approvals.clone(), app.handle().clone());
             broker::spawn(state.inner().clone(), approvals, app.handle().clone());
             Ok(())
         })

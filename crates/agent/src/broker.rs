@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
 use dotsafe_core::resolve::Raw;
-use dotsafe_core::share::Snapshot;
+use dotsafe_core::share::{Mailbox, Snapshot};
 use dotsafe_core::{Charset, Environment, Generator, Project, Record, Vault, is_valid_var_name};
 use serde::Serialize;
 use uuid::Uuid;
@@ -100,11 +100,16 @@ pub struct ApprovalFile {
 pub trait Host: Send + Sync + 'static {
     /// The unlocked vault and this device's id, or `None` while locked.
     fn vault(&self) -> Option<(Arc<Vault>, Uuid)>;
-    /// `dotsafe daemon --share`: the share's snapshot, its only source of
-    /// names and values, or why it can't be read. `fresh` fetches it again
-    /// instead of using a recent copy, so a run gets rotated values. `None`
-    /// where values come from [`Host::vault`].
-    fn share(&self, _fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+    /// `dotsafe daemon --share`: the share, its only source of names and
+    /// values, or why it can't be read. `fresh` fetches it again instead of
+    /// using a recent copy, so a run gets rotated values. `None` where
+    /// values come from [`Host::vault`].
+    fn share(&self, _fresh: bool) -> Option<Result<ShareView, String>> {
+        None
+    }
+    /// An approve share: the values approved with the answer to the request
+    /// [`Host::ask`] sent for `scope`. A "once" answer is used up here.
+    fn approved_values(&self, _scope: &Scope) -> Option<Vec<(String, String)>> {
         None
     }
     /// Whether `proof` on an answer from `dotsafe approve` was made with the
@@ -177,10 +182,10 @@ impl<H: Host> Broker<H> {
     fn list_projects(&self) -> Response {
         let records = match self.data(false) {
             Ok(Data::Vault(records)) => records,
-            Ok(Data::Share(snapshot)) => {
+            Ok(Data::Share(view)) => {
                 return Response::Projects(vec![ProjectInfo {
                     name: SHARE_PROJECT.into(),
-                    environments: snapshot.environments.keys().cloned().collect(),
+                    environments: view.names().into_keys().collect(),
                 }]);
             }
             Err(response) => return response,
@@ -202,14 +207,14 @@ impl<H: Host> Broker<H> {
     fn list_variables(&self, target: &Target) -> Response {
         let records = match self.data(false) {
             Ok(Data::Vault(records)) => records,
-            Ok(Data::Share(snapshot)) => {
-                return match share_env(&snapshot, target) {
-                    Ok((label, vars)) => Response::Variables(VariablesInfo {
+            Ok(Data::Share(view)) => {
+                return match share_env(&view, target) {
+                    Ok((label, names)) => Response::Variables(VariablesInfo {
                         project: SHARE_PROJECT.into(),
-                        environment: label.to_string(),
-                        // A snapshot has final values only: which were linked
+                        environment: label,
+                        // A share has final values only: which were linked
                         // secrets stays on the user's devices.
-                        variables: vars.keys().map(|name| VariableInfo { name: name.clone(), shared: None }).collect(),
+                        variables: names.into_iter().map(|name| VariableInfo { name, shared: None }).collect(),
                     }),
                     Err(response) => response,
                 };
@@ -272,11 +277,10 @@ impl<H: Host> Broker<H> {
                 // vault, which agents can't edit.
                 (project.name, env.name, env.id.to_string(), variables, proxy::profiles(&records))
             }
-            Data::Share(snapshot) => {
-                let (label, vars) = share_env(&snapshot, &target)?;
+            Data::Share(view) => {
+                let (label, names) = share_env(&view, &target)?;
                 // Built-in profiles only: custom ones live in the vault.
-                let profiles = proxy::profiles(&[]);
-                (SHARE_PROJECT.to_string(), label.to_string(), label.to_string(), vars.keys().cloned().collect(), profiles)
+                (SHARE_PROJECT.to_string(), label.clone(), label, names, proxy::profiles(&[]))
             }
         };
         if let Some(wanted) = ask.variables {
@@ -359,12 +363,18 @@ impl<H: Host> Broker<H> {
     fn values(&self, scope: &Scope) -> Result<Vec<(String, String)>, Response> {
         let records = match self.data(true)? {
             Data::Vault(records) => records,
-            Data::Share(snapshot) => {
+            Data::Share(ShareView::Values(snapshot)) => {
                 let Some(vars) = snapshot.environments.get(&scope.environment) else {
                     return Err(Response::error(ErrorCode::NotFound, "That environment is no longer in the share."));
                 };
                 let wanted = vars.iter().filter(|(k, _)| scope.variables.contains(k));
                 return Ok(wanted.map(|(k, v)| (k.clone(), v.clone())).collect());
+            }
+            // The values came with the approval, for this command only.
+            Data::Share(ShareView::Names(_)) => {
+                return self.host.approved_values(scope).ok_or_else(|| {
+                    Response::error(ErrorCode::Denied, "The approval for this command ran out; ask again.")
+                });
             }
         };
         let Some(env) = records.iter().find_map(|r| match r {
@@ -685,7 +695,37 @@ impl<H: Host> Broker<H> {
 /// Where a request's names and values come from.
 enum Data {
     Vault(Vec<Record>),
-    Share(Arc<Snapshot>),
+    Share(ShareView),
+}
+
+/// What `dotsafe daemon --share` serves.
+#[derive(Clone)]
+pub enum ShareView {
+    /// A standing share's snapshot: names and values.
+    Values(Arc<Snapshot>),
+    /// An approve share's mailbox: names only. Each run's values come with
+    /// the user's approval ([`Host::approved_values`]).
+    Names(Arc<Mailbox>),
+}
+
+impl ShareView {
+    /// Each environment's variable names, by label.
+    pub fn names(&self) -> BTreeMap<String, Vec<String>> {
+        match self {
+            ShareView::Values(snapshot) => {
+                snapshot.environments.iter().map(|(label, vars)| (label.clone(), vars.keys().cloned().collect())).collect()
+            }
+            ShareView::Names(mailbox) => mailbox.environments.clone(),
+        }
+    }
+
+    /// When it stops being valid: its expiry or lease, whichever is first.
+    pub fn valid_until(&self) -> u64 {
+        match self {
+            ShareView::Values(s) => s.expires.min(s.lease_until),
+            ShareView::Names(m) => m.expires.min(m.lease_until),
+        }
+    }
 }
 
 /// The project a share's environments are listed under. A snapshot holds
@@ -693,29 +733,30 @@ enum Data {
 /// share a name), not the vault's projects.
 const SHARE_PROJECT: &str = "share";
 
-/// The snapshot environment a request is about: by label, by the name the
-/// directory's `.dotsafe.json` link uses, or the only one.
-fn share_env<'a>(snapshot: &'a Snapshot, target: &Target) -> Result<(&'a str, &'a BTreeMap<String, String>), Response> {
-    let labels = || snapshot.environments.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
+/// The share environment a request is about, and its variable names: by
+/// label, by the name the directory's `.dotsafe.json` link uses, or the
+/// only one.
+fn share_env(view: &ShareView, target: &Target) -> Result<(String, Vec<String>), Response> {
+    let environments = view.names();
+    let pick = |env: Option<&str>| dotsafe_core::share::pick_environment(&environments, env);
+    let labels = || environments.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
     let wanted = match (&target.project, &target.environment) {
-        (Some(project), Some(env)) if snapshot.environments.contains_key(&format!("{project}/{env}")) => {
+        (Some(project), Some(env)) if environments.contains_key(&format!("{project}/{env}")) => {
             Some(format!("{project}/{env}"))
         }
         (_, Some(env)) => Some(env.clone()),
-        (_, None) => target
-            .cwd
-            .as_deref()
-            .and_then(find_link)
-            .map(|(_, env)| env)
-            .filter(|env| snapshot.environment(Some(env)).is_ok()),
+        (_, None) => target.cwd.as_deref().and_then(find_link).map(|(_, env)| env).filter(|env| pick(Some(env)).is_ok()),
     };
-    if wanted.is_none() && snapshot.environments.len() > 1 {
+    if wanted.is_none() && environments.len() > 1 {
         return Err(Response::error(ErrorCode::Invalid, format!("Say which environment to use. This share has {}.", labels())));
     }
-    snapshot.environment(wanted.as_deref()).map_err(|_| {
-        let name = wanted.unwrap_or_default();
-        Response::error(ErrorCode::NotFound, format!("This share has no environment {name}. It has {}.", labels()))
-    })
+    match pick(wanted.as_deref()) {
+        Ok((label, names)) => Ok((label.to_string(), names.clone())),
+        Err(_) => {
+            let name = wanted.unwrap_or_default();
+            Err(Response::error(ErrorCode::NotFound, format!("This share has no environment {name}. It has {}.", labels())))
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -921,11 +962,11 @@ mod tests {
         fn vault(&self) -> Option<(Arc<Vault>, Uuid)> {
             None
         }
-        fn share(&self, fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+        fn share(&self, fresh: bool) -> Option<Result<ShareView, String>> {
             if fresh {
                 self.fresh.fetch_add(1, Ordering::SeqCst);
             }
-            Some(Ok(self.snapshot.clone()))
+            Some(Ok(ShareView::Values(self.snapshot.clone())))
         }
         fn check_answer(&self, _message: &[u8], proof: &str) -> bool {
             proof == "good"
@@ -1034,5 +1075,98 @@ mod tests {
         assert!(e.message.contains("share's token"), "{}", e.message);
         // A good proof gets as far as the host, which has nothing waiting.
         assert_eq!(error(b.handle(Request::Answer(answer("good")))).code, ErrorCode::NotFound);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod approve_tests {
+    use std::sync::Mutex;
+
+    use dotsafe_core::Stamp;
+
+    use super::*;
+    use crate::ipc::Handler;
+
+    type Values = Vec<(String, String)>;
+
+    /// An approve share: names from the mailbox, values only with an answer.
+    struct ApproveHost {
+        mailbox: Arc<Mailbox>,
+        answer: Option<Values>,
+        approved: Mutex<Vec<(Scope, Values)>>,
+        asked: Mutex<Vec<ApprovalRequest>>,
+    }
+
+    impl Host for ApproveHost {
+        fn vault(&self) -> Option<(Arc<Vault>, Uuid)> {
+            None
+        }
+        fn share(&self, _fresh: bool) -> Option<Result<ShareView, String>> {
+            Some(Ok(ShareView::Names(self.mailbox.clone())))
+        }
+        fn approved_values(&self, scope: &Scope) -> Option<Vec<(String, String)>> {
+            let mut approved = self.approved.lock().unwrap();
+            let at = approved.iter().position(|(s, _)| s == scope)?;
+            Some(approved.remove(at).1)
+        }
+        fn allows(&self, _scope: &Scope, _now: Instant) -> bool {
+            false
+        }
+        fn grant(&self, _scope: Scope, _lifetime: Lifetime, _now: Instant) {}
+        fn ask(&self, prompt: ApprovalRequest) -> Option<Lifetime> {
+            let answer = self.answer.clone()?;
+            self.approved.lock().unwrap().push((prompt.scope.clone().unwrap(), answer));
+            self.asked.lock().unwrap().push(prompt);
+            Some(Lifetime::Once)
+        }
+    }
+
+    fn broker(answer: Option<Vec<(String, String)>>) -> Broker<ApproveHost> {
+        let mailbox = Mailbox {
+            stamp: Stamp { at_ms: 1, counter: 0, device: Uuid::new_v4() },
+            expires: u64::MAX,
+            lease_until: u64::MAX,
+            environments: BTreeMap::from([("production".into(), vec!["API_KEY".into(), "PORT".into()])]),
+            doorbell: String::new(),
+            slots: Vec::new(),
+        };
+        Broker::new(ApproveHost { mailbox: Arc::new(mailbox), answer, approved: Mutex::default(), asked: Mutex::default() })
+    }
+
+    fn run(b: &Broker<ApproveHost>, dir: &Path) -> Response {
+        b.handle(Request::Run(RunRequest {
+            client: "agent".into(),
+            command: vec!["./show.sh".into()],
+            cwd: dir.to_path_buf(),
+            target: Target::default(),
+            variables: Some(vec!["API_KEY".into()]),
+            timeout_secs: None,
+            path: None,
+            proxy: false,
+        }))
+    }
+
+    #[test]
+    fn an_approve_share_runs_with_the_values_its_answer_brings() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("show.sh");
+        std::fs::write(&script, "#!/bin/sh\necho \"${API_KEY:-unset}\"\n").unwrap();
+        std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let b = broker(Some(vec![("API_KEY".into(), "sk_approved_value".into())]));
+        let Response::Variables(info) = b.handle(Request::ListVariables(Target::default())) else { panic!() };
+        assert_eq!(info.variables.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(), ["API_KEY", "PORT"]);
+
+        let Response::Ran(out) = run(&b, dir.path()) else { panic!() };
+        assert!(out.stdout.contains("[dotsafe:API_KEY]"), "{}", out.stdout);
+        let asked = b.host().asked.lock().unwrap();
+        assert_eq!((asked[0].environment.as_str(), asked[0].variables.clone()), ("production", vec!["API_KEY".to_string()]));
+        drop(asked);
+        assert!(b.host().approved.lock().unwrap().is_empty(), "a once answer is used up");
+
+        // Denied: nothing runs.
+        let denied = broker(None);
+        let Response::Error(e) = run(&denied, dir.path()) else { panic!() };
+        assert_eq!(e.code, ErrorCode::Denied);
     }
 }

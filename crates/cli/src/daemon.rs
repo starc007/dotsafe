@@ -21,11 +21,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
-use dotsafe_agent::broker::{ApprovalRequest, Broker, Host};
+use dotsafe_agent::broker::{ApprovalRequest, Broker, Host, ShareView};
 use dotsafe_agent::grants::{Grants, Lifetime, Scope};
 use dotsafe_agent::protocol::PendingInfo;
 use dotsafe_core::audit::AuditEvent;
-use dotsafe_core::share::Snapshot;
+use dotsafe_core::share::{Request, RequestFile};
 use dotsafe_core::{ShareToken, Vault};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -61,54 +61,144 @@ enum Source {
 /// `--share`: the share's snapshot, as last fetched.
 struct ShareSource {
     token: ShareToken,
-    latest: Mutex<Option<(Instant, Arc<Snapshot>)>>,
+    latest: Mutex<Option<(Instant, ShareView)>>,
+    /// An approve share: each run waits for the user's answer.
+    approve: bool,
+    /// Approve mode: values from answers, by the command they were approved
+    /// for.
+    approved: Mutex<Vec<Approved>>,
+}
+
+/// An answer's values, kept for the command it approved.
+struct Approved {
+    scope: Scope,
+    /// `None`: this run only.
+    until: Option<Instant>,
+    values: Vec<(String, String)>,
 }
 
 impl ShareSource {
-    /// Fetches the snapshot once, so a bad token or an unreachable bucket
-    /// stops the daemon from starting.
+    /// Fetches the snapshot (or an approve share's mailbox) once, so a bad
+    /// token or an unreachable bucket stops the daemon from starting.
     fn open(token: ShareToken) -> Result<ShareSource> {
-        let snapshot = crate::share::fetch(&token)?
-            .ok_or_else(|| anyhow!("this share has no snapshot: it was revoked or has expired"))?;
-        Ok(ShareSource { token, latest: Mutex::new(Some((Instant::now(), Arc::new(snapshot)))) })
+        let view = fetch_view(&token)?.ok_or_else(|| anyhow!("this share was revoked or has expired"))?;
+        let approve = matches!(view, ShareView::Names(_));
+        Ok(ShareSource {
+            token,
+            latest: Mutex::new(Some((Instant::now(), view))),
+            approve,
+            approved: Mutex::default(),
+        })
     }
 
-    /// The snapshot: the last one if it's recent and `fresh` isn't asked
-    /// for, else fetched again. If the bucket can't be reached, the last one
-    /// is used while it's within its expiry and lease. A missing snapshot
-    /// means the share was revoked or expired, and nothing is served after.
-    fn snapshot(&self, fresh: bool) -> Result<Arc<Snapshot>, String> {
+    /// The share: the last copy if it's recent and `fresh` isn't asked for,
+    /// else fetched again. If the bucket can't be reached, the last copy is
+    /// used while it's within its expiry and lease. A missing one means the
+    /// share was revoked or expired, and nothing is served after.
+    fn view(&self, fresh: bool) -> Result<ShareView, String> {
         let last = lock(&self.latest).clone();
-        if let Some((at, snapshot)) = &last
+        if let Some((at, view)) = &last
             && !fresh
             && at.elapsed() < SHARE_REFETCH
         {
-            return Ok(snapshot.clone());
+            return Ok(view.clone());
         }
         // Fetched without the lock, so a slow bucket holds up nothing else.
-        match crate::share::fetch(&self.token) {
-            Ok(Some(snapshot)) => {
-                let snapshot = Arc::new(snapshot);
-                *lock(&self.latest) = Some((Instant::now(), snapshot.clone()));
-                Ok(snapshot)
+        match fetch_view(&self.token) {
+            Ok(Some(view)) => {
+                *lock(&self.latest) = Some((Instant::now(), view.clone()));
+                Ok(view)
             }
             Ok(None) => {
                 *lock(&self.latest) = None;
                 Err("The share was revoked or has expired, so this machine can't use it anymore.".into())
             }
-            Err(e) => {
-                let now = crate::share::now_ms();
-                match last {
-                    Some((at, snapshot)) if snapshot.expires > now && snapshot.lease_until > now => {
-                        let age = ago(at.elapsed().as_millis() as u64);
-                        eprintln!("dotsafe daemon: couldn't refresh the share ({e}); using the copy fetched {age}.");
-                        Ok(snapshot)
-                    }
-                    _ => Err(format!("Couldn't read the share: {e}.")),
+            Err(e) => match last {
+                Some((at, view)) if view.valid_until() > crate::share::now_ms() => {
+                    let age = ago(at.elapsed().as_millis() as u64);
+                    eprintln!("dotsafe daemon: couldn't refresh the share ({e}); using the copy fetched {age}.");
+                    Ok(view)
                 }
+                _ => Err(format!("Couldn't read the share: {e}.")),
+            },
+        }
+    }
+
+    /// Approve mode: sends `prompt` to the user's devices through the
+    /// mailbox and waits for the answer. Keeps the values it brings for
+    /// [`Host::approved_values`].
+    fn ask(&self, prompt: &ApprovalRequest) -> Option<Lifetime> {
+        let scope = prompt.scope.clone()?;
+        let wait = prompt.wait.unwrap_or(DEFAULT_WAIT);
+        let mailbox = match self.view(true) {
+            Ok(ShareView::Names(mailbox)) => mailbox,
+            Ok(ShareView::Values(_)) => return None,
+            Err(e) => {
+                eprintln!("dotsafe daemon: {e}");
+                return None;
+            }
+        };
+        let now = crate::share::now_ms();
+        let request = Request {
+            id: prompt.id,
+            at: now,
+            expires: now.saturating_add(wait.as_millis() as u64),
+            host: dotsafe_integrations::approvals::host_name(),
+            client: prompt.client.clone(),
+            kind: prompt.kind.to_string(),
+            command: prompt.command.clone(),
+            program_path: prompt.program_path.clone(),
+            cwd: prompt.cwd.clone(),
+            environment: prompt.environment.clone(),
+            variables: prompt.variables.clone(),
+            proxied: prompt.proxied.clone(),
+            files: prompt.files.iter().map(|f| RequestFile { path: f.path.clone(), modified_ms: f.modified_ms }).collect(),
+        };
+        eprintln!("\n{}\nWaiting up to {} for approval on one of your devices.", describe(&prompt.info(true, Duration::ZERO)), minutes(wait));
+        match crate::share::ask(&self.token, &mailbox, &request, wait) {
+            Ok(answer) if answer.allowed => {
+                let until = (answer.reuse_ms > 0).then(|| Instant::now() + Duration::from_millis(answer.reuse_ms));
+                eprintln!("Allowed.");
+                lock(&self.approved).push(Approved { scope, until, values: answer.values.into_iter().collect() });
+                Some(until.map_or(Lifetime::Once, |_| Lifetime::For(Duration::from_millis(answer.reuse_ms))))
+            }
+            Ok(_) => {
+                eprintln!("Denied.");
+                None
+            }
+            Err(e) => {
+                eprintln!("dotsafe daemon: {e}");
+                None
             }
         }
     }
+
+    /// Whether an "for an hour" answer still covers `scope`.
+    fn covers(&self, scope: &Scope) -> bool {
+        let now = Instant::now();
+        let mut approved = lock(&self.approved);
+        approved.retain(|a| a.until.is_none_or(|u| u > now));
+        approved.iter().any(|a| &a.scope == scope && a.until.is_some())
+    }
+
+    /// The values approved for `scope`. A "once" answer is used up.
+    fn values(&self, scope: &Scope) -> Option<Vec<(String, String)>> {
+        let now = Instant::now();
+        let mut approved = lock(&self.approved);
+        let at = approved.iter().position(|a| &a.scope == scope && a.until.is_none_or(|u| u > now))?;
+        match approved[at].until {
+            None => Some(approved.remove(at).values),
+            Some(_) => Some(approved[at].values.clone()),
+        }
+    }
+}
+
+/// A share's snapshot, or an approve share's mailbox, as the broker serves it.
+fn fetch_view(token: &ShareToken) -> Result<Option<ShareView>> {
+    Ok(crate::share::fetch_any(token)?.map(|fetched| match fetched {
+        crate::share::Fetched::Snapshot(s) => ShareView::Values(Arc::new(s)),
+        crate::share::Fetched::Mailbox(m) => ShareView::Names(Arc::new(m)),
+    }))
 }
 
 struct DaemonHost {
@@ -144,10 +234,17 @@ impl Host for DaemonHost {
         }
     }
 
-    fn share(&self, fresh: bool) -> Option<Result<Arc<Snapshot>, String>> {
+    fn share(&self, fresh: bool) -> Option<Result<ShareView, String>> {
         match &self.source {
-            Source::Share(share) => Some(share.snapshot(fresh)),
+            Source::Share(share) => Some(share.view(fresh)),
             Source::Vault(..) => None,
+        }
+    }
+
+    fn approved_values(&self, scope: &Scope) -> Option<Vec<(String, String)>> {
+        match &self.source {
+            Source::Share(share) if share.approve => share.values(scope),
+            _ => None,
         }
     }
 
@@ -181,14 +278,26 @@ impl Host for DaemonHost {
     }
 
     fn allows(&self, scope: &Scope, now: Instant) -> bool {
-        self.unattended || lock(&self.grants).allows(scope, now)
+        match &self.source {
+            // Only an answer from the user's devices covers a run, and it
+            // brings the values with it.
+            Source::Share(share) if share.approve => share.covers(scope),
+            _ => self.unattended || lock(&self.grants).allows(scope, now),
+        }
     }
 
     fn grant(&self, scope: Scope, lifetime: Lifetime, now: Instant) {
-        lock(&self.grants).add(scope, lifetime, now);
+        if !matches!(&self.source, Source::Share(share) if share.approve) {
+            lock(&self.grants).add(scope, lifetime, now);
+        }
     }
 
     fn ask(&self, prompt: ApprovalRequest) -> Option<Lifetime> {
+        if let Source::Share(share) = &self.source
+            && share.approve
+        {
+            return share.ask(&prompt);
+        }
         let id = prompt.id;
         let wait = prompt.wait.unwrap_or(DEFAULT_WAIT);
         let (tx, rx) = mpsc::channel();
@@ -446,17 +555,23 @@ pub fn run(options: Options) -> Result<()> {
         }
         Err(e) => return Err(e).context("couldn't open the agent socket"),
     };
-    let interactive = matches!(start, Start::Here) && std::io::stdin().is_terminal() && !unattended;
+    let approve = matches!(&source, Source::Share(share) if share.approve);
+    if approve && unattended {
+        bail!("this share asks you to approve each run, so it can't run unattended; create a share without --approve for that");
+    }
+    let interactive = matches!(start, Start::Here) && std::io::stdin().is_terminal() && !unattended && !approve;
     let queue = Arc::new(Mutex::new(Queue::default()));
     let host = DaemonHost { source, grants: Mutex::new(Grants::default()), queue: queue.clone(), interactive, unattended };
     match &host.source {
         Source::Vault(vault, _) => eprintln!("dotsafe daemon is serving {}.", vault.location()),
         Source::Share(share) => {
-            let labels = share.snapshot(false).map(|s| s.environments.keys().cloned().collect::<Vec<_>>().join(", "));
+            let labels = share.view(false).map(|v| v.names().into_keys().collect::<Vec<_>>().join(", "));
             eprintln!("dotsafe daemon is serving a share with {}.", labels.unwrap_or_default());
         }
     }
-    if unattended {
+    if approve {
+        eprintln!("Each run waits for your approval, in the dotsafe app or with `dotsafe share approve` on one of your devices.");
+    } else if unattended {
         eprintln!("Nobody is asked: every command agents ask for runs with the share's values, except what dotsafe always refuses.");
     } else if interactive {
         eprintln!("Approve requests here, or with `{}` in another terminal. Stop with Ctrl-C.", host.approve_command());

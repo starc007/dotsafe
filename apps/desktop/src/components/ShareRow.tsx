@@ -40,14 +40,17 @@ export function ShareRow({ share, onRevoke }: { share: ShareView; onRevoke: () =
           </span>
         </span>
         <span className="block truncate text-xs text-muted-foreground">
+          {share.approve && "Asks each time · "}
           {envs}
           {only && ` · only ${only.join(", ")}`} · {when}
         </span>
         {share.problem && <span className="block truncate text-xs text-destructive">{share.problem}</span>}
         {left !== null && left < LEASE_WARNING_DAYS && (
           <span className="block truncate text-xs text-destructive">
-            {left === 0 ? "Its snapshot runs out today." : `Its snapshot runs out in ${left} ${left === 1 ? "day" : "days"}.`} Push
-            it, or the machine stops getting values.
+            {left === 0
+              ? `Its ${share.approve ? "mailbox" : "snapshot"} runs out today.`
+              : `Its ${share.approve ? "mailbox" : "snapshot"} runs out in ${left} ${left === 1 ? "day" : "days"}.`}{" "}
+            Push it, or the machine stops getting values.
           </span>
         )}
       </span>

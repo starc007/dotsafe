@@ -291,7 +291,7 @@ enum Cmd {
         /// On a machine with a share: use the token in DOTSAFE_SHARE instead of a vault (no license needed here)
         #[arg(long, conflicts_with = "daemon")]
         share: bool,
-        /// Through the daemon: how long to wait for approval, e.g. 30s or 10m
+        /// Through the daemon, or with an approve share: how long to wait for approval, e.g. 30s or 10m
         #[arg(long, value_parser = session::parse_duration, default_value = "5m")]
         wait: Duration,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true, value_name = "COMMAND")]
@@ -817,8 +817,8 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Approve { .. } => bail!("dotsafe daemon needs macOS or Linux for now"),
         Cmd::Mcp { action: None } => mcp::serve()?,
         Cmd::Mcp { action: Some(McpAction::Setup) } => mcp::print_setup()?,
-        Cmd::Run { env, proxy, only, share: true, command, .. } => {
-            let vars = share::machine_vars(env.env.as_deref(), only.as_deref())?;
+        Cmd::Run { env, proxy, only, share: true, wait, command, .. } => {
+            let vars = share::machine_vars(env.env.as_deref(), only.as_deref(), &command, wait)?;
             // Only the built-in proxy profiles: custom ones live in the vault.
             let profiles = if proxy { dotsafe_agent::proxy::profiles(&[]) } else { Vec::new() };
             return launch(vars, proxy.then_some(profiles), &command, &[share::TOKEN_VAR]);

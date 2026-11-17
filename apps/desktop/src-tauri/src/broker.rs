@@ -2,12 +2,16 @@
 //! `dotsafe_agent::broker`, shared with `dotsafe daemon`. Here it gets the
 //! app's session for the vault and grants, and asks the user with a dialog
 //! (confirmed with Touch ID in `answer_agent_request`).
+//!
+//! It also answers machines with approve shares: while unlocked, it watches
+//! each approve share's doorbell, and shows what a machine asks for in the
+//! same dialog, then writes the answer back through the share bucket.
 
 // Agent access needs the Unix socket for now; elsewhere the broker is built
 // but never started.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -17,6 +21,7 @@ use dotsafe_agent::grants::{Lifetime, Scope};
 use dotsafe_agent::policy;
 use dotsafe_core::audit::{self, AuditEvent};
 use dotsafe_core::Vault;
+use dotsafe_integrations::approvals::{self, Decision, Waiting};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, UserAttentionType};
 use uuid::Uuid;
@@ -97,6 +102,178 @@ impl Host for DesktopHost {
     fn vault_changed(&self) {
         let _ = self.app.emit("vault-synced", ());
     }
+}
+
+/// How often an unlocked app looks at approve shares' doorbells. One cheap
+/// HEAD request per approve share each time.
+const DOORBELL_CHECK: Duration = Duration::from_secs(2);
+
+/// A machine's request as the approval dialog shows it: an agent request's
+/// fields, plus where it comes from.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineRequest {
+    id: Uuid,
+    kind: &'static str,
+    client: String,
+    project: String,
+    environment: String,
+    command: Vec<String>,
+    program_path: String,
+    cwd: String,
+    variables: Vec<String>,
+    proxied: Vec<String>,
+    files: Vec<MachineFile>,
+    generated: Option<String>,
+    machine: MachineInfo,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineFile {
+    path: String,
+    modified_ms: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineInfo {
+    share: String,
+    host: String,
+    /// The command's output goes back to an agent, scrubbed. Otherwise it
+    /// goes to the machine's own terminal or log.
+    scrubbed: bool,
+}
+
+impl MachineRequest {
+    fn new(w: &Waiting) -> MachineRequest {
+        let r = &w.request;
+        MachineRequest {
+            id: r.id,
+            kind: "run",
+            client: r.client.clone(),
+            project: w.share_name.clone(),
+            environment: r.environment.clone(),
+            command: r.command.clone(),
+            program_path: r.program_path.clone(),
+            cwd: r.cwd.clone(),
+            variables: r.variables.clone(),
+            proxied: r.proxied.clone(),
+            files: r.files.iter().map(|f| MachineFile { path: f.path.clone(), modified_ms: f.modified_ms }).collect(),
+            generated: None,
+            machine: MachineInfo { share: w.share_name.clone(), host: r.host.clone(), scrubbed: r.kind == "run" },
+        }
+    }
+}
+
+/// Watches approve shares' doorbells while the vault is unlocked, and asks
+/// the user about each new request a machine writes.
+pub fn spawn_share_watcher(state: AppState, approvals: Approvals, app: AppHandle) {
+    std::thread::spawn(move || {
+        // Each share's doorbell as last seen. The first look reads the
+        // slots too, for requests made while the app was locked.
+        let mut rung: HashMap<Uuid, Option<String>> = HashMap::new();
+        let asking: Arc<Mutex<HashSet<Uuid>>> = Arc::default();
+        loop {
+            std::thread::sleep(DOORBELL_CHECK);
+            let unlocked = state.0.lock().ok().and_then(|s| Some((s.vault.clone()?, s.config.clone()?)));
+            let Some((vault, config)) = unlocked.filter(|(_, c)| c.share_bucket.is_some()) else {
+                rung.clear();
+                continue;
+            };
+            let Ok(records) = vault.list() else { continue };
+            let shares = approvals::approve_shares(&records, now_ms());
+            rung.retain(|id, _| shares.iter().any(|s| s.id == *id));
+            if shares.is_empty() {
+                continue;
+            }
+            let Ok(Some(bucket)) = crate::shares::bucket_of(&config) else { continue };
+            let changed: Vec<_> = shares
+                .into_iter()
+                .filter(|s| match approvals::doorbell(&bucket, s) {
+                    Ok(tag) => rung.insert(s.id, tag.clone()) != Some(tag),
+                    Err(_) => false,
+                })
+                .collect();
+            if changed.is_empty() {
+                continue;
+            }
+            let Ok(waiting) = approvals::waiting(&vault, &bucket, &changed, now_ms()) else { continue };
+            for w in waiting {
+                let new = asking.lock().map(|mut a| a.insert(w.request.id)).unwrap_or(false);
+                if new {
+                    let (state, approvals, app, asking) = (state.clone(), approvals.clone(), app.clone(), asking.clone());
+                    std::thread::spawn(move || {
+                        ask_machine(&state, &approvals, &app, &w);
+                        if let Ok(mut a) = asking.lock() {
+                            a.remove(&w.request.id);
+                        }
+                    });
+                }
+            }
+        }
+    });
+}
+
+/// Shows a machine's request in the approval dialog, waits for the user
+/// (until the machine stops waiting), and writes the answer. Touch ID is
+/// checked in `answer_agent_request`, as for agents.
+fn ask_machine(state: &AppState, approvals: &Approvals, app: &AppHandle, w: &Waiting) {
+    let r = &w.request;
+    let (tx, rx) = mpsc::channel();
+    let n = r.variables.len();
+    let reason = format!(
+        "let {} on {} run “{}” with {n} {}",
+        r.client,
+        r.host,
+        r.command.join(" "),
+        if n == 1 { "secret" } else { "secrets" }
+    );
+    if let Ok(mut pending) = approvals.0.lock() {
+        pending.insert(r.id, Pending { answer: tx, reason });
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.request_user_attention(Some(UserAttentionType::Critical));
+    }
+    let _ = app.emit("agent-request", MachineRequest::new(w));
+    let answer = rx.recv_timeout(Duration::from_millis(r.expires.saturating_sub(now_ms())));
+    if let Ok(mut pending) = approvals.0.lock() {
+        pending.remove(&r.id);
+    }
+    let _ = app.emit("agent-request-closed", r.id);
+    let decision = match answer {
+        Ok(Some(Lifetime::Once)) => Decision::Once,
+        Ok(Some(Lifetime::For(d))) => Decision::For(d.as_millis() as u64),
+        // The dialog doesn't offer "until lock" for machines.
+        Ok(Some(Lifetime::UntilLock)) => Decision::For(60 * 60 * 1000),
+        Ok(None) => Decision::Deny,
+        // The machine stopped waiting; there's nothing to answer.
+        Err(_) => return,
+    };
+    let unlocked = state.0.lock().ok().and_then(|s| Some((s.vault.clone()?, s.config.clone()?)));
+    let outcome = match unlocked {
+        None => Err("dotsafe locked before the answer was sent".to_string()),
+        Some((vault, config)) => match crate::shares::bucket_of(&config) {
+            Ok(Some(bucket)) => approvals::answer(&vault, &bucket, config.device_id, w, decision).map(|_| ()).map_err(|e| e.to_string()),
+            Ok(None) => Err("this Mac has no share bucket".into()),
+            Err(e) => Err(e.message),
+        },
+    };
+    match outcome {
+        Ok(()) => {
+            let _ = app.emit("agent-activity", ());
+        }
+        Err(why) => {
+            let _ = app.emit("share-approval-failed", format!("The answer to {} wasn't sent: {why}.", r.host));
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// Starts listening for agents. Unix only for now; elsewhere `dotsafe mcp`

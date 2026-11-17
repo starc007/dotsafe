@@ -64,6 +64,8 @@ Give a machine (CI, a server, a cloud agent) some environments with one token, n
 | `dotsafe share list` | Shares, and whether each one has the vault's current values |
 | `dotsafe share push` | Push shares that are out of date now (writes do it on their own) |
 | `dotsafe share revoke <name>` | Delete the snapshot and add what it could read to the rotation queue |
+| `dotsafe share create <name> -e <env> --approve` | No standing snapshot: each run on the machine waits for your approval |
+| `dotsafe share approve [--for once\|1h \| --deny \| --list]` | Answer runs waiting on approve shares (asks for the master password) |
 | `dotsafe run --share [-e env] -- <command>` | On the machine: run with the share in `DOTSAFE_SHARE`. No vault or license needed there |
 | `dotsafe daemon --share [--unattended] [--detach]` | On the machine: serve agents from the share, read-only. `--unattended` runs their commands without asking |
 | `dotsafe approve --share` | Answer requests waiting in `dotsafe daemon --share`, with the token in `DOTSAFE_SHARE` |

@@ -20,6 +20,8 @@ pub enum Error {
     /// tampered with, or meant for another share.
     #[error("the share's snapshot failed authentication; it may be corrupted or tampered with")]
     SnapshotTampered,
+    #[error("a share request or answer failed authentication; it may be tampered with or meant for another request")]
+    MessageTampered,
     #[error("the vault's head failed authentication; it may be corrupted or tampered with")]
     HeadTampered,
     #[error("record {0} kept changing while it was being saved; try again")]

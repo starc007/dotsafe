@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dotsafe_core::share::{self, DEFAULT_LEASE_DAYS, Status};
-use dotsafe_core::{Config, Record, ShareBucket, ShareBucketLocation, ShareEnv, Vault};
+use dotsafe_core::{Config, Record, ShareBucket, ShareBucketLocation, ShareEnv, ShareMode, Vault};
 use dotsafe_integrations::shares::{self as flow, Action, ShareResult};
 use dotsafe_stores::{Fetcher, S3Credentials, S3ShareBucket};
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,8 @@ pub struct ShareView {
     /// Days until the snapshot's lease runs out, for live pushed shares.
     lease_days_left: Option<u64>,
     lease_days: u32,
+    /// Each run on the machine waits for approval: no standing snapshot.
+    approve: bool,
 }
 
 #[derive(Serialize)]
@@ -150,6 +152,7 @@ fn views(records: &[Record], now: u64) -> Vec<ShareView> {
                 pushed_at: s.pushed.as_ref().filter(|p| !p.sha256.is_empty()).map(|p| p.at),
                 lease_days_left: if s.is_live(now) { flow::lease_days_left(&s, now) } else { None },
                 lease_days: s.lease_days,
+                approve: s.mode == ShareMode::Approve,
             }
         })
         .collect()
@@ -222,6 +225,10 @@ pub struct NewShare {
     only: Option<Vec<String>>,
     days: u32,
     lease_days: Option<u32>,
+    /// Each run on the machine waits for approval here or with `dotsafe
+    /// share approve`, instead of a standing snapshot.
+    #[serde(default)]
+    approve: bool,
 }
 
 #[derive(Serialize)]
@@ -235,8 +242,9 @@ pub struct CreatedShare {
     expires: u64,
 }
 
-/// Creates a standing share and writes its first snapshot. The token is
-/// kept in the session until it's copied or the dialog closes.
+/// Creates a share and writes its first snapshot (or, for one that asks
+/// for approval, its mailbox). The token is kept in the session until it's
+/// copied or the dialog closes.
 #[tauri::command]
 pub async fn create_share(state: State<'_, AppState>, share: NewShare) -> CmdResult<CreatedShare> {
     if share.days == 0 {
@@ -249,9 +257,10 @@ pub async fn create_share(state: State<'_, AppState>, share: NewShare) -> CmdRes
     let lease_days = share.lease_days.unwrap_or(DEFAULT_LEASE_DAYS);
     let (vault, device, config) = shared(&state).await?;
     let name = share.name;
+    let mode = if share.approve { ShareMode::Approve } else { ShareMode::Standing };
     let (created, token) = off_thread(move || {
         let bucket = bucket_of(&config)?.ok_or_else(|| CmdError::other("Set up a share bucket first."))?;
-        Ok(flow::create(&vault, &bucket, device, &name, environments, expires, lease_days)?)
+        Ok(flow::create(&vault, &bucket, device, &name, mode, environments, expires, lease_days)?)
     })
     .await?;
     let preview = preview(&token);
