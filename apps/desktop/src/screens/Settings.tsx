@@ -10,6 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DragRegion } from "@/components/DragRegion";
 import { LicenseCard } from "@/components/LicenseCard";
+import { AccessSettings } from "@/components/settings/AccessSettings";
 import { AgentSettings } from "@/components/settings/AgentSettings";
 import { DeviceSettings } from "@/components/settings/DeviceSettings";
 import { IntegrationSettings } from "@/components/settings/IntegrationSettings";
@@ -108,6 +109,7 @@ export function SettingsPage({
                 {section === "security" && <SecuritySettings settings={settings} onLock={onLock} onChanged={load} />}
                 {section === "devices" && <DeviceSettings />}
                 {section === "integrations" && <IntegrationSettings />}
+                {section === "access" && <AccessSettings />}
                 {section === "agents" && <AgentSettings />}
                 {section === "shortcuts" && <ShortcutsSettings />}
                 <VersionFooter version={settings.version} />

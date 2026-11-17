@@ -16,7 +16,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { api, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
+import { api, ApiError, message, type SecretDetail, type SecretIntegrations, type VersionState } from "@/lib/api";
 import { daysAgo, formatDate } from "@/lib/time";
 import { useFocusOnMount } from "@/lib/hooks/use-focus-on-mount";
 import { cn } from "@/lib/utils";
@@ -82,6 +82,8 @@ export function SecretDialog({
   const [tab, setTab] = useState<Tab>("overview");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Retiring was refused because a share holding the secret is out of date. */
+  const [retireAnyway, setRetireAnyway] = useState<{ message: string; retry: () => Promise<boolean> } | null>(null);
   const hideTimer = useRef<number | undefined>(undefined);
 
   const load = useCallback(async () => {
@@ -107,8 +109,14 @@ export function SecretDialog({
     return () => window.clearTimeout(hideTimer.current);
   }, [open, load]);
 
-  /** Runs a change, shows the updated secret, and tells the page to refresh. */
-  async function act(label: string, run: () => Promise<SecretDetail | void>, success?: string) {
+  /** Runs a change, shows the updated secret, and tells the page to refresh.
+   * `retry` runs it again forced, offered when a share is out of date. */
+  async function act(
+    label: string,
+    run: () => Promise<SecretDetail | void>,
+    success?: string,
+    retry?: () => Promise<boolean>,
+  ): Promise<boolean> {
     setBusy(label);
     try {
       const updated = await run();
@@ -119,7 +127,8 @@ export function SecretDialog({
       load();
       return true;
     } catch (e) {
-      toast.error(message(e));
+      if (retry && e instanceof ApiError && e.kind === "shares_behind") setRetireAnyway({ message: e.message, retry });
+      else toast.error(message(e));
       return false;
     } finally {
       setBusy(null);
@@ -325,15 +334,13 @@ export function SecretDialog({
                   busy={busy}
                   onMode={setMode}
                   onProviderRotate={rotateWithProvider}
-                  onRevoke={(byHand) =>
-                    act(
-                      "retire",
-                      async () => {
-                        await api.revokePreviousWithProvider(secret.id, byHand);
-                      },
-                      byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`,
-                    )
-                  }
+                  onRevoke={(byHand) => {
+                    const success = byHand ? "Old key marked retired" : `Revoked the old key at ${provider?.connectionName}`;
+                    const revoke = (force: boolean) => async () => {
+                      await api.revokePreviousWithProvider(secret.id, byHand, force);
+                    };
+                    return act("retire", revoke(false), success, () => act("retire", revoke(true), success));
+                  }}
                   onStage={(value, note, live) =>
                     act(
                       "stage",
@@ -363,7 +370,11 @@ export function SecretDialog({
                   }
                   onCancel={() => act("cancel", () => api.cancelStagedSecret(secret.id), "Staged value discarded")}
                   onRollBack={() => act("rollback", () => api.rollBackSecret(secret.id), "Back to the previous value")}
-                  onRetire={() => act("retire", () => api.retirePreviousSecret(secret.id), "Previous value retired")}
+                  onRetire={() =>
+                    act("retire", () => api.retirePreviousSecret(secret.id), "Previous value retired", () =>
+                      act("retire", () => api.retirePreviousSecret(secret.id, true), "Previous value retired"),
+                    )
+                  }
                 />
               </TabsContent>
 
@@ -478,6 +489,18 @@ export function SecretDialog({
           if (ok) onOpenChange(false);
         }}
         onCancel={() => setConfirmDelete(false)}
+      />
+      <ConfirmDialog
+        open={retireAnyway !== null}
+        busy={busy === "retire"}
+        title="Retire anyway?"
+        description={`${retireAnyway?.message ?? ""} Its machines may stop working until it's pushed. dotsafe pushes it on its own once this Mac can reach the share bucket.`}
+        confirmLabel="Retire anyway"
+        onConfirm={async () => {
+          await retireAnyway?.retry();
+          setRetireAnyway(null);
+        }}
+        onCancel={() => setRetireAnyway(null)}
       />
     </>
   );

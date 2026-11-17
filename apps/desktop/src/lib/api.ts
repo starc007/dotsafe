@@ -132,12 +132,43 @@ export type SecretIntegrations = {
   }[];
 };
 /** What still needs rotating after a device was removed. */
+/** Why values are queued: a device removed, or a share revoked, on this Mac. */
+export type QueueSource = { kind: "device" | "share"; name: string; since: number };
 export type QueueView = {
-  since: number;
-  device: string;
+  sources: QueueSource[];
   secrets: { id: string; name: string; hasProvider: boolean; connectionToken: boolean }[];
   variables: { projectId: string; project: string; environmentId: string; environment: string; key: string }[];
 };
+export type ShareStatus = "current" | "outOfDate" | "neverPushed" | "expired" | "revoked" | "broken";
+/** A share: names and dates only, never values, keys or the token. */
+export type ShareView = {
+  id: string;
+  name: string;
+  environments: { project: string; environment: string; only: string[] | null }[];
+  status: ShareStatus;
+  /** Why it can't be pushed, when `broken`. */
+  problem: string | null;
+  expires: number;
+  revoked: number | null;
+  pushedAt: number | null;
+  /** Days until the snapshot's lease runs out, for live pushed shares. */
+  leaseDaysLeft: number | null;
+  leaseDays: number;
+};
+export type ShareBucketView = { bucket: string; endpoint: string; region: string; publicUrl: string };
+export type SharesView = { bucket: ShareBucketView | null; shares: ShareView[] };
+export type ShareBucketInput = ShareBucketView & { accessKeyId: string; secretAccessKey: string };
+export type NewShare = {
+  name: string;
+  environmentIds: string[];
+  only: string[] | null;
+  days: number;
+  leaseDays: number | null;
+};
+/** The token stays in Rust; `preview` is its start and end. */
+export type CreatedShare = { id: string; name: string; preview: string; expires: number };
+export type SharePushView = { name: string; action: "pushed" | "renewed" | "deleted"; error: string | null };
+
 /** A key the secret proxy keeps out of processes. `id` is null for built-ins. */
 export type ProxyProfileView = {
   id: string | null;
@@ -292,7 +323,8 @@ export type Settings = {
 };
 
 /** `offline`: the license server or the vault's bucket couldn't be reached. */
-export type ErrorKind = "locked" | "invalid_password" | "offline" | "other";
+/** `shares_behind`: retiring would break a share that's out of date; offer to retire anyway. */
+export type ErrorKind = "locked" | "invalid_password" | "offline" | "shares_behind" | "other";
 
 export class ApiError extends Error {
   constructor(
@@ -361,7 +393,8 @@ export const api = {
   promoteSecret: (id: string) => call<SecretDetail>("promote_secret", { id }),
   cancelStagedSecret: (id: string) => call<SecretDetail>("cancel_staged_secret", { id }),
   rollBackSecret: (id: string) => call<SecretDetail>("roll_back_secret", { id }),
-  retirePreviousSecret: (id: string) => call<SecretDetail>("retire_previous_secret", { id }),
+  /** Fails with `shares_behind` while a share holding it is out of date, unless `force`. */
+  retirePreviousSecret: (id: string, force = false) => call<SecretDetail>("retire_previous_secret", { id, force }),
   rotateLeakedSecret: (id: string, value: string | null) => call<SecretDetail>("rotate_leaked_secret", { id, value }),
   restoreSecretVersion: (id: string, versionId: string) =>
     call<SecretDetail>("restore_secret_version", { id, versionId }),
@@ -445,13 +478,24 @@ export const api = {
   pushSecret: (secretId: string) => call<PushView[]>("push_secret", { secretId }),
   /** Revokes the previous key at the provider, then retires it. */
   /** `byHand`: you revoked it in the provider's console; it's just retired. */
-  revokePreviousWithProvider: (secretId: string, byHand = false) =>
-    call<number>("revoke_previous_with_provider", { secretId, byHand }),
+  /** Fails with `shares_behind` while a share holding it is out of date, unless `force`. */
+  revokePreviousWithProvider: (secretId: string, byHand = false, force = false) =>
+    call<number>("revoke_previous_with_provider", { secretId, byHand, force }),
   /** `null` when nothing is queued. */
   rotationQueue: () => call<QueueView | null>("rotation_queue"),
   rotateQueuedWithProviders: () =>
     call<{ name: string; error: string | null; pushes: PushView[] }[]>("rotate_queued_with_providers"),
   dismissRotationQueue: () => call<void>("dismiss_rotation_queue"),
+  listShares: () => call<SharesView>("list_shares"),
+  /** Checks the bucket and returns any warnings. The key goes to the keychain. */
+  setUpShareBucket: (input: ShareBucketInput) => call<string[]>("set_up_share_bucket", { input }),
+  createShare: (share: NewShare) => call<CreatedShare>("create_share", { share }),
+  /** Copies the token of the share just created, in Rust. */
+  copyShareToken: () => call<void>("copy_share_token"),
+  forgetShareToken: () => call<void>("forget_share_token"),
+  /** Returns why the snapshot couldn't be deleted yet, if it couldn't. */
+  revokeShare: (id: string) => call<string | null>("revoke_share", { id }),
+  pushShares: () => call<SharePushView[]>("push_shares"),
   listProxyProfiles: () => call<ProxyProfileView[]>("list_proxy_profiles"),
   addProxyProfile: (profile: ProxyProfileInput) => call<void>("add_proxy_profile", { profile }),
   removeProxyProfile: (id: string) => call<void>("remove_proxy_profile", { id }),

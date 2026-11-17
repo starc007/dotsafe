@@ -251,21 +251,27 @@ function pushAll(secretId: string) {
 // Custom proxy profiles.
 let proxyProfiles: { id: string; name: string; keyVar: string; baseUrlVar: string; upstream: string; problem: null }[] = [];
 
-// The rotation queue after removing a device: values as they were then.
-// `?queue` starts with one, as if "Old laptop" was removed a moment ago.
-let rotationQueue: { since: number; device: string; vars: Map<string, string> } | null = null;
-function startQueue(device: string) {
+// The rotation queue after removing a device or revoking a share: values as
+// they were then. `?queue` starts with one, as if "Old laptop" was removed a
+// moment ago. Later sources join the first one's snapshot.
+type QueueSource = { kind: "device" | "share"; name: string; since: number };
+let rotationQueue: { since: number; sources: QueueSource[]; vars: Map<string, string> } | null = null;
+function startQueue(name: string, kind: QueueSource["kind"] = "device") {
+  const since = Date.now();
+  if (rotationQueue) {
+    rotationQueue.sources.push({ kind, name, since });
+    return;
+  }
   const vars = new Map<string, string>();
   for (const e of envs.values()) for (const [k, v] of e.vars) if (!linkOf(v)) vars.set(`${e.id}/${k}`, v);
-  rotationQueue = { since: Date.now(), device, vars };
+  rotationQueue = { since, sources: [{ kind, name, since }], vars };
 }
 function queueView() {
   if (!rotationQueue) return null;
   const q = rotationQueue;
   const tokens = new Set([...connections.values()].map((c) => c.credential));
   return {
-    since: q.since,
-    device: q.device,
+    sources: q.sources,
     secrets: [...secrets.values()]
       .filter((s) => (currentOf(s)?.createdAt ?? Infinity) < q.since)
       .map((s) => {
@@ -280,6 +286,65 @@ function queueView() {
         .map(([key]) => ({ projectId: e.projectId, project: projects.get(e.projectId)!, environmentId: e.id, environment: e.name, key })),
     ),
   };
+}
+
+// Shares (Settings → Access). `?shares` starts with a share bucket, one share
+// that's up to date, one that's behind, and one whose lease is running out.
+type MockShare = {
+  id: string;
+  name: string;
+  envIds: string[];
+  only: string[] | null;
+  expires: number;
+  leaseDays: number;
+  revoked: number | null;
+  pushedAt: number | null;
+  behind: boolean;
+};
+let shareBucket: { bucket: string; endpoint: string; region: string; publicUrl: string } | null = null;
+const mockShares: MockShare[] = [];
+let shareToken: string | null = null;
+function seedShares() {
+  shareBucket = { bucket: "acme-shares", endpoint: "https://acc.r2.cloudflarestorage.com", region: "auto", publicUrl: "https://shares.acme.dev" };
+  const [dev, staging, prod] = [...envs.values()];
+  const now = Date.now();
+  mockShares.push(
+    { id: id(), name: "ci", envIds: [dev.id], only: null, expires: now + 25 * DAY, leaseDays: 14, revoked: null, pushedAt: now - 2 * 3_600_000, behind: false },
+    { id: id(), name: "staging-vm", envIds: [staging.id], only: null, expires: now + 80 * DAY, leaseDays: 14, revoked: null, pushedAt: now - DAY, behind: true },
+    { id: id(), name: "nightly-job", envIds: [prod.id], only: ["DATABASE_URL"], expires: now + 60 * DAY, leaseDays: 14, revoked: null, pushedAt: now - 12 * DAY, behind: false },
+  );
+}
+function shareView(s: MockShare) {
+  const now = Date.now();
+  const live = s.revoked === null && s.expires > now;
+  const status = s.revoked !== null ? "revoked" : s.expires <= now ? "expired" : s.pushedAt === null ? "neverPushed" : s.behind ? "outOfDate" : "current";
+  return {
+    id: s.id,
+    name: s.name,
+    environments: s.envIds.map((eid) => {
+      const e = envs.get(eid);
+      return { project: e ? projects.get(e.projectId)! : "", environment: e?.name ?? "deleted environment", only: s.only };
+    }),
+    status,
+    problem: null,
+    expires: s.expires,
+    revoked: s.revoked,
+    pushedAt: s.pushedAt,
+    leaseDaysLeft: live && s.pushedAt !== null ? Math.max(0, Math.floor((s.pushedAt + s.leaseDays * DAY - now) / DAY)) : null,
+    leaseDays: s.leaseDays,
+  };
+}
+/** Retiring waits while a live share that holds the secret is behind. */
+function checkShares(secretId: string, force: unknown) {
+  if (force) return;
+  const name = secret(secretId).name;
+  const holds = (s: MockShare) =>
+    s.envIds.some((eid) =>
+      [...(envs.get(eid)?.vars ?? [])].some(([k, v]) => linkOf(v) === secretId && (!s.only || s.only.includes(k))),
+    );
+  const behind = mockShares.find((s) => s.revoked === null && s.expires > Date.now() && s.behind && holds(s));
+  if (behind)
+    fail("shares_behind", `Share ${behind.name} holds ${name} and its snapshot is out of date, so it may still have the old value.`);
 }
 
 // `?integrity` makes the integrity checks report problems.
@@ -441,6 +506,7 @@ const rank = (n: string) => ({ development: 0, staging: 1, production: 2 })[n] ?
 
 export function installMockBackend() {
   if (new URLSearchParams(location.search).has("queue")) startQueue("Old laptop");
+  if (new URLSearchParams(location.search).has("shares")) seedShares();
   mockIPC(
     async (cmd, raw) => {
       const a = (raw ?? {}) as Record<string, string>;
@@ -806,6 +872,7 @@ export function installMockBackend() {
           const b = bindingOf(a.secretId);
           const svc = SERVICES.find((x) => x.id === (b.provider && connections.get(b.provider.connectionId)?.service));
           if (svc?.manualRevoke && !a.byHand) fail("other", `${svc.label} keys can only be revoked in its dashboard.`);
+          checkShares(a.secretId, (raw as { force?: boolean }).force);
           await delay(500);
           let n = 0;
           for (const v of s.versions) if (v.state === "previous") (Object.assign(v, { state: "retired", changedAt: Date.now() }), n++);
@@ -829,6 +896,60 @@ export function installMockBackend() {
         case "dismiss_rotation_queue":
           rotationQueue = null;
           return null;
+        case "list_shares":
+          return {
+            bucket: shareBucket,
+            shares: [...mockShares]
+              .sort((x, y) => Number(x.revoked !== null) - Number(y.revoked !== null))
+              .map(shareView),
+          };
+        case "set_up_share_bucket": {
+          const input = (raw as { input: Record<string, string> }).input;
+          if (!input.endpoint.trim().startsWith("https://")) fail("other", "The endpoint must start with https://.");
+          await delay(800);
+          if (input.bucket.trim() === "offline") fail("offline", "Couldn't reach the share bucket. Check your connection and try again.");
+          shareBucket = { bucket: input.bucket.trim(), endpoint: input.endpoint.trim(), region: input.region.trim() || "auto", publicUrl: input.publicUrl.trim() };
+          return input.bucket.trim() === "listed" ? ["Anyone can list this bucket. Turn listing off so share paths stay unguessable."] : [];
+        }
+        case "create_share": {
+          const share = (raw as { share: { name: string; environmentIds: string[]; only: string[] | null; days: number; leaseDays: number | null } }).share;
+          if (!shareBucket) fail("other", "Set up a share bucket first.");
+          const name = share.name.trim();
+          if (!name) fail("other", "Give the share a name, like ci or staging-vm.");
+          if (mockShares.some((s) => s.revoked === null && s.name === name)) fail("other", `There's already a live share named ${name}.`);
+          await delay(600);
+          const now = Date.now();
+          const made: MockShare = { id: id(), name, envIds: share.environmentIds, only: share.only, expires: now + share.days * DAY, leaseDays: share.leaseDays ?? 14, revoked: null, pushedAt: now, behind: false };
+          mockShares.unshift(made);
+          shareToken = `dss_${Array.from({ length: 180 }, () => "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[Math.floor(Math.random() * 32)]).join("")}`;
+          return { id: made.id, name, preview: `${shareToken.slice(0, 10)}…${shareToken.slice(-4)}`, expires: made.expires };
+        }
+        case "copy_share_token":
+          if (!shareToken) fail("other", "The token is only kept until this closes. Revoke the share and make a new one.");
+          return null;
+        case "forget_share_token":
+          shareToken = null;
+          return null;
+        case "revoke_share": {
+          const s = mockShares.find((x) => x.id === a.id) ?? fail("other", "That share no longer exists.");
+          await delay(400);
+          s.revoked = Date.now();
+          startQueue(s.name, "share");
+          return shareBucket ? null : "This machine has no share bucket set up.";
+        }
+        case "push_shares": {
+          if (!shareBucket) fail("other", "Set up a share bucket first.");
+          await delay(700);
+          const out = [];
+          for (const s of mockShares) {
+            if (s.revoked !== null || s.expires <= Date.now()) continue;
+            const due = s.behind || s.pushedAt === null || Date.now() - s.pushedAt > DAY;
+            if (!due) continue;
+            out.push({ name: s.name, action: s.behind ? "pushed" : "renewed", error: null });
+            Object.assign(s, { behind: false, pushedAt: Date.now() });
+          }
+          return out;
+        }
         case "vault_health":
           return integrity ? { stale: 1, unreadable: 2, damaged: 1 } : { stale: 0, unreadable: 0, damaged: 0 };
         case "reveal_variable": {
@@ -903,6 +1024,7 @@ export function installMockBackend() {
         }
         case "retire_previous_secret": {
           const s = secret(a.id);
+          checkShares(a.id, (raw as { force?: boolean }).force);
           for (const v of s.versions) if (v.state === "previous") Object.assign(v, { state: "retired", changedAt: Date.now() });
           return secretDetail(s);
         }
