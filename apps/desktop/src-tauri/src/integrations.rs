@@ -9,8 +9,10 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use dotsafe_core::{Binding, Connection, ProviderLink, Record, Secret, Target, Vault, crypto};
+use dotsafe_core::{Binding, Config, Connection, ProviderLink, Record, Secret, ShareBucket, Target, Vault, crypto};
 use dotsafe_integrations::rotate::{self, PushResult};
+use dotsafe_integrations::shares::ShareResult;
+use dotsafe_stores::S3ShareBucket;
 use dotsafe_integrations::{Client, Kind, SERVICES, check_settings, service};
 use serde::Serialize;
 use tauri::State;
@@ -27,6 +29,9 @@ impl From<dotsafe_integrations::Error> for CmdError {
                 kind: crate::state::ErrorKind::Offline,
                 message: format!("Couldn't reach {service}. Check your connection and try again."),
             },
+            dotsafe_integrations::Error::SharesBehind(why) => {
+                CmdError { kind: crate::state::ErrorKind::SharesBehind, message: capitalized(&why) }
+            }
             e => CmdError::other(capitalized(&e.to_string())),
         }
     }
@@ -476,6 +481,25 @@ fn pushes(results: Vec<PushResult>) -> Vec<PushView> {
         .collect()
 }
 
+/// Shares pushed in a rotation, shown like target pushes.
+fn share_pushes(results: Vec<ShareResult>) -> Vec<PushView> {
+    results
+        .into_iter()
+        .map(|r| PushView {
+            name: format!("share {}", r.name),
+            connection: "the share bucket".into(),
+            error: r.error.map(|e| capitalized(&e)),
+        })
+        .collect()
+}
+
+/// The share bucket, so a rotation pushes shares in the same flow, before
+/// the old key is revoked. Without one, shares are left out of date and
+/// retiring waits for them.
+fn share_bucket(config: &Config) -> Option<S3ShareBucket> {
+    crate::shares::bucket_of(config).ok().flatten()
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RotationView {
@@ -497,6 +521,10 @@ async fn shared(state: &State<'_, AppState>) -> CmdResult<(Arc<Vault>, Uuid)> {
         .await
 }
 
+async fn config(state: &State<'_, AppState>) -> CmdResult<Config> {
+    state.run(|s| Ok(s.config()?.clone())).await
+}
+
 async fn off_lock<T: Send + 'static>(f: impl FnOnce() -> dotsafe_integrations::Result<T> + Send + 'static) -> CmdResult<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CmdError::other(e.to_string()))?.map_err(CmdError::from)
 }
@@ -513,16 +541,16 @@ pub async fn rotate_with_provider(
 ) -> CmdResult<RotationView> {
     let pasted = pasted.map(Zeroizing::new);
     let (vault, device) = shared(&state).await?;
+    let config = config(&state).await?;
     let out = off_lock(move || {
-        rotate::rotate(&vault, &Client::new(), device, secret_id, pasted.as_deref().map(String::as_str), leaked, None)
+        let bucket = share_bucket(&config);
+        let shares = bucket.as_ref().map(|b| b as &dyn ShareBucket);
+        rotate::rotate(&vault, &Client::new(), device, secret_id, pasted.as_deref().map(String::as_str), leaked, shares)
     })
     .await?;
-    Ok(RotationView {
-        check_failed: out.staged,
-        promoted: out.promoted,
-        revoked_old: out.revoked_old,
-        pushes: pushes(out.pushes),
-    })
+    let mut all = pushes(out.pushes);
+    all.extend(share_pushes(out.shares));
+    Ok(RotationView { check_failed: out.staged, promoted: out.promoted, revoked_old: out.revoked_old, pushes: all })
 }
 
 /// Pushes the current value to every target.
@@ -534,10 +562,17 @@ pub async fn push_secret(state: State<'_, AppState>, secret_id: Uuid) -> CmdResu
 
 /// Revokes the previous key at the provider, then retires it. With
 /// `by_hand`, you revoked it in the provider's console; it's just retired.
+/// Waits while a share that holds the secret is out of date (a
+/// `shares_behind` error), unless `force`.
 #[tauri::command]
-pub async fn revoke_previous_with_provider(state: State<'_, AppState>, secret_id: Uuid, by_hand: bool) -> CmdResult<usize> {
+pub async fn revoke_previous_with_provider(
+    state: State<'_, AppState>,
+    secret_id: Uuid,
+    by_hand: bool,
+    force: bool,
+) -> CmdResult<usize> {
     let (vault, device) = shared(&state).await?;
-    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id, by_hand, false)).await
+    off_lock(move || rotate::retire(&vault, &Client::new(), device, secret_id, by_hand, force)).await
 }
 
 /// Opens a provider's console in the browser, where guided keys are made and
@@ -568,24 +603,64 @@ pub struct QueuedVariable {
     key: String,
 }
 
+/// Why something is on the queue: a device removed from this Mac, or a
+/// share revoked here.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueSource {
+    /// `device` or `share`.
+    kind: &'static str,
+    name: String,
+    since: u64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueView {
-    since: u64,
-    device: String,
+    sources: Vec<QueueSource>,
     secrets: Vec<QueuedSecret>,
     variables: Vec<QueuedVariable>,
 }
 
-/// What still needs rotating after a device was removed from this Mac:
-/// every value older than the removal. `None` when there's no queue.
+/// What still needs rotating after a device was removed or a share revoked
+/// on this Mac: every value it could read that hasn't changed since. `None`
+/// when there's no queue.
 #[tauri::command]
 pub async fn rotation_queue(state: State<'_, AppState>) -> CmdResult<Option<QueueView>> {
     state
         .run(|s| {
-            let Some(queue) = s.config()?.rotation_queue.clone() else { return Ok(None) };
+            let config = s.config()?;
+            if config.rotation_queue.is_none() && config.share_queue.is_empty() {
+                return Ok(None);
+            }
             let records = s.vault()?.list()?;
-            let exposed = dotsafe_core::integration::exposed_since(&records, queue.since);
+            let mut sources = Vec::new();
+            let mut found = Vec::new();
+            if let Some(queue) = &config.rotation_queue {
+                sources.push(QueueSource { kind: "device", name: queue.device.clone(), since: queue.since });
+                found.push(dotsafe_core::integration::exposed_since(&records, queue.since));
+            }
+            for share in dotsafe_core::share::shares(&records).into_iter().filter(|s| config.share_queue.contains(&s.id)) {
+                let Some(since) = share.revoked else { continue };
+                found.push(share.exposed(&records, since));
+                sources.push(QueueSource { kind: "share", name: share.name, since });
+            }
+            if sources.is_empty() {
+                return Ok(None);
+            }
+            let mut exposed = dotsafe_core::integration::Exposed::default();
+            for f in found {
+                for id in f.secrets {
+                    if !exposed.secrets.contains(&id) {
+                        exposed.secrets.push(id);
+                    }
+                }
+                for variable in f.variables {
+                    if !exposed.variables.contains(&variable) {
+                        exposed.variables.push(variable);
+                    }
+                }
+            }
             let tokens = dotsafe_core::integration::credentials(&records);
             let mut secrets: Vec<QueuedSecret> = exposed
                 .secrets
@@ -635,7 +710,7 @@ pub async fn rotation_queue(state: State<'_, AppState>) -> CmdResult<Option<Queu
                 })
                 .collect();
             variables.sort_by(|a, b| (&a.project, &a.environment, &a.key).cmp(&(&b.project, &b.environment, &b.key)));
-            Ok(Some(QueueView { since: queue.since, device: queue.device, secrets, variables }))
+            Ok(Some(QueueView { sources, secrets, variables }))
         })
         .await
 }
@@ -657,12 +732,19 @@ pub async fn rotate_queued_with_providers(state: State<'_, AppState>) -> CmdResu
         .map(|q| q.secrets.into_iter().filter(|s| s.has_provider).map(|s| (s.id, s.name)).collect())
         .unwrap_or_default();
     let (vault, device) = shared(&state).await?;
+    let config = config(&state).await?;
     off_lock(move || {
         let client = Client::new();
+        let bucket = share_bucket(&config);
+        let shares = bucket.as_ref().map(|b| b as &dyn ShareBucket);
         Ok(queued
             .into_iter()
-            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, None, false, None) {
-                Ok(out) if out.promoted => QueuedRotation { name, error: None, pushes: pushes(out.pushes) },
+            .map(|(id, name)| match rotate::rotate(&vault, &client, device, id, None, false, shares) {
+                Ok(out) if out.promoted => {
+                    let mut all = pushes(out.pushes);
+                    all.extend(share_pushes(out.shares));
+                    QueuedRotation { name, error: None, pushes: all }
+                }
                 Ok(out) => QueuedRotation {
                     name,
                     error: Some(format!("The new key failed its check and is staged: {}", out.staged.unwrap_or_default())),
@@ -681,6 +763,7 @@ pub async fn dismiss_rotation_queue(state: State<'_, AppState>) -> CmdResult<()>
         .run(|s| {
             let mut config = s.config()?.clone();
             config.rotation_queue = None;
+            config.share_queue.clear();
             config.save()?;
             s.config = Some(config);
             Ok(())

@@ -1,4 +1,4 @@
-import { BadgeCheck, Bot, Keyboard, Laptop, Palette, Plug, ShieldCheck, type LucideIcon } from "lucide-react";
+import { BadgeCheck, Bot, Keyboard, Laptop, Palette, Plug, Server, ShieldCheck, type LucideIcon } from "lucide-react";
 import { isMac, thisDevice } from "./platform";
 
 export type SettingsSection =
@@ -7,6 +7,7 @@ export type SettingsSection =
   | "security"
   | "devices"
   | "integrations"
+  | "access"
   | "agents"
   | "shortcuts";
 
@@ -26,6 +27,12 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; descriptio
     label: "Integrations",
     description: "Providers that issue new keys, and deploy targets that get every rotation.",
     icon: Plug,
+  },
+  {
+    id: "access",
+    label: "Access",
+    description: "Give CI, servers and cloud agents some environments with one token, never the vault key.",
+    icon: Server,
   },
   { id: "agents", label: "Agents", description: "Let AI agents run commands with your secrets, without seeing them.", icon: Bot },
   { id: "shortcuts", label: "Shortcuts", description: "Everything in dotsafe works from the keyboard.", icon: Keyboard },

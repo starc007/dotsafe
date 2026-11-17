@@ -95,7 +95,7 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
     load();
     // Another device's changes arrived through the bucket.
     const unlisten = listen("vault-synced", load);
-    // A device was removed, or something queued was rotated.
+    // A device was removed, a share revoked, or something queued was rotated.
     window.addEventListener("dotsafe:vault-changed", load);
     // The menu bar icon or the global shortcut (⌥⌘K) asked for quick copy.
     const unlistenQuick = listen("open-quick-copy", () => setQuickCopyOpen(true));
@@ -324,7 +324,11 @@ export function VaultScreen({ onLocked }: { onLocked: () => void }) {
             >
               <ListChecks aria-hidden />
               <span className="flex-1 truncate">
-                {queue.secrets.length + queue.variables.length > 0 ? "Rotate after removal" : "Rotation done"}
+                {queue.secrets.length + queue.variables.length === 0
+                  ? "Rotation done"
+                  : queue.sources.every((s) => s.kind === "share")
+                    ? "Rotate after revoke"
+                    : "Rotate after removal"}
               </span>
               {queue.secrets.length + queue.variables.length > 0 && (
                 <span className="text-xs text-muted-foreground">{queue.secrets.length + queue.variables.length}</span>

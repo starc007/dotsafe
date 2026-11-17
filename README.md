@@ -126,7 +126,7 @@ dotsafe share list                                       # up to date, out of da
 dotsafe share revoke ci                                  # deletes the snapshot; `dotsafe secret queue` lists what to rotate
 ```
 
-On the machine, set `DOTSAFE_SHARE` to the token and run `dotsafe run --share -- ./deploy.sh`. Every write on your devices pushes the shares it affects, a rotation reaches them before the old key is revoked, and `dotsafe secret retire` waits while a share that holds the old value is out of date. Shares expire, and a snapshot that isn't refreshed for 14 days (`--lease-days`) stops working; any write, `dotsafe sync` or `dotsafe share push` refreshes snapshots older than a day. The share bucket is public-read with listing off: every object is sealed and has a random name.
+On the machine, set `DOTSAFE_SHARE` to the token and run `dotsafe run --share -- ./deploy.sh`. Every write on your devices pushes the shares it affects, a rotation reaches them before the old key is revoked, and `dotsafe secret retire` waits while a share that holds the old value is out of date. Shares expire, and a snapshot that isn't refreshed for 14 days (`--lease-days`) stops working; any write, `dotsafe sync` or `dotsafe share push` refreshes snapshots older than a day. The share bucket is public-read with listing off: every object is sealed and has a random name. In the app, all of this is in Settings → Access, and the app pushes shares on its own while it's unlocked.
 
 ### Leak checks
 

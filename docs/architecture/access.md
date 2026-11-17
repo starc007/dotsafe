@@ -1,11 +1,12 @@
 # Access beyond this device
 
-**Status:** step 1 of the [build order](#build-order) (standing shares, CLI) is built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
+**Status:** steps 1 and 2 of the [build order](#build-order) (standing shares in the CLI and the app) are built; the rest is proposed. The format is in [vault-format.md](../vault-format.md#record-version-6-shares). Where the build differs from this text:
 
 - The token carries the path's 16 bytes and the bucket's public URL rather than the whole snapshot URL (shorter, same information).
 - `pushed: { sha256: "" }` records that a share's objects were deleted, so a device that couldn't reach the bucket at revoke or expiry knows to try again.
 - The CLI adds `dotsafe share setup` (name the bucket, check it's public, unlisted and accepts lifecycle rules) and `dotsafe share push` (retry now).
 - There's no limit on the number of shares; [licensing](#licensing) is only that the creating device is licensed.
+- The app pushes shares a few seconds after the vault changes (an edit there, the CLI, or a sync from another device) and checks hourly to renew leases, instead of hooking each write. It never shows the token: the dialog shows its start and end and copies it in Rust.
 
 dotsafe decides which secrets a person or agent can use on the user's own devices. This document extends that to machines dotsafe doesn't run on as a full client: CI, servers, cloud VMs and cloud agents. The question is the same everywhere: which secrets, for how long, approved how, logged where, and what happens when access ends.
 

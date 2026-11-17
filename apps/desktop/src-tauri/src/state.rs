@@ -41,6 +41,9 @@ pub struct Session {
     pub agent_grants: Grants,
     /// The last enrollment code made here, so it can be copied in Rust.
     pub enrollment_code: Option<Zeroizing<String>>,
+    /// The token of the share just created, until it's copied and its
+    /// dialog closes. Shown once, never saved.
+    pub share_token: Option<Zeroizing<String>>,
 }
 
 impl Default for Session {
@@ -55,6 +58,7 @@ impl Default for Session {
             must_change_password: false,
             agent_grants: Grants::default(),
             enrollment_code: None,
+            share_token: None,
         }
     }
 }
@@ -81,6 +85,9 @@ pub enum ErrorKind {
     InvalidPassword,
     /// The license server or the vault's bucket couldn't be reached.
     Offline,
+    /// Retiring would break a share whose snapshot is out of date; the UI
+    /// offers to retire anyway.
+    SharesBehind,
     Other,
 }
 
@@ -118,6 +125,7 @@ impl Session {
         self.import_files.clear();
         self.agent_grants.clear();
         self.enrollment_code = None;
+        self.share_token = None;
         self.must_change_password = false;
     }
 

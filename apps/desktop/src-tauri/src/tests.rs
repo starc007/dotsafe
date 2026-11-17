@@ -18,7 +18,7 @@ use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::state::{AppState, Session};
-use crate::{broker, cli, commands, devices, integrations, licensing, links, secrets, storage};
+use crate::{broker, cli, commands, devices, integrations, licensing, links, secrets, shares, storage};
 
 // Cheap Argon2 settings so tests run fast. Never use these for real vaults.
 const FAST: KdfParams = KdfParams { m_cost_kib: 64, t_cost: 1, p_cost: 1 };
@@ -118,6 +118,11 @@ impl Desktop {
                 integrations::remove_proxy_profile,
                 integrations::rotation_queue,
                 integrations::dismiss_rotation_queue,
+                shares::list_shares,
+                shares::create_share,
+                shares::copy_share_token,
+                shares::forget_share_token,
+                shares::revoke_share,
             ])
             .build(mock_context(noop_assets()))
             .expect("mock app builds");
@@ -167,6 +172,34 @@ impl Desktop {
 
     fn set(&self, env: &str, key: &str, value: &str) {
         self.ok("set_variable", json!({ "environmentId": env, "key": key, "value": value }));
+    }
+
+    /// A standing share of `envs`, written straight to the vault: creating
+    /// one through the app needs a share bucket. With `pushed`, it's
+    /// recorded as holding the vault's current values.
+    fn add_share(&self, name: &str, envs: &[&str], pushed: bool) -> String {
+        let (vault, device) = {
+            let session = self.state.0.lock().unwrap();
+            (session.vault.clone().unwrap(), session.config.as_ref().unwrap().device_id)
+        };
+        let environments = envs.iter().map(|id| dotsafe_core::ShareEnv { id: id.parse().unwrap(), only: None }).collect();
+        let now = dotsafe_core::license::unix_now() * 1000;
+        let mut share = dotsafe_core::Share::new(
+            name,
+            dotsafe_core::ShareMode::Standing,
+            environments,
+            now + 30 * 24 * 60 * 60 * 1000,
+            14,
+            device,
+            vault.stamp(device),
+        )
+        .unwrap();
+        if pushed {
+            let contents = share.contents(&vault.list().unwrap()).unwrap();
+            share.pushed = Some(dotsafe_core::Pushed { sha256: share.digest(&contents), at: now });
+        }
+        vault.put(dotsafe_core::Record::Share(share.clone())).unwrap();
+        share.id.to_string()
     }
 
     fn keys(&self, env: &str) -> Vec<String> {
@@ -329,8 +362,10 @@ fn listing_commands_never_return_values() {
         "add_secret_target",
         json!({ "secretId": id, "connectionId": web_conn, "name": "SHARED", "settings": { "project": "web" } }),
     );
+    desktop.add_share("ci", &[&dev, &web], true);
 
     let responses = [
+        desktop.ok("list_shares", json!({})),
         desktop.ok("list_projects", json!({})),
         desktop.ok("list_variables", json!({ "environmentId": dev })),
         desktop.ok("list_variables", json!({ "environmentId": web })),
@@ -490,7 +525,7 @@ fn shared_secrets_rotate_everywhere_they_are_linked() {
     let live = desktop.ok("stage_secret", json!({ "id": id, "value": "sk_newer", "note": null, "live": true }));
     assert_eq!((live["staged"].clone(), live["hasPrevious"].clone()), (json!(false), json!(true)));
     assert_eq!(desktop.ok("reveal_variable", json!({ "environmentId": api, "key": "STRIPE_KEY" })), "sk_newer");
-    let retired = desktop.ok("retire_previous_secret", json!({ "id": id }));
+    let retired = desktop.ok("retire_previous_secret", json!({ "id": id, "force": false }));
     assert_eq!(retired["hasPrevious"], false);
 
     // Unlinking keeps the current value as the variable's own.
@@ -663,7 +698,7 @@ fn the_rotation_queue_shrinks_as_values_are_rotated() {
     std::thread::sleep(std::time::Duration::from_millis(20));
 
     let queue = desktop.ok("rotation_queue", json!({}));
-    assert_eq!(queue["device"], "Lost laptop");
+    assert_eq!(queue["sources"], json!([{ "kind": "device", "name": "Lost laptop", "since": since }]));
     assert_eq!(queue["secrets"][0]["name"], "shared");
     assert_eq!(queue["secrets"][0]["hasProvider"], false);
     assert_eq!(queue["variables"][0]["key"], "DB_URL");
@@ -875,4 +910,51 @@ fn the_app_notices_changes_made_outside_it() {
     // It never keeps hold of the vault: changes like adding a device need
     // the only reference.
     assert_eq!(Arc::strong_count(&app), 1);
+}
+
+/// Shares without a bucket: listed with whether they're current, retiring
+/// waits for one that's behind, and revoking queues what it could read.
+/// Creating and pushing reach the share bucket, so they're covered in
+/// crates/integrations and the CLI tests.
+#[test]
+fn shares_are_listed_hold_back_retiring_and_queue_what_they_read_when_revoked() {
+    let dir = tempfile::tempdir().unwrap();
+    let desktop = Desktop::with_vault(dir.path());
+    let (_, dev) = desktop.project("api");
+    desktop.set(&dev, "DB_URL", "postgres://old");
+    desktop.set(&dev, "STRIPE_KEY", "sk_old");
+    let secret = desktop.ok("share_variable", json!({ "environmentId": dev, "key": "STRIPE_KEY", "name": "stripe", "link": [] }));
+    let secret = secret["id"].clone();
+    assert_eq!(desktop.ok("list_shares", json!({})), json!({ "bucket": null, "shares": [] }));
+    let missing = desktop.err("create_share", json!({ "share": { "name": "ci", "environmentIds": [dev], "only": null, "days": 30, "leaseDays": null } }));
+    assert_eq!(missing["message"], "Set up a share bucket first.");
+    assert_eq!(desktop.err("copy_share_token", json!({}))["kind"], "other");
+
+    let share = desktop.add_share("ci", &[&dev], true);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let listed = desktop.ok("list_shares", json!({}));
+    assert_eq!(listed["shares"][0]["name"], "ci");
+    assert_eq!(listed["shares"][0]["status"], "current");
+    assert_eq!(listed["shares"][0]["environments"][0], json!({ "project": "api", "environment": "development", "only": null }));
+    assert_eq!(listed["shares"][0]["leaseDaysLeft"], 13);
+
+    // A new value puts the share behind, so the old one can't be retired yet.
+    desktop.ok("stage_secret", json!({ "id": secret, "value": "sk_new", "note": null, "live": true }));
+    assert_eq!(desktop.ok("list_shares", json!({}))["shares"][0]["status"], "outOfDate");
+    let behind = desktop.err("retire_previous_secret", json!({ "id": secret, "force": false }));
+    assert_eq!(behind["kind"], "shares_behind");
+    assert!(behind["message"].as_str().unwrap().starts_with("Share ci holds stripe"), "{behind}");
+    assert_eq!(desktop.ok("retire_previous_secret", json!({ "id": secret, "force": true }))["hasPrevious"], false);
+
+    // Without a bucket the snapshot can't be deleted yet, but it's revoked.
+    let failed = desktop.ok("revoke_share", json!({ "id": share }));
+    assert!(failed.as_str().is_some(), "says why the snapshot is still there");
+    assert_eq!(desktop.ok("list_shares", json!({}))["shares"][0]["status"], "revoked");
+    let queue = desktop.ok("rotation_queue", json!({}));
+    assert_eq!(queue["sources"][0]["kind"], "share");
+    assert_eq!(queue["sources"][0]["name"], "ci");
+    assert_eq!(queue["variables"][0]["key"], "DB_URL");
+    assert_eq!(queue["secrets"][0]["name"], "stripe", "its new value predates the revoke too");
+    desktop.ok("dismiss_rotation_queue", json!({}));
+    assert_eq!(desktop.ok("rotation_queue", json!({})), Value::Null);
 }

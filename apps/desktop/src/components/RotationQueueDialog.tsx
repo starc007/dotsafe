@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ListChecks, RotateCcw } from "lucide-react";
-import { api, message, type QueueView } from "@/lib/api";
+import { api, message, type QueueSource, type QueueView } from "@/lib/api";
 import { formatDate } from "@/lib/time";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,7 @@ import { reportPushes } from "@/components/SecretIntegrationsSection";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
 import { SurfaceFooter } from "@/components/Surface";
 
-/** Everything a removed device could still know, until it's rotated:
+/** Everything a removed device or revoked share could still know, until it's rotated:
  * provider-backed secrets in one click, the rest one by one. */
 export function RotationQueueDialog({
   open,
@@ -88,12 +88,8 @@ export function RotationQueueDialog({
       open={open}
       onOpenChange={onOpenChange}
       icon={<ListChecks aria-hidden />}
-      title={queue ? `Rotate what ${queue.device} could read` : "Rotation queue"}
-      description={
-        queue
-          ? `Removed ${formatDate(queue.since)}. It still knows every value it had then. Each one leaves this list once it's rotated.`
-          : " "
-      }
+      title={queue ? queueTitle(queue.sources) : "Rotation queue"}
+      description={queue ? queueDescription(queue.sources) : " "}
       className="sm:max-w-lg"
     >
       {error ? (
@@ -161,6 +157,25 @@ export function RotationQueueDialog({
       )}
     </SurfaceDialog>
   );
+}
+
+function queueTitle(sources: QueueSource[]) {
+  if (sources.length !== 1) return "Rotate what they could read";
+  const [source] = sources;
+  return source.kind === "share" ? `Rotate what share ${source.name} could read` : `Rotate what ${source.name} could read`;
+}
+
+function queueDescription(sources: QueueSource[]) {
+  const what = sources
+    .map((s) => (s.kind === "share" ? `share ${s.name} revoked ${formatDate(s.since)}` : `${s.name} removed ${formatDate(s.since)}`))
+    .join(", ");
+  const still =
+    sources.length === 1 && sources[0].kind === "share"
+      ? "Its machines may still know every value it held then."
+      : "They may still know every value they had then.";
+  return sources.length === 1
+    ? `${what[0].toUpperCase()}${what.slice(1)}. ${still} Each one leaves this list once it's rotated.`
+    : `For ${what}. ${still} Each one leaves this list once it's rotated.`;
 }
 
 function QueueList({ title, children }: { title: string; children: React.ReactNode }) {

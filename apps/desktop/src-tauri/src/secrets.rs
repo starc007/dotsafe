@@ -445,12 +445,17 @@ pub async fn roll_back_secret(state: State<'_, AppState>, id: Uuid) -> CmdResult
     state.run(move |s| update_secret(s, id, |secret, s| Ok(secret.roll_back(s.stamp()?)?))).await
 }
 
-/// Marks previous values as revoked.
+/// Marks previous values as revoked. Waits while a share that holds the
+/// secret is out of date (a `shares_behind` error), unless `force`.
 #[tauri::command]
-pub async fn retire_previous_secret(state: State<'_, AppState>, id: Uuid) -> CmdResult<SecretDetail> {
+pub async fn retire_previous_secret(state: State<'_, AppState>, id: Uuid, force: bool) -> CmdResult<SecretDetail> {
     state
         .run(move |s| {
             update_secret(s, id, |secret, s| {
+                // A share that's behind may still hand machines the old value.
+                if !force {
+                    dotsafe_integrations::rotate::check_shares(s.vault()?, secret)?;
+                }
                 secret.retire_previous(s.stamp()?);
                 Ok(())
             })
