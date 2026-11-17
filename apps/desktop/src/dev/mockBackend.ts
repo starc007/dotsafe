@@ -300,6 +300,7 @@ type MockShare = {
   revoked: number | null;
   pushedAt: number | null;
   behind: boolean;
+  approve?: boolean;
 };
 let shareBucket: { bucket: string; endpoint: string; region: string; publicUrl: string } | null = null;
 const mockShares: MockShare[] = [];
@@ -312,6 +313,7 @@ function seedShares() {
     { id: id(), name: "ci", envIds: [dev.id], only: null, expires: now + 25 * DAY, leaseDays: 14, revoked: null, pushedAt: now - 2 * 3_600_000, behind: false },
     { id: id(), name: "staging-vm", envIds: [staging.id], only: null, expires: now + 80 * DAY, leaseDays: 14, revoked: null, pushedAt: now - DAY, behind: true },
     { id: id(), name: "nightly-job", envIds: [prod.id], only: ["DATABASE_URL"], expires: now + 60 * DAY, leaseDays: 14, revoked: null, pushedAt: now - 12 * DAY, behind: false },
+    { id: id(), name: "agent-vm", envIds: [dev.id], only: ["OPENAI_API_KEY"], expires: now + 7 * DAY, leaseDays: 14, revoked: null, pushedAt: now - 3_600_000, behind: false, approve: true },
   );
 }
 function shareView(s: MockShare) {
@@ -332,6 +334,7 @@ function shareView(s: MockShare) {
     pushedAt: s.pushedAt,
     leaseDaysLeft: live && s.pushedAt !== null ? Math.max(0, Math.floor((s.pushedAt + s.leaseDays * DAY - now) / DAY)) : null,
     leaseDays: s.leaseDays,
+    approve: s.approve ?? false,
   };
 }
 /** Retiring waits while a live share that holds the secret is behind. */
@@ -396,6 +399,26 @@ function fakeAgentRequest() {
   };
   pendingAgent.set(gen.id, { command: ["SESSION_SECRET"], cwd: "", variables: 1 });
   setTimeout(() => emit("agent-request", gen), 300);
+}
+/** `?machine`: a cloud VM with an approve share asks to run something. */
+function fakeMachineRequest() {
+  const req = {
+    id: id(),
+    kind: "run",
+    client: "Claude Code",
+    command: ["python", "eval.py", "--model", "gpt-5"],
+    programPath: "/usr/bin/python3",
+    cwd: "/home/agent/evals",
+    project: "agent-vm",
+    environment: "development",
+    variables: ["OPENAI_API_KEY"],
+    proxied: ["OPENAI_API_KEY"],
+    files: [{ path: "/home/agent/evals/eval.py", modifiedMs: Date.now() - 5 * 60_000 }],
+    generated: null,
+    machine: { share: "agent-vm", host: "eval-vm-3", scrubbed: true },
+  };
+  pendingAgent.set(req.id, { command: req.command, cwd: req.cwd, variables: req.variables.length });
+  emit("agent-request", req);
 }
 
 const linkOf = (v: string | undefined) => (v?.startsWith(LINK) ? v.slice(LINK.length) : null);
@@ -592,6 +615,7 @@ export function installMockBackend() {
           configured = unlocked = true;
           mustChangePassword = false;
           if (new URLSearchParams(location.search).has("agent")) setTimeout(fakeAgentRequest, 1500);
+          if (new URLSearchParams(location.search).has("machine")) setTimeout(fakeMachineRequest, 1500);
           if (mockUpdate) setTimeout(() => emit("update-available", MOCK_UPDATE), 1500);
           return null;
         case "answer_agent_request": {
@@ -912,14 +936,14 @@ export function installMockBackend() {
           return input.bucket.trim() === "listed" ? ["Anyone can list this bucket. Turn listing off so share paths stay unguessable."] : [];
         }
         case "create_share": {
-          const share = (raw as { share: { name: string; environmentIds: string[]; only: string[] | null; days: number; leaseDays: number | null } }).share;
+          const share = (raw as { share: { name: string; environmentIds: string[]; only: string[] | null; days: number; leaseDays: number | null; approve: boolean } }).share;
           if (!shareBucket) fail("other", "Set up a share bucket first.");
           const name = share.name.trim();
           if (!name) fail("other", "Give the share a name, like ci or staging-vm.");
           if (mockShares.some((s) => s.revoked === null && s.name === name)) fail("other", `There's already a live share named ${name}.`);
           await delay(600);
           const now = Date.now();
-          const made: MockShare = { id: id(), name, envIds: share.environmentIds, only: share.only, expires: now + share.days * DAY, leaseDays: share.leaseDays ?? 14, revoked: null, pushedAt: now, behind: false };
+          const made: MockShare = { id: id(), name, envIds: share.environmentIds, only: share.only, expires: now + share.days * DAY, leaseDays: share.leaseDays ?? 14, revoked: null, pushedAt: now, behind: false, approve: share.approve };
           mockShares.unshift(made);
           shareToken = `dss_${Array.from({ length: 180 }, () => "0123456789ABCDEFGHJKMNPQRSTVWXYZ"[Math.floor(Math.random() * 32)]).join("")}`;
           return { id: made.id, name, preview: `${shareToken.slice(0, 10)}…${shareToken.slice(-4)}`, expires: made.expires };

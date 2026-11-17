@@ -852,6 +852,7 @@ fn approve_shares_answer_requests_with_values_resolved_now() {
     assert_eq!(answer.reuse_ms, 3_600_000);
     assert_eq!(answer.values, BTreeMap::from([("API_KEY".into(), "old-key".into())]));
     assert!(bucket.get(&share.request_key(1).unwrap()).unwrap().is_none(), "the slot is free again");
+    assert!(approvals::answer(&s.vault, &bucket, s.device, &waiting[0], Decision::Once).is_err(), "answered once only");
     let logged = &dotsafe_core::audit::recent(&s.vault, 1).unwrap()[0];
     assert_eq!((logged.actor.as_str(), logged.variables.clone()), ("share:agent", vec!["API_KEY".to_string()]));
 

@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/motion/tabs";
 import { EnvironmentName } from "@/components/EnvironmentName";
 import { Field } from "@/components/Field";
 import { SurfaceDialog } from "@/components/SurfaceDialog";
@@ -23,8 +24,9 @@ function days(n: number) {
   return n === 1 ? "1 day" : `${n} days`;
 }
 
-/** Creates a standing share, then shows its token once. The token stays in
- * Rust: the dialog shows its start and end, and copying happens in Rust. */
+/** Creates a share, standing or asking before each run, then shows its
+ * token once. The token stays in Rust: the dialog shows its start and end,
+ * and copying happens in Rust. */
 export function NewShareDialog({
   open,
   onOpenChange,
@@ -40,6 +42,7 @@ export function NewShareDialog({
   const [only, setOnly] = useState("");
   const [lasts, setLasts] = useState(30);
   const [lease, setLease] = useState(14);
+  const [approve, setApprove] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedShare | null>(null);
@@ -53,6 +56,7 @@ export function NewShareDialog({
     setOnly("");
     setLasts(30);
     setLease(14);
+    setApprove(false);
     setError(null);
     setBusy(false);
     setCreated(null);
@@ -84,7 +88,8 @@ export function NewShareDialog({
           environmentIds: [...chosen],
           only: names.length ? names : null,
           days: lasts,
-          leaseDays: Math.min(lease, lasts),
+          leaseDays: approve ? null : Math.min(lease, lasts),
+          approve,
         }),
       );
       onCreated();
@@ -137,7 +142,11 @@ export function NewShareDialog({
                 dotsafe run --share -- &lt;command&gt;
               </code>
               <p className="text-xs text-muted-foreground">
-                It lasts until {formatDate(created.expires)}. Edits here reach it within seconds while dotsafe is unlocked.
+                For agents there, run <code className="font-mono">dotsafe daemon --share</code>. It lasts until{" "}
+                {formatDate(created.expires)}.{" "}
+                {approve
+                  ? "Each run waits for you to allow it here, or with dotsafe share approve."
+                  : "Edits here reach it within seconds while dotsafe is unlocked."}
               </p>
             </div>
             <SurfaceFooter className="pt-1">
@@ -188,6 +197,25 @@ export function NewShareDialog({
               )}
             </fieldset>
 
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs text-muted-foreground">When the machine runs something</p>
+              <Tabs value={approve ? "approve" : "standing"} onValueChange={(v) => setApprove(v === "approve")}>
+                <TabsList aria-label="When the machine runs something" className="w-full bg-muted p-0.5">
+                  <TabsTrigger value="standing" className="flex-1 py-1 text-[13px]">
+                    Runs on its own
+                  </TabsTrigger>
+                  <TabsTrigger value="approve" className="flex-1 py-1 text-[13px]">
+                    Ask me each time
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <p className="text-xs text-muted-foreground">
+                {approve
+                  ? "No values are kept in the bucket. Each run waits until you allow it here, or with dotsafe share approve."
+                  : "For CI and servers: it runs without asking, until it expires or you revoke it."}
+              </p>
+            </div>
+
             <Field label="Only these variables" htmlFor="share-only" hint="Optional, comma-separated. Leave it empty for every variable.">
               <Input
                 id="share-only"
@@ -200,7 +228,7 @@ export function NewShareDialog({
               />
             </Field>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className={approve ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
               <Field label="Lasts" htmlFor="share-lasts">
                 <Select value={String(lasts)} onValueChange={(v) => setLasts(Number(v))}>
                   <SelectTrigger id="share-lasts" className="h-9 w-full">
@@ -215,20 +243,22 @@ export function NewShareDialog({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label="Works without your devices for" htmlFor="share-lease">
-                <Select value={String(lease)} onValueChange={(v) => setLease(Number(v))}>
-                  <SelectTrigger id="share-lease" className="h-9 w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LEASES.map((n) => (
-                      <SelectItem key={n} value={String(n)}>
-                        {days(n)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+              {!approve && (
+                <Field label="Works without your devices for" htmlFor="share-lease">
+                  <Select value={String(lease)} onValueChange={(v) => setLease(Number(v))}>
+                    <SelectTrigger id="share-lease" className="h-9 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LEASES.map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {days(n)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
             </div>
 
             {error && (

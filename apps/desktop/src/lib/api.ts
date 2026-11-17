@@ -154,6 +154,8 @@ export type ShareView = {
   /** Days until the snapshot's lease runs out, for live pushed shares. */
   leaseDaysLeft: number | null;
   leaseDays: number;
+  /** Each run on the machine waits for approval: no standing snapshot. */
+  approve: boolean;
 };
 export type ShareBucketView = { bucket: string; endpoint: string; region: string; publicUrl: string };
 export type SharesView = { bucket: ShareBucketView | null; shares: ShareView[] };
@@ -164,6 +166,8 @@ export type NewShare = {
   only: string[] | null;
   days: number;
   leaseDays: number | null;
+  /** Ask before each run instead of keeping a standing snapshot. */
+  approve: boolean;
 };
 /** The token stays in Rust; `preview` is its start and end. */
 export type CreatedShare = { id: string; name: string; preview: string; expires: number };
@@ -282,6 +286,9 @@ export type ApprovalRequest = {
   files: { path: string; modifiedMs: number | null }[];
   /** Generate: what kind of value. */
   generated: string | null;
+  /** A machine with an approve share asking, rather than an agent here.
+   * `project` is then the share's name. */
+  machine?: { share: string; host: string; scrubbed: boolean };
 };
 export type GrantLifetime = "once" | "15m" | "1h" | "lock";
 /** An entry in the vault's audit log. */

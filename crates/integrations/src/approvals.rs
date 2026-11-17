@@ -83,6 +83,15 @@ pub fn answer(vault: &Vault, bucket: &dyn ShareBucket, device: Uuid, waiting: &W
         let _ = bucket.delete(&share.request_key(waiting.slot)?);
         return Err(Error::Invalid("that request stopped waiting".into()));
     }
+    // Answered on another device already: a second answer would only leave
+    // values in the bucket that nothing reads.
+    let still_waiting = bucket
+        .get(&share.request_key(waiting.slot)?)?
+        .and_then(|bytes| share.open_request(vault.id(), waiting.slot, &bytes).ok())
+        .is_some_and(|r| r.id == request.id);
+    if !still_waiting {
+        return Err(Error::Invalid("that request was already answered, or stopped waiting".into()));
+    }
     let answer = match decision {
         Decision::Deny => Answer::denied(request.id, now),
         Decision::Once | Decision::For(_) => Answer {
