@@ -5,7 +5,7 @@
 - The token carries the path's 16 bytes and the bucket's public URL rather than the whole snapshot URL (shorter, same information).
 - `pushed: { sha256: "" }` records that a share's objects were deleted, so a device that couldn't reach the bucket at revoke or expiry knows to try again.
 - The CLI adds `dotsafe share setup` (name the bucket, check it's public, unlisted and accepts lifecycle rules) and `dotsafe share push` (retry now).
-- The live-share allowance is `share::LIVE_SHARE_LIMIT`, 5 for now, until pricing decides it.
+- There's no limit on the number of shares; [licensing](#licensing) is only that the creating device is licensed.
 
 dotsafe decides which secrets a person or agent can use on the user's own devices. This document extends that to machines dotsafe doesn't run on as a full client: CI, servers, cloud VMs and cloud agents. The question is the same everywhere: which secrets, for how long, approved how, logged where, and what happens when access ends.
 
@@ -151,7 +151,7 @@ dotsafe share create cloud-agent -e development --only OPENAI_API_KEY,DATABASE_U
 dotsafe share create pairing-vm -e development --for 8h --approve
 ```
 
-In the app: **Settings → Access → New share**. A device checks the share allowance ([licensing](#licensing)), writes the `share` record and, for `standing`, the first snapshot, then shows the token once. It also sets a lifecycle rule on the share bucket that deletes the share's objects at `expires` ([expiry](#expiry-and-revoking)).
+In the app: **Settings → Access → New share**. A licensed device ([licensing](#licensing)) writes the `share` record and, for `standing`, the first snapshot, then shows the token once. It also sets a lifecycle rule on the share bucket that deletes the share's objects at `expires` ([expiry](#expiry-and-revoking)).
 
 ### Keeping snapshots current
 
@@ -229,14 +229,12 @@ This is the "approving a server's requests from the Mac" step that [agents.md](a
 
 ## Licensing
 
-**Shares are part of the license, counted on the user's device.**
+**Shares are part of the license of the device that creates them.**
 
-- A license allows a number of live shares. Creating one checks the count on the user's licensed device, from the `share` records in the vault. Revoked and expired shares don't count.
+- Creating a share needs a licensed device, like every other command. There's no limit on how many shares a license has: shares cost dotsafe nothing (they live in the user's bucket), and one token can be used on any number of machines, so a count wouldn't limit much.
 - The machine needs no activation. It holds no vault, can't change anything, and can only read what a licensed device sealed for it. So `dotsafe run --share` and `dotsafe daemon --share` run without `license.json`.
 - This is a **documented rule, not a bypass**: AGENTS.md gets an explicit line that share mode is licensed through the device that created the share, next to the rule against flags that skip the check. Nothing else in the CLI runs without a license, and share mode can't open a vault.
 - Ephemeral CI works, since a fresh runner doesn't use an activation.
-
-The number of shares per license, and whether more are a higher tier, is a pricing decision ([open questions](#open-questions)).
 
 ## Audit
 
@@ -266,8 +264,6 @@ What we may claim: "Give a machine one environment, for a limited time, with one
 
 ## Build order
 
-The licensing rule (number of shares per license) is decided first; everything else follows.
-
 1. **Standing shares, CLI:** the `share` record, snapshots, leases and their push as a target in the rotation flow (core and `crates/integrations`), the share bucket and its lifecycle rule (`crates/stores`), `dotsafe share create|list|revoke`, `dotsafe run --share`, and retire refusing while a share is out of date. This covers CI and servers.
 2. **The app:** Settings → Access (create, show the token once, list with pushed and out-of-date state, revoke), lease warnings, the rotation queue for a revoked share, and pushing snapshots from the app's writes and background sync.
 3. **Unattended agents:** `dotsafe daemon --share` with the secret proxy.
@@ -278,7 +274,6 @@ Each step ships on its own. Step 1 is useful without the rest. Approving from a 
 
 ## Open questions
 
-- **How many shares a license allows,** and whether more are a higher tier.
 - **Dropping approve mode's storage key.** A user's device could leave a pool of presigned upload URLs for requests and the doorbell (valid up to 7 days on S3 and R2) in a sealed object, renewed while unlocked. Then even approve mode would need only the token. More moving parts; worth it if approve mode gets used.
 - **Forward secrecy for approve mode.** Anyone holding the token and an old answer object can read it, which is why answers are deleted right away. A symmetric trick doesn't help: anyone with the share key can read a one-time key sent inside a request. If teams brings in X25519, a request could carry a one-time public key and the answer be sealed to it, so a token leaked later reads nothing.
 - **How fast approvals feel.** 2-second doorbell checks should feel close to instant for a dialog. Worth measuring with real use.

@@ -329,7 +329,7 @@ fn environments_with_the_same_name_are_labelled_by_project() {
 }
 
 #[test]
-fn live_shares_are_counted_and_get_expiry_rules() {
+fn live_and_uncleaned_shares_get_expiry_rules() {
     let s = setup();
     let t = now();
     let live = standing(&s, vec![whole(&s.production)], t + DAY);
@@ -341,7 +341,7 @@ fn live_shares_are_counted_and_get_expiry_rules() {
     revoked_not_cleaned.pushed = Some(Pushed { sha256: "aa".into(), at: t });
     let records: Vec<Record> =
         [&live, &expired, &revoked, &revoked_not_cleaned].into_iter().map(|s| Record::Share(s.clone())).collect();
-    assert_eq!(share::live_count(&records, t), 1);
+    assert_eq!(share::shares(&records).iter().filter(|s| s.is_live(t)).count(), 1);
     let rules = share::expiry_rules(&records, t).unwrap();
     let ids: Vec<Uuid> = rules.iter().map(|r| r.share).collect();
     assert!(ids.contains(&live.id) && ids.contains(&revoked_not_cleaned.id) && ids.len() == 2, "{ids:?}");

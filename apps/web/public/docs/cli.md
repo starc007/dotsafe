@@ -66,7 +66,7 @@ Give a machine (CI, a server, a cloud agent) some environments with one token, n
 | `dotsafe share revoke <name>` | Delete the snapshot and add what it could read to the rotation queue |
 | `dotsafe run --share [-e env] -- <command>` | On the machine: run with the share in `DOTSAFE_SHARE`. No vault or license needed there |
 
-A license allows 5 live shares, counted on the device that creates them.
+There's no limit on how many shares you create. Only the device that creates one needs a license.
 
 ## Integrations
 

@@ -7,7 +7,7 @@
 //! these flows run the same in the CLI and, later, the app.
 
 use dotsafe_core::audit::{self, AuditAction, AuditEvent, AuditOutcome};
-use dotsafe_core::share::{self, LIVE_SHARE_LIMIT, RENEW_AFTER_MS, Status};
+use dotsafe_core::share::{self, RENEW_AFTER_MS, Status};
 use dotsafe_core::{Pushed, Record, Resolver, Share, ShareBucket, ShareEnv, ShareMode, Vault};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -66,13 +66,6 @@ pub fn create(
     let existing = share::shares(&records);
     if existing.iter().any(|s| s.is_live(now) && s.name == name) {
         return Err(Error::Invalid(format!("there's already a live share named {name}")));
-    }
-    // Shares are part of the license, counted here on the device that
-    // creates them; the machine needs no activation of its own.
-    if share::live_count(&records, now) >= LIVE_SHARE_LIMIT {
-        return Err(Error::Invalid(format!(
-            "your license allows {LIVE_SHARE_LIMIT} live shares at once; revoke one first"
-        )));
     }
     check_only(&records, &environments)?;
 

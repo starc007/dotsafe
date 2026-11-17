@@ -31,10 +31,6 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 /// How long a snapshot stays valid without a refresh, unless the share says
 /// otherwise.
 pub const DEFAULT_LEASE_DAYS: u32 = 14;
-/// How many live shares a license allows, counted on the device that
-/// creates one. Revoked and expired shares don't count. A pricing decision
-/// that isn't final yet; this is the one place it's set.
-pub const LIVE_SHARE_LIMIT: usize = 5;
 /// A snapshot this old is pushed again, which renews its lease.
 pub const RENEW_AFTER_MS: u64 = DAY_MS;
 /// The largest snapshot object a machine will read.
@@ -427,11 +423,6 @@ pub fn shares(records: &[Record]) -> Vec<Share> {
         .collect();
     shares.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
     shares
-}
-
-/// Live shares, for the license's allowance.
-pub fn live_count(records: &[Record], now: u64) -> usize {
-    shares(records).iter().filter(|s| s.is_live(now)).count()
 }
 
 /// Checks a share bucket's public URL and returns it without a trailing

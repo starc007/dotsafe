@@ -665,27 +665,6 @@ fn creating_a_share_writes_its_first_snapshot_and_expiry_rule() {
 }
 
 #[test]
-fn live_shares_are_capped_by_the_license() {
-    let s = setup("openai", &[("project_id", "proj_1")], &[]);
-    let env = production(&s);
-    let bucket = MemoryBucket::default();
-    let create = |name: &str| {
-        shares::create(&s.vault, &bucket, s.device, name, vec![ShareEnv { id: env.id, only: None }], now_ms() + DAY_MS, 14)
-    };
-    let mut first = None;
-    for n in 0..dotsafe_core::share::LIVE_SHARE_LIMIT {
-        let (share, _) = create(&format!("share-{n}")).unwrap();
-        first.get_or_insert(share.id);
-    }
-    let err = create("one-more").unwrap_err();
-    assert!(err.to_string().contains("allows 5 live shares"), "{err}");
-
-    // A revoked share frees its place.
-    shares::revoke(&s.vault, Some(&bucket), s.device, first.unwrap()).unwrap();
-    create("one-more").unwrap();
-}
-
-#[test]
 fn writes_push_shares_that_changed_and_retries_follow_failures() {
     let s = setup("openai", &[("project_id", "proj_1")], &[]);
     let env = production(&s);

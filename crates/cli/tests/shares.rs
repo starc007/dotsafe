@@ -208,20 +208,18 @@ fn only_and_bad_environments_are_checked() {
 }
 
 #[test]
-fn shares_are_capped_and_revoking_frees_a_place() {
+fn there_is_no_cap_and_revoking_deletes_the_snapshot() {
     let (_root, m, project, bucket) = setup();
-    for n in 0..5 {
+    for n in 0..6 {
         m.ok(&project, &["share", "create", &format!("ci-{n}"), "-e", "development"]);
     }
-    let out = m.run(&project, &["share", "create", "ci-5", "-e", "development"]);
-    assert!(stderr(&out).contains("allows 5 live shares"), "{}", stderr(&out));
-    assert_eq!(bucket.snapshots().len(), 5);
+    assert_eq!(bucket.snapshots().len(), 6);
 
     let out = m.ok(&project, &["share", "revoke", "ci-0"]);
     assert!(stderr(&out).contains("Revoked ci-0. Its snapshot is deleted"), "{}", stderr(&out));
-    assert_eq!(bucket.snapshots().len(), 4);
+    assert_eq!(bucket.snapshots().len(), 5);
     assert!(stdout(&m.ok(&project, &["share", "list"])).contains("ci-0\tdevelopment\trevoked\trevoked "));
-    m.ok(&project, &["share", "create", "ci-5", "-e", "development"]);
+    m.ok(&project, &["share", "create", "ci-0", "-e", "development"]);
     assert!(stderr(&m.run(&project, &["share", "revoke", "nope"])).contains("no share named"));
 }
 
